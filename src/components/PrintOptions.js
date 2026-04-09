@@ -10,6 +10,10 @@ import {
   Platform,
   PermissionsAndroid,
   Linking,
+  KeyboardAvoidingView,
+  ScrollView,
+  Modal,
+  ActivityIndicator,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import ZSDKModule from '../../ZSDKModule';
@@ -157,16 +161,33 @@ export default function PrintOptions({
   containerStyle,    // optional style override
 }) {
 const [qty, setQty] = useState(1);  
-  const [addIpToggle, setAddIpToggle] = useState(false);
+  const [showIpModal, setShowIpModal] = useState(false);
   const [ipAddress, setIpAddress] = useState('');
   const [btPrinters, setBtPrinters] = useState([]);
   const [btScanning, setBtScanning] = useState(false);
+  const [usbPrinting, setUsbPrinting] = useState(false);
   const btScanActiveRef = useRef(false);
   const btScanTimeoutRef = useRef(null);
+  const scrollRef = useRef(null);
 const incQty = () => setQty((n) => Math.min((Number(n) || 1) + 1, 9999));
 const decQty = () => setQty((n) => Math.max((Number(n) || 1) - 1, 1));
 
   const exportList = useMemo(() => toExportList(items), [items]);
+
+  // Load saved IP address on mount
+  React.useEffect(() => {
+    const loadSavedIP = async () => {
+      try {
+        const savedIP = await AsyncStorage.getItem('IP_Address');
+        if (savedIP) {
+          setIpAddress(savedIP);
+        }
+      } catch (error) {
+        console.error('Failed to load saved IP:', error);
+      }
+    };
+    loadSavedIP();
+  }, []);
 
   const handleQtyChange = (txt) => {
     if (txt === '' || /^\d+$/.test(txt)) setQty(txt);
@@ -317,6 +338,7 @@ const times = Math.max(Number(qty) || 1, 1);
 
     const times = Math.max(parseInt(qty || '1', 10), 1);
 
+    setUsbPrinting(true);
     let success = 0;
     for (let i = 0; i < times; i++) {
       try {
@@ -354,27 +376,48 @@ const times = Math.max(Number(qty) || 1, 1);
     } else {
       Alert.alert('Failed', 'No prints completed. Check IP/Printer service.');
     }
+    setUsbPrinting(false);
   };
 
   const saveIp = async () => {
-    if (!ipAddress?.trim()) {
+    const finalIp = ipAddress.trim();
+
+    if (!finalIp) {
       Alert.alert('IP', 'Please type IP:PORT or full URL.');
       return;
     }
-    await AsyncStorage.setItem('IP_Address', ipAddress.trim());
-    setAddIpToggle(false);
+    await AsyncStorage.setItem('IP_Address', finalIp);
+    setIpAddress(finalIp);
+    setShowIpModal(false);
     Alert.alert('Saved', 'IP saved.');
   };
 
   return (
-    <View style={[styles.wrapper, containerStyle]}>
+    <KeyboardAvoidingView
+      style={styles.keyboardContainer}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
+    >
+      <ScrollView
+        ref={scrollRef}
+        keyboardShouldPersistTaps="handled"
+        contentContainerStyle={[styles.wrapper, containerStyle]}
+      >
       <View style={styles.row}>
-        <TouchableOpacity style={styles.btnUsb} onPress={printViaUSB}>
-          <Text style={styles.btnUsbText}>PRINT VIA USB</Text>
+        <TouchableOpacity style={styles.btnUsb} onPress={printViaUSB} disabled={usbPrinting}>
+          {usbPrinting ? (
+            <ActivityIndicator size="small" color="#009933" />
+          ) : (
+            <Text style={styles.btnUsbText}>PRINT VIA USB</Text>
+          )}
         </TouchableOpacity>
 
         <TouchableOpacity style={styles.btnBt} onPress={discoverPrinters} disabled={btScanning}>
-          <Text style={styles.btnBtText}>{btScanning ? 'SCANNING...' : 'PRINT VIA BLUETOOTH'}</Text>
+          {btScanning ? (
+            <ActivityIndicator size="small" color="green" />
+          ) : (
+            <Text style={styles.btnBtText}>PRINT VIA BLUETOOTH</Text>
+          )}
         </TouchableOpacity>
       </View>
 
@@ -394,34 +437,60 @@ const times = Math.max(Number(qty) || 1, 1);
 
   <TouchableOpacity
     style={styles.ipToggle}
-    onPress={() => setAddIpToggle(v => !v)}
+    onPress={() => setShowIpModal(true)}
   >
-    <Text style={styles.ipToggleText}>{addIpToggle ? 'CLOSE' : 'ADD IP'}</Text>
+    <Text style={styles.ipToggleText}>ADD IP</Text>
   </TouchableOpacity>
 </View>
+      </ScrollView>
 
-
-      {addIpToggle && (
-        <View style={styles.ipRow}>
-          <TextInput
-            value={ipAddress}
-            onChangeText={setIpAddress}
-            placeholder="TYPE IP:PORT or http://host:port"
-            placeholderTextColor="#adadad"
-            style={styles.ipInput}
-          />
-          <TouchableOpacity style={styles.ipSave} onPress={saveIp}>
-            <Text style={styles.ipSaveText}>SAVE</Text>
-          </TouchableOpacity>
+      <Modal
+        visible={showIpModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowIpModal(false)}
+      >
+        <View style={styles.modalBackdrop}>
+          <KeyboardAvoidingView
+            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+            style={styles.modalKeyboard}
+          >
+            <View style={styles.modalCard}>
+              <Text style={styles.modalTitle}>Add Printer IP</Text>
+              <View style={styles.ipRow}>
+                <TextInput
+                  value={ipAddress}
+                  onChangeText={setIpAddress}
+                        placeholder={ipAddress || "TYPE IP:PORT or http://host:port"}
+                  placeholderTextColor="#adadad"
+                  style={styles.ipInput}
+                  keyboardType="default"
+                  autoCorrect={false}
+                  autoCapitalize="none"
+                />
+              </View>
+              <View style={styles.modalActions}>
+                <TouchableOpacity style={styles.modalCancel} onPress={() => setShowIpModal(false)}>
+                  <Text style={styles.modalCancelText}>CANCEL</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.ipSave} onPress={saveIp}>
+                  <Text style={styles.ipSaveText}>SAVE</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </KeyboardAvoidingView>
         </View>
-      )}
-    </View>
+      </Modal>
+    </KeyboardAvoidingView>
   );
 }
 
 const THEME = {primary: '#2C1E70', secondary: '#319241'};
 
 const styles = StyleSheet.create({
+  keyboardContainer: {
+    width: '100%',
+  },
   wrapper: {
     padding: 12,
     borderTopWidth: 1,
@@ -492,6 +561,43 @@ const styles = StyleSheet.create({
     borderRadius: 10,
   },
   ipSaveText: { color: '#fff', fontWeight: '600' },
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.35)',
+    justifyContent: 'center',
+    padding: 16,
+  },
+  modalKeyboard: {
+    width: '100%',
+  },
+  modalCard: {
+    backgroundColor: '#fff',
+    borderRadius: 14,
+    padding: 14,
+    gap: 12,
+  },
+  modalTitle: {
+    color: '#1F2937',
+    fontWeight: '700',
+    fontSize: 16,
+  },
+  modalActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: 10,
+  },
+  modalCancel: {
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#9CA3AF',
+    backgroundColor: '#fff',
+  },
+  modalCancelText: {
+    color: '#4B5563',
+    fontWeight: '600',
+  },
   qtyRow: {
   flexDirection: 'row',
   alignItems: 'center',
@@ -505,7 +611,7 @@ const styles = StyleSheet.create({
   justifyContent: 'space-between',
 },
 qtyBtn: {
-  backgroundColor: '#2c1e70',
+  backgroundColor: '#9CA3AF',
   paddingVertical: 6,
   paddingHorizontal: 12,
   borderRadius: 5,

@@ -12,6 +12,7 @@ import {
   UIManager,
   Switch,
   Alert,
+  ScrollView
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useNavigation } from '@react-navigation/native';
@@ -196,7 +197,11 @@ export default function SettingScreen() {
       <View style={styles.backdrop} />
       <AppHeader Title="SETTING" backgroundType="image" backgroundValue={reportbg} />
 
-      <View style={styles.panelInner}>
+      <ScrollView
+  style={styles.panelInner}
+  contentContainerStyle={{ paddingBottom: 20 }}
+  showsVerticalScrollIndicator={false}
+>
         {/* USER SETTING (Accordion) */}
         <View style={styles.accordionCard}>
           <RowHeader
@@ -222,13 +227,13 @@ export default function SettingScreen() {
         <View style={styles.accordionCard}>
           <RowHeader
             icon={HourlyReport}
-            label="ICMS Setting"
+            label="tulsiAI Setting"
             expanded={expanded.icms}
             onPress={() => toggleAccordion('icms')}
           />
           {expanded.icms && (
             <View style={styles.accordionBody}>
-              <Text style={styles.placeholder}>(Will Add ICMS configuration toggles here Soon)</Text>
+              <Text style={styles.placeholder}>(Will Add tulsiAI configuration toggles here Soon)</Text>
             </View>
           )}
         </View>
@@ -247,7 +252,7 @@ export default function SettingScreen() {
             </View>
           )}
         </View>
-      </View>
+      </ScrollView>
     </ImageBackground>
   );
 }

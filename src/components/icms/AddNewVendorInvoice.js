@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   View,
   TouchableOpacity,
@@ -49,11 +49,13 @@ function moveItem(arr, from, to) {
 
 const AddNewVendorInvoice = () => {
   const cameraRef = useRef(null);
+  const snapPreviewTimeoutRef = useRef(null);
   const [step, setStep] = useState(1);
   const [newVendorInput, setNewVendorInput] = useState('');
   const [newVendor, setNewVendor] = useState('');
 
   const [snappedImages, setSnappedImages] = useState([]); // [{id, uri, base64}]
+  const [snapPreview, setSnapPreview] = useState(null);
   const [showCamera, setShowCamera] = useState(false);
   const [buttonLoading, setButtonLoading] = useState({
     snap: false,
@@ -72,6 +74,22 @@ const AddNewVendorInvoice = () => {
   const setBtnLoading = (key, value) => {
     setButtonLoading((prev) => ({ ...prev, [key]: value }));
   };
+
+  useEffect(() => {
+    if (!showCamera) {
+      if (snapPreviewTimeoutRef.current) {
+        clearTimeout(snapPreviewTimeoutRef.current);
+        snapPreviewTimeoutRef.current = null;
+      }
+      setSnapPreview(null);
+    }
+  }, [showCamera]);
+
+  useEffect(() => () => {
+    if (snapPreviewTimeoutRef.current) {
+      clearTimeout(snapPreviewTimeoutRef.current);
+    }
+  }, []);
 
   const requestCameraPerm = async () => {
     const perm = Platform.select({
@@ -141,6 +159,16 @@ const AddNewVendorInvoice = () => {
     setBtnLoading('snap', true);
     try {
       const photo = await cameraRef.current.capture();
+      if (photo?.uri) {
+        setSnapPreview(photo.uri);
+        if (snapPreviewTimeoutRef.current) {
+          clearTimeout(snapPreviewTimeoutRef.current);
+        }
+        snapPreviewTimeoutRef.current = setTimeout(() => {
+          setSnapPreview(null);
+          snapPreviewTimeoutRef.current = null;
+        }, 3000);
+      }
       setSnappedImages((prev) => [
         ...prev,
         { id: `${Date.now()}-${prev.length}`, uri: photo?.uri, base64: null },
@@ -166,6 +194,13 @@ const AddNewVendorInvoice = () => {
     setShowInvoiceDatePicker(false);
     setShowCamera(false);
   };
+
+  const getNormalizedVendorFileName = (value) =>
+    String(value || '')
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '_')
+      .replace(/^_+|_+$/g, '');
 
   const handleStepOneNext = () => {
     const trimmed = newVendorInput.trim();
@@ -229,11 +264,13 @@ const AddNewVendorInvoice = () => {
       await initICMSBase();
       const token = await AsyncStorage.getItem('access_token');
       const icms_store = await AsyncStorage.getItem('icms_store');
-
+      const storeurl = await AsyncStorage.getItem('storeurl');
       const uploadedImageURLs = [];
       for (let i = 0; i < snappedImages.length; i++) {
         const img = snappedImages[i];
-        const fileOriginalName = `${newVendor.trim()},jpg`;
+        const normalizedVendorName = getNormalizedVendorFileName(newVendor);
+        const fileOriginalName = `${normalizedVendorName || 'vendor'},jpg`;
+        console.log("fileOriginalName:",fileOriginalName);
         const formData = new FormData();
         formData.append('file', {
           uri: img.uri,
@@ -248,6 +285,7 @@ const AddNewVendorInvoice = () => {
             store: `${icms_store}`,
             mode: 'MOBILE',
             access_token: token,
+            app_url: storeurl ?? '',
           },
           body: formData,
         });
@@ -258,6 +296,7 @@ const AddNewVendorInvoice = () => {
         }
 
         const uploadJson = await uploadResponse.json();
+        console.log("upload response new vendor:",uploadJson);
         const imageURL = uploadJson?.message?.imageURL?.Location;
         if (imageURL) {
           uploadedImageURLs.push(imageURL);
@@ -269,7 +308,7 @@ const AddNewVendorInvoice = () => {
       const userEmail = await AsyncStorage.getItem('userEmail');
       const savedDate = invoiceDate.toISOString().split('T')[0];
       const storePayload = {
-        UserInvoiceName: newVendor.trim(),
+        UserInvoiceName: getNormalizedVendorFileName(newVendor),
         status: 'REQUESTED',
         SavedDate: savedDate,
         SavedInvoiceNo: saveInvoiceNo.trim(),
@@ -285,16 +324,18 @@ const AddNewVendorInvoice = () => {
           access_token: token,
           mode: 'MOBILE',
           store: icms_store,
+          app_url: storeurl ?? '',
         },
         body: JSON.stringify(storePayload),
       });
-
+console.log("store payload:",storePayload);
       if (!storeResponse.ok) {
         const t = await storeResponse.text();
         throw new Error(`Store invoice failed (${storeResponse.status}): ${t}`);
       }
 
       Alert.alert('Success', 'Invoice request submitted.');
+      console.log("row response:",storeResponse);
       clearAll();
     } catch (e) {
       console.error('Upload/store failed:', e);
@@ -390,7 +431,6 @@ const AddNewVendorInvoice = () => {
               </View>
 
               <Text style={styles.helperText}>Drag thumbnail left/right to reorder upload sequence.</Text>
-
               <View style={styles.previewCard}>
                 <Text style={styles.previewTitle}>Selected Images ({snappedImages.length})</Text>
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.imageRow}>
@@ -441,19 +481,43 @@ const AddNewVendorInvoice = () => {
               <Text style={styles.inputLabel}>Invoice Date</Text>
               <TouchableOpacity
                 style={styles.input}
-                onPress={() => setShowInvoiceDatePicker((prev) => !prev)}
+                onPress={() => setShowInvoiceDatePicker(true)}
                 activeOpacity={0.8}
               >
                 <Text style={styles.readonlyText}>{invoiceDate.toISOString().split('T')[0]}</Text>
               </TouchableOpacity>
 
-              {Platform.OS === 'ios' && showInvoiceDatePicker && (
-                <DateTimePicker
-                  value={invoiceDate}
-                  mode="date"
-                  display="spinner"
-                  onChange={(_e, d) => d && setInvoiceDate(d)}
-                />
+              {Platform.OS === 'ios' && (
+                <Modal
+                  visible={showInvoiceDatePicker}
+                  transparent
+                  animationType="fade"
+                  onRequestClose={() => setShowInvoiceDatePicker(false)}
+                >
+
+                  <TouchableOpacity
+                    style={styles.datePickerOverlay}
+                    activeOpacity={1}
+                    onPress={() => setShowInvoiceDatePicker(false)}
+                  />
+                  <View style={styles.datePickerCard}>
+                    <DateTimePicker
+                      value={invoiceDate}
+                      mode="date"
+                      display="inline"
+                      themeVariant="light"
+                      accentColor="#2f8f43"
+                      textColor="#111111"
+                      onChange={(_e, d) => { if (d) setInvoiceDate(d); }}
+                    />
+                    <TouchableOpacity
+                      style={[styles.btn, styles.btnPrimary, { marginHorizontal: 16, marginBottom: 14 }]}
+                      onPress={() => setShowInvoiceDatePicker(false)}
+                    >
+                      <Text style={styles.btnText}>Done</Text>
+                    </TouchableOpacity>
+                  </View>
+                </Modal>
               )}
 
               <View style={styles.btnRow}>
@@ -514,6 +578,11 @@ const AddNewVendorInvoice = () => {
               <Text style={styles.btnText}>Close</Text>
             </TouchableOpacity>
           </View>
+          {snapPreview && (
+            <View style={styles.snapPreviewContainer}>
+              <Image source={{ uri: snapPreview }} style={styles.snapPreviewImage} />
+            </View>
+          )}
         </View>
       )}
     </ImageBackground>
@@ -803,5 +872,43 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderColor: COLORS.border,
     backgroundColor: '#f7f9fc',
+  },
+  snapPreviewContainer: {
+    position: 'absolute',
+    bottom: 90,
+    left: 12,
+    backgroundColor: '#000000CC',
+    borderRadius: 12,
+    overflow: 'hidden',
+    padding: 6,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 6,
+    elevation: 8,
+  },
+  snapPreviewImage: {
+    width: 72,
+    height: 92,
+    borderRadius: 8,
+  },
+  datePickerOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+  },
+  datePickerCard: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 18,
+    borderTopRightRadius: 18,
+    paddingTop: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -3 },
+    shadowOpacity: 0.12,
+    shadowRadius: 8,
+    elevation: 10,
   },
 });

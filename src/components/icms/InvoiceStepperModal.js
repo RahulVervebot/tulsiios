@@ -42,8 +42,9 @@ export default function InvoiceStepperModal({
   const [selectedItem, setSelectedItem] = useState(null);
   const [editModalVisible, setEditModalVisible] = useState(false);
   const [loadingRows, setLoadingRows] = useState(false);
-  const [stepOnePosted, setStepOnePosted] = useState(false);
-  const [autoMovedStep1, setAutoMovedStep1] = useState(false);
+  const [continueLoading, setContinueLoading] = useState(false);
+  const [icmsStore, setIcmsStore] = useState('');
+  const [loadingConfirmId, setLoadingConfirmId] = useState(null);
 
   const invoiceNo = invoiceItem?.SavedInvoiceNo || '';
   const invoiceName = invoiceItem?.InvoiceName || '';
@@ -55,69 +56,92 @@ export default function InvoiceStepperModal({
     invoiceItem?.StepGuider?.isCompleted === true;
   const stepMeta = [
     { id: 1, label: 'Fix Unknown' },
-    { id: 2, label: 'Update Values' },
-    { id: 3, label: 'Review & Edit' },
+    { id: 2, label: 'Review & Edit' },
+    { id: 3, label: 'Update POS' },
   ];
+
+  const fetchInvoiceRows = async () => {
+    if (!invoiceNo || !invoiceName || !savedDate) return;
+    setLoadingRows(true);
+    try {
+      await initICMSBase();
+      const token = await AsyncStorage.getItem('access_token');
+      const icms_store = await AsyncStorage.getItem('icms_store');
+      const storeurl = await AsyncStorage.getItem('storeurl');
+      const res = await fetch(API_ENDPOINTS.GETINVOICEDATA, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          store: icms_store ?? '',
+          access_token: token ?? '',
+          app_url: storeurl ?? '',
+          mode: 'MOBILE',
+        },
+        body: JSON.stringify({
+          invoiceNo,
+          invoiceName,
+          date: savedDate,
+        }),
+      });
+      const json = await res.json().catch(() => null);
+      console.log("fetched invoice rows:", json);
+      if (!res.ok) return;
+      const parsedRows = extractRows(json, invoiceItem);
+      if (Array.isArray(parsedRows)) setRows(parsedRows);
+    } catch {
+      // keep fallback rows
+    } finally {
+      setLoadingRows(false);
+    }
+  };
 
   useEffect(() => {
     if (!visible || !invoiceItem) return;
     const curr = Number(invoiceItem?.StepGuider?.currentStep || 1);
     setStep(curr >= 3 ? 3 : (curr > 0 ? curr : 1));
     setRows(extractRows(invoiceItem, invoiceItem));
-    setStepOnePosted(false);
-    setAutoMovedStep1(false);
   }, [visible, invoiceItem]);
 
   useEffect(() => {
-    const fetchInvoiceRows = async () => {
-      if (!visible || !invoiceNo || !invoiceName || !savedDate) return;
-      setLoadingRows(true);
-      try {
-        await initICMSBase();
-        const token = await AsyncStorage.getItem('access_token');
-        const icms_store = await AsyncStorage.getItem('icms_store');
-        const res = await fetch(API_ENDPOINTS.GETINVOICEDATA, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            store: icms_store ?? '',
-            access_token: token ?? '',
-            mode: 'MOBILE',
-          },
-          body: JSON.stringify({
-            invoiceNo,
-            invoiceName,
-            date: savedDate,
-          }),
-        });
-        const json = await res.json().catch(() => null);
-        if (!res.ok) return;
-        const parsedRows = extractRows(json, invoiceItem);
-        if (Array.isArray(parsedRows)) setRows(parsedRows);
-      } catch {
-        // keep fallback rows
-      } finally {
-        setLoadingRows(false);
-      }
-    };
+    if (!visible) return;
     fetchInvoiceRows();
-  }, [visible, invoiceNo, invoiceName, savedDate, invoiceItem]);
+    // Load icms_store for filtering
+    AsyncStorage.getItem('icms_store').then(store => setIcmsStore(store || ''));
+  }, [visible, invoiceNo, invoiceName, savedDate]);
 
   const unlinkedRows = useMemo(
     () => (rows || []).filter((r) => String(r?.barcode ?? '').trim().length === 0),
     [rows],
   );
 
+  const linkedRows = useMemo(
+    () => (rows || []).filter((r) => {
+      const hasBarcode = String(r?.barcode ?? '').trim().length > 0;
+      if (!hasBarcode) return false;
+      
+      // If source field exists, only show if source != icms_store
+      if (r?.source) {
+        return String(r.source).trim() !== String(icmsStore).trim();
+      }
+      
+      // If no source field, show the product
+      return true;
+    }),
+    [rows, icmsStore],
+  );
+
   const postStepper = async (payload) => {
     await initICMSBase();
     const token = await AsyncStorage.getItem('access_token');
     const icms_store = await AsyncStorage.getItem('icms_store');
+    const storeurl = await AsyncStorage.getItem('storeurl');
     const res = await fetch(API_ENDPOINTS.STEPPER_COUNT, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         store: icms_store ?? '',
         access_token: token ?? '',
+        app_url: storeurl ?? '',
         mode: 'MOBILE',
       },
       body: JSON.stringify(payload),
@@ -131,12 +155,14 @@ export default function InvoiceStepperModal({
   const fetchVendorDbName = async () => {
     const token = await AsyncStorage.getItem('access_token');
     const icms_store = await AsyncStorage.getItem('icms_store');
+    const storeurl = await AsyncStorage.getItem('storeurl');
     const res = await fetch(API_ENDPOINTS.SEARCHVENDOR, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         access_token: token ?? '',
         mode: 'MOBILE',
+        app_url: storeurl ?? '',
         store: icms_store ?? '',
       },
       body: JSON.stringify({ q: invoiceName }),
@@ -149,18 +175,92 @@ export default function InvoiceStepperModal({
     return found?.databaseName || vendorDatabaseName || '';
   };
 
+  const handleConfirmAiLinking = async (rowItem) => {
+    if (!rowItem) {
+      Alert.alert('Error', 'Row data missing.');
+      return;
+    }
+    
+    try {
+      setLoadingConfirmId(rowItem?.ProductId || rowItem?.itemNo);
+      await initICMSBase();
+      const token = await AsyncStorage.getItem('access_token');
+      const icms_store = await AsyncStorage.getItem('icms_store');
+      const storeurl = await AsyncStorage.getItem('storeurl');
+      const invoiceDb = await fetchVendorDbName();
+      
+      const payload = {
+        invoiceName: invoiceDb || vendorDatabaseName || '',
+        items: [rowItem],
+      };
+      
+      console.log('Confirm AI Linking payload:', payload);
+      
+      const res = await fetch(API_ENDPOINTS.SingleLinking, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          access_token: token ?? '',
+          mode: 'MOBILE',
+          store: icms_store ?? '',
+          app_url: storeurl ?? '',
+        },
+        body: JSON.stringify(payload),
+      });
+      
+      const raw = await res.text().catch(() => '');
+      let json = {};
+      try {
+        json = raw ? JSON.parse(raw) : {};
+      } catch {
+        json = {};
+      }
+      
+      console.log('Confirm AI linking response:', raw);
+      
+      if (!res.ok) {
+        const msg = json?.message || json?.error?.message || raw || 'Failed to confirm AI linking';
+        throw new Error(msg);
+      }
+      
+      Alert.alert('Success', json?.message || 'AI linking confirmed successfully.');
+      // Refresh invoice data to update the list
+      await fetchInvoiceRows();
+    } catch (err) {
+      Alert.alert('Error', err?.message || 'Failed to confirm AI linking');
+    } finally {
+      setLoadingConfirmId(null);
+    }
+  };
+
   const runQuantitySpCostUpdate = async () => {
     await initICMSBase();
     const token = await AsyncStorage.getItem('access_token');
     const icms_store = await AsyncStorage.getItem('icms_store');
+     const app_url = await AsyncStorage.getItem('storeurl');
     const email = userEmail || (await AsyncStorage.getItem('userEmail')) || '';
     const invoiceDb = await fetchVendorDbName();
+    
+    // Filter: only linked rows where source equals icms_store (or no source field)
+    const linkedRows = (rows || []).filter((r) => {
+      const hasBarcode = String(r?.barcode ?? '').trim().length > 0;
+      if (!hasBarcode) return false;
+      
+      // If source exists, only include if it matches icms_store
+      if (r?.source) {
+        return String(r.source).trim() === String(icms_store).trim();
+      }
+      
+      // If no source field, include the product
+      return true;
+    });
+    
     const body = {
       invoiceName,
       invoiceSavedDate: savedDate,
       invoiceNo,
       invoice: invoiceDb,
-      tableData: rows || [],
+      tableData: linkedRows,
       email,
     };
 
@@ -169,8 +269,10 @@ export default function InvoiceStepperModal({
       headers: {
         'Content-Type': 'application/json',
         store: icms_store ?? '',
-        access_token: token ?? '',
+        pos_access_token: token ?? '',
+        pos_api: `${app_url}/api/v1` ?? '',
         mode: 'MOBILE',
+       app_url: app_url ?? '',
       },
       body: JSON.stringify(body),
     });
@@ -178,48 +280,12 @@ export default function InvoiceStepperModal({
       const t = await res.text().catch(() => '');
       throw new Error(t || `Quantity/Price update failed (${res.status})`);
     }
+    console.log("quantity udpate in pos:",res);
 
   };
 
-  useEffect(() => {
-    const autoPostStepOne = async () => {
-      if (!visible || !invoiceItem || step !== 1 || stepOnePosted) return;
-      setRunning(true);
-      try {
-        await postStepper({
-          invoiceInfo: {
-            invoiceNo,
-            invoiceName,
-            savedDate,
-          },
-          nextStep: 2,
-          isCompleted: false,
-          marginvalue: 0,
-          IsMargin: false,
-        });
-        setStepOnePosted(true);
-      } catch (e) {
-        Alert.alert('Error', e?.message || 'Failed to initialize step 1');
-      } finally {
-        setRunning(false);
-      }
-    };
-    autoPostStepOne();
-  }, [visible, step, stepOnePosted, invoiceItem, invoiceNo, invoiceName, savedDate]);
-
-  useEffect(() => {
-    const autoProceedStep1 = async () => {
-      if (!visible || step !== 1 || autoMovedStep1) return;
-      if (!stepOnePosted) return;
-      if (loadingRows) return;
-      if (unlinkedRows.length > 0) return;
-      setAutoMovedStep1(true);
-      await goStep2();
-    };
-    autoProceedStep1();
-  }, [visible, step, autoMovedStep1, stepOnePosted, loadingRows, unlinkedRows.length]);
-
   const goStep2 = async () => {
+    setContinueLoading(true);
     setRunning(true);
     try {
       await postStepper({
@@ -233,14 +299,15 @@ export default function InvoiceStepperModal({
     } catch (e) {
       Alert.alert('Error', e?.message || 'Step 2 update failed');
     } finally {
+      setContinueLoading(false);
       setRunning(false);
     }
   };
 
   const goStep3 = async () => {
+    setContinueLoading(true);
     setRunning(true);
     try {
-      await runQuantitySpCostUpdate();
       await postStepper({
         invoiceInfo: { invoiceNo, invoiceName, savedDate },
         nextStep: 3,
@@ -252,13 +319,16 @@ export default function InvoiceStepperModal({
     } catch (e) {
       Alert.alert('Error', e?.message || 'Step 3 update failed');
     } finally {
+      setContinueLoading(false);
       setRunning(false);
     }
   };
 
   const finishStepper = async () => {
+    setContinueLoading(true);
     setRunning(true);
     try {
+      await runQuantitySpCostUpdate();
       await postStepper({
         invoiceInfo: { invoiceNo, invoiceName, savedDate },
         nextStep: 4,
@@ -270,6 +340,7 @@ export default function InvoiceStepperModal({
     } catch (e) {
       Alert.alert('Error', e?.message || 'Failed to finish stepper');
     } finally {
+      setContinueLoading(false);
       setRunning(false);
     }
   };
@@ -278,10 +349,16 @@ export default function InvoiceStepperModal({
 
   return (
     <>
-      <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+      <Modal
+        visible={visible && !linkModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={onClose}
+      >
         <View style={styles.overlay}>
           <TouchableOpacity style={styles.backdrop} activeOpacity={1} onPress={onClose} />
           <View style={styles.card}>
+
             <View style={styles.headerRow}>
               <Text style={styles.title}>Invoice Stepper</Text>
               <TouchableOpacity onPress={onClose}>
@@ -320,10 +397,13 @@ export default function InvoiceStepperModal({
                   <View>
                     <Text style={styles.stepHeading}>Step 1: Link Unlinked Barcode Rows</Text>
                     {unlinkedRows.length === 0 ? (
-                      <Text style={styles.muted}>No barcode-missing rows found.</Text>
+                      <View style={styles.successCard}>
+                        <Text style={styles.successText}>✓ All products are linked</Text>
+                        <Text style={styles.successSubText}>Ready to proceed to the next step</Text>
+                      </View>
                     ) : (
                       unlinkedRows.map((row, idx) => (
-                        <View key={`${row?.itemNo || idx}`} style={styles.rowCard}>
+                        <View key={`unlinked_${row?.itemNo || ''}_${row?.description || ''}_${idx}`} style={styles.rowCard}>
                           <Text style={styles.rowTitle}>{row?.description || '-'}</Text>
                           <Text style={styles.rowSub}>Item: {row?.itemNo || '-'}</Text>
                           <TouchableOpacity
@@ -343,86 +423,141 @@ export default function InvoiceStepperModal({
 
                 {step === 2 && (
                   <View>
-                    <Text style={styles.stepHeading}>Step 2: Update QUANTITY SellingPrice and Cost in POS</Text>
-                    <View style={[styles.taskCard, styles.taskCardActive]}>
-                      <View style={styles.taskTitleRow}>
-                        <Text style={styles.taskCheck}>✓</Text>
-                        <Text style={styles.taskTitle}>Update Cost & Quantity</Text>
-                      </View>
-                    </View>
-                    <View style={styles.helpCard}>
-                      <Text style={styles.helpText}>
-                        Step 2: Update quantity, selling price and cost in POS. Continue to review and edit invoice rows.
-                      </Text>
-                    </View>
+                    <Text style={styles.stepHeading}>Step 2: Review & Link AI Linked Products</Text>
+                    <FlatList
+                      data={linkedRows || []}
+                      keyExtractor={(item, idx) => `linked_${item?.ProductId || ''}_${item?.barcode || ''}_${item?.itemNo || ''}_${idx}`}
+                      renderItem={({ item }) => (
+                        <View style={styles.previewRow}>
+                          <Text style={styles.previewMain} numberOfLines={1}>{item?.description || '-'}</Text>
+                            <Text style={styles.previewSub}>Barcode: {item?.barcode || '-'}</Text>
+                          <Text style={styles.previewSub}>Item: {item?.itemNo || '-'} • Qty: {item?.qty || '-'} • Cost: {item?.unitPrice || '-'}</Text>
+                          <View style={styles.step2BtnRow}>
+                            <TouchableOpacity
+                              style={[styles.confirmLinkBtn, loadingConfirmId === (item?.ProductId || item?.itemNo) && styles.confirmLinkBtnDisabled]}
+                              onPress={() => handleConfirmAiLinking(item)}
+                              disabled={loadingConfirmId === (item?.ProductId || item?.itemNo)}
+                            >
+                              {loadingConfirmId === (item?.ProductId || item?.itemNo) ? (
+                                <ActivityIndicator size="small" color="#fff" />
+                              ) : (
+                                <Text style={styles.confirmLinkBtnText}>Confirm Linking</Text>
+                              )}
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                              style={styles.editBtn}
+                              onPress={() => {
+                                setLinkingItem(item);
+                                setLinkModalVisible(true);
+                              }}
+                            >
+                              <Text style={styles.linkBtnText}>Link Product</Text>
+                            </TouchableOpacity>
+                          </View>
+                        </View>
+                      )}
+                      scrollEnabled={false}
+                      ListEmptyComponent={<Text style={styles.muted}>No linked products to review.</Text>}
+                    />
                   </View>
                 )}
 
                 {step === 3 && (
                   <View>
-                    <Text style={styles.stepHeading}>Step 3: Review & Edit Rows</Text>
+                    <Text style={styles.stepHeading}>Step 3: Review All Updated Products</Text>
                     <FlatList
                       data={rows || []}
-                      keyExtractor={(item, idx) => String(item?.ProductId ?? item?.itemNo ?? idx)}
-                      renderItem={({ item }) => (
-                        <View style={styles.previewRow}>
-                          <Text style={styles.previewMain} numberOfLines={1}>{item?.description || '-'}</Text>
-                          <Text style={styles.previewSub}>Item: {item?.itemNo || '-'} • Qty: {item?.qty || '-'} • Cost: {item?.unitPrice || '-'}</Text>
-                          <TouchableOpacity
-                            style={styles.editBtn}
-                            onPress={() => {
-                              setSelectedItem(item);
-                              setEditModalVisible(true);
-                            }}
-                          >
-                            <Text style={styles.editBtnText}>Edit</Text>
-                          </TouchableOpacity>
-                        </View>
-                      )}
+                      keyExtractor={(item, idx) => `all_${item?.ProductId || ''}_${item?.barcode || ''}_${item?.itemNo || ''}_${idx}`}
+                      renderItem={({ item }) => {
+                        const hasBarcode = String(item?.barcode ?? '').trim().length > 0;
+                        const isAiLinked = item?.source && String(item.source).trim() !== String(icmsStore).trim();
+                        
+                        return (
+                          <View style={[styles.previewRow, !hasBarcode && styles.previewRowNotLinked]}>
+                            {isAiLinked && (
+                              <View style={styles.aiBadge}>
+                                <Text style={styles.aiBadgeText}>🤖</Text>
+                              </View>
+                            )}
+                            <Text style={styles.previewMain} numberOfLines={1}>{item?.description || '-'}</Text>
+                            <Text style={styles.previewSub}>Barcode: {item?.barcode || 'Not Linked'}</Text>
+                            <Text style={styles.previewSub}>Item: {item?.itemNo || '-'} • Qty: {item?.qty || '-'} • Cost: {item?.unitPrice || '-'}</Text>
+                          </View>
+                        );
+                      }}
                       scrollEnabled={false}
-                      ListEmptyComponent={<Text style={styles.muted}>No invoice rows available.</Text>}
+                      ListEmptyComponent={<Text style={styles.muted}>No products to display.</Text>}
                     />
+                    <View style={styles.helpCard}>
+                      <Text style={styles.helpText}>
+                        Review all products above. Tap Finish to update quantity, selling price and cost in POS and complete the stepper.
+                      </Text>
+                    </View>
                   </View>
                 )}
               </ScrollView>
             )}
 
             <View style={styles.actionRow}>
-              {step === 1 && (
-                <>
-                  <TouchableOpacity style={styles.skipBtn} onPress={goStep2} disabled={running}>
-                    <Text style={styles.skipText}>Skip</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity style={styles.nextBtn} onPress={goStep2} disabled={running}>
+              {step === 1 && !loadingRows && (
+                <TouchableOpacity 
+                  style={styles.nextBtnFull} 
+                  onPress={goStep2} 
+                  disabled={running || continueLoading}
+                >
+                  {continueLoading ? (
+                    <ActivityIndicator size="small" color="#fff" />
+                  ) : (
                     <Text style={styles.nextText}>Continue</Text>
+                  )}
+                </TouchableOpacity>
+              )}
+              {step === 2 && (
+                <>
+                  <TouchableOpacity 
+                    style={styles.backBtn} 
+                    onPress={() => setStep(1)} 
+                    disabled={running || continueLoading}
+                  >
+                    <Text style={styles.backText}>← Back</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity 
+                    style={styles.nextBtn} 
+                    onPress={goStep3} 
+                    disabled={running || continueLoading}
+                  >
+                    {continueLoading ? (
+                      <ActivityIndicator size="small" color="#fff" />
+                    ) : (
+                      <Text style={styles.nextText}>Continue</Text>
+                    )}
                   </TouchableOpacity>
                 </>
               )}
-              {step === 2 && (
-                <TouchableOpacity style={styles.nextBtnFull} onPress={goStep3} disabled={running}>
-                  <Text style={styles.nextText}>Continue</Text>
-                </TouchableOpacity>
-              )}
               {step === 3 && (
-                <TouchableOpacity style={styles.nextBtnFull} onPress={finishStepper} disabled={running}>
-                  <Text style={styles.nextText}>Finish</Text>
-                </TouchableOpacity>
+                <>
+                  <TouchableOpacity 
+                    style={styles.backBtn} 
+                    onPress={() => setStep(2)} 
+                    disabled={running || continueLoading}
+                  >
+                    <Text style={styles.backText}>← Back</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity 
+                    style={styles.nextBtn} 
+                    onPress={finishStepper} 
+                    disabled={running || continueLoading}
+                  >
+                    {continueLoading ? (
+                      <ActivityIndicator size="small" color="#fff" />
+                    ) : (
+                      <Text style={styles.nextText}>Finish</Text>
+                    )}
+                  </TouchableOpacity>
+                </>
               )}
             </View>
-          </View>
-        </View>
-      </Modal>
-
-      {linkModalVisible && (
-        <LinkProductModal
-          visible={linkModalVisible}
-          onClose={() => setLinkModalVisible(false)}
-          onSelect={() => {}}
-          linkingItem={linkingItem}
-          invoice={invoiceItem}
-        />
-      )}
-      <EditProduct
+   <EditProduct
         visible={editModalVisible}
         item={selectedItem}
         InvoiceDate={savedDate}
@@ -448,6 +583,27 @@ export default function InvoiceStepperModal({
           setSelectedItem(null);
         }}
       />
+          </View>
+        </View>
+      </Modal>
+
+      {linkModalVisible && (
+        <LinkProductModal
+          visible={linkModalVisible}
+          onClose={() => {
+            setLinkModalVisible(false);
+            setLinkingItem(null);
+          }}
+          onSelect={async () => {
+            setLinkModalVisible(false);
+            setLinkingItem(null);
+            await fetchInvoiceRows();
+          }}
+          linkingItem={linkingItem}
+          invoice={invoiceItem}
+        />
+      )}
+
     </>
   );
 }
@@ -623,6 +779,26 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     marginBottom: 8,
     backgroundColor: '#fff',
+    position: 'relative',
+  },
+  previewRowNotLinked: {
+    backgroundColor: '#fef2f2',
+    borderColor: '#fca5a5',
+  },
+  aiBadge: {
+    position: 'absolute',
+    top: 6,
+    right: 6,
+    backgroundColor: '#f0f9ff',
+    borderWidth: 1,
+    borderColor: '#bae6fd',
+    borderRadius: 6,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    zIndex: 10,
+  },
+  aiBadgeText: {
+    fontSize: 14,
   },
   previewMain: { fontSize: 13, color: '#111827', fontWeight: '700' },
   previewSub: { fontSize: 12, color: '#64748b', marginTop: 2 },
@@ -635,6 +811,28 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
   },
   editBtnText: {
+    color: '#fff',
+    fontWeight: '700',
+    fontSize: 12,
+  },
+  step2BtnRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 8,
+    alignItems: 'center',
+  },
+  confirmLinkBtn: {
+    marginTop: 8,
+    alignSelf: 'flex-start',
+    backgroundColor: '#0F766E',
+    borderRadius: 8,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+  },
+  confirmLinkBtnDisabled: {
+    opacity: 0.6,
+  },
+  confirmLinkBtnText: {
     color: '#fff',
     fontWeight: '700',
     fontSize: 12,
@@ -652,11 +850,25 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
   },
   skipText: { color: '#334155', fontWeight: '700' },
+  backBtn: {
+    backgroundColor: '#64748b',
+    borderRadius: 10,
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    alignItems: 'center',
+  },
+  backText: { 
+    color: '#fff', 
+    fontWeight: '700',
+    fontSize: 14,
+  },
   nextBtn: {
     backgroundColor: '#319241',
-    borderRadius: 8,
-    paddingVertical: 10,
-    paddingHorizontal: 14,
+    borderRadius: 10,
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    alignItems: 'center',
+    flex: 1,
   },
   nextBtnFull: {
     backgroundColor: '#319241',
@@ -667,4 +879,23 @@ const styles = StyleSheet.create({
   },
   nextText: { color: '#fff', fontWeight: '700' },
   center: { paddingVertical: 24, alignItems: 'center', justifyContent: 'center' },
+  successCard: {
+    backgroundColor: '#edf9f0',
+    borderWidth: 1,
+    borderColor: '#7fc391',
+    borderRadius: 10,
+    padding: 12,
+    marginBottom: 8,
+    alignItems: 'center',
+  },
+  successText: {
+    fontSize: 14,
+    color: '#166534',
+    fontWeight: '700',
+    marginBottom: 4,
+  },
+  successSubText: {
+    fontSize: 12,
+    color: '#64748b',
+  },
 });

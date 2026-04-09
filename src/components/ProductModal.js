@@ -4,26 +4,35 @@ import React, {
 } from 'react';
 import {
   View, Text, Image, StyleSheet, TouchableOpacity, ScrollView,
-  TextInput, Alert, Platform, Modal, Switch, useColorScheme
+  TextInput, Alert, Platform, Modal, Switch, useColorScheme, KeyboardAvoidingView
 } from 'react-native';
 import Icon from 'react-native-vector-icons/MaterialIcons';
 import { launchImageLibrary, launchCamera } from 'react-native-image-picker';
 import { request, PERMISSIONS, RESULTS } from 'react-native-permissions';
 import { Camera, CameraType } from 'react-native-camera-kit';
 import DateTimePicker from '@react-native-community/datetimepicker';
-import { getTopCategories, VendorList, TaxList, getUOMList, createCustomVariantProduct, updateCustomVariantProduct, archiveProduct } from '../functions/product-function';
+import {
+  getTopCategories,
+  VendorList,
+  TaxList,
+  getUOMList,
+  createCustomVariantProduct,
+  updateCustomVariantProduct,
+  archiveProduct
+} from '../functions/product-function';
 import { CartContext } from '../context/CartContext';
 import { PrintContext } from '../context/PrintContext';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { createQuantityDiscountPromotion } from '../screens/promotions/function';
 
-const THEME = { primary: '#2C1E70', secondary: '#319241', price: '#27ae60' };
+const THEME = { primary: '#319241', secondary: '#319241', price: '#27ae60' };
 
 const ProductModal = forwardRef(({ onAddToCart, onAddToPrint }, ref) => {
   const [visible, setVisible] = useState(false);
   const { cart, addToCart, increaseQty, decreaseQty } = useContext(CartContext);
   const { print, addToPrint, increasePrintQty, decreasePrintQty, removeFromprint } = useContext(PrintContext);
   const _isDark = useColorScheme() === 'dark';
+
   const inputTextColor = '#111';
   const placeholderColor = '#6B7280';
   const inputBg = '#fff';
@@ -35,51 +44,50 @@ const ProductModal = forwardRef(({ onAddToCart, onAddToPrint }, ref) => {
 
   const [product, setProduct] = useState(null);
   const [userrole, setUserRole] = useState('');
-  // Editable fields (→ new update body)
-  const [id, setID] = useState('');                 // id
-  const [name, setName] = useState('');             // new_name
-  const [size, setSize] = useState('');             // size
+
+  const [id, setID] = useState('');
+  const [name, setName] = useState('');
+  const [size, setSize] = useState('');
   const [barcodeOriginal, setBarcodeOriginal] = useState('');
-  const [newBarcode, setNewBarcode] = useState(''); // barcode
+  const [newBarcode, setNewBarcode] = useState('');
 
-  const [price, setPrice] = useState('');           // new_price
-  const [cost, setCost] = useState('');             // new_std_price
-  const [qtyavailable, setQtyAvailable] = useState('');   // new_qty
-  const [unitc, setUnitc] = useState('');                 // unit_in_case
-  const [casecost, setCaseCost] = useState('');           // case_cost
+  const [price, setPrice] = useState('');
+  const [cost, setCost] = useState('');
+  const [qtyavailable, setQtyAvailable] = useState('');
+  const [unitc, setUnitc] = useState('');
+  const [casecost, setCaseCost] = useState('');
 
-  const [categoryId, setCategoryId] = useState('');       // categ_id
-  const [selectedVendorId, setSelectedVendorId] = useState('');
+  const [categoryId, setCategoryId] = useState('');
+  const [selectedVendors, setSelectedVendors] = useState([]); // Original API objects
   const [searchText, setSearchText] = useState('');
   const [showVendorDropdown, setShowVendorDropdown] = useState(false);
+  const [vendorModalVisible, setVendorModalVisible] = useState(false);
   const searchDebounceRef = useRef(null);
-  const [selectedTaxIds, setSelectedTaxIds] = useState([]);       // taxes_id[]
+  const [selectedTaxIds, setSelectedTaxIds] = useState([]);
 
   const [availablePOS, setAvailablePOS] = useState(false);
-  const [toWeight, setToWeight] = useState(false);
+  const [in_store_label_product, setin_store_label_product] = useState(false);
+  const [serverin_store_label_product, setServerin_store_label_product] = useState(null);
   const [isEBT, setIsEBT] = useState(false);
   const [ewic, setEwic] = useState(false);
   const [otc, setOtc] = useState(false);
 
-  // Lists
   const [allCats, setAllCats] = useState([]);
   const [vendorList, setVendorList] = useState([]);
   const [taxList, setTaxList] = useState([]);
   const [uomList, setUomList] = useState([]);
 
-  // Image (raw base64; send "" if unchanged)
   const [imgBase64, setImgBase64] = useState('');
   const [imgMime, setImgMime] = useState('image/jpeg');
 
-  // Scanner
   const [scannerVisible, setScannerVisible] = useState(false);
   const [hasCameraPermission, setHasCameraPermission] = useState(false);
 
-  // Multi-select modals
   const [categoryModalVisible, setCategoryModalVisible] = useState(false);
   const [taxModalVisible, setTaxModalVisible] = useState(false);
   const [uomModalVisible, setUomModalVisible] = useState(false);
   const [selectedUomId, setSelectedUomId] = useState('');
+  const [selectedUomName, setSelectedUomName] = useState('');
   const [variantModalVisible, setVariantModalVisible] = useState(false);
   const [variantName, setVariantName] = useState('');
   const [variantCode, setVariantCode] = useState('');
@@ -100,7 +108,6 @@ const ProductModal = forwardRef(({ onAddToCart, onAddToPrint }, ref) => {
   const [qdShowStartPicker, setQdShowStartPicker] = useState(false);
   const [qdShowEndPicker, setQdShowEndPicker] = useState(false);
 
-  // UI
   const [submitting, setSubmitting] = useState(false);
   const [archiving, setArchiving] = useState(false);
 
@@ -129,8 +136,8 @@ const ProductModal = forwardRef(({ onAddToCart, onAddToPrint }, ref) => {
       try {
         const perm = Platform.OS === 'ios' ? PERMISSIONS.IOS.CAMERA : PERMISSIONS.ANDROID.CAMERA;
         const result = await request(perm);
-          const userRole =    await AsyncStorage.getItem('userRole');
-  setUserRole(userRole);
+        const userRole = await AsyncStorage.getItem('userRole');
+        setUserRole(userRole);
         setHasCameraPermission(result === RESULTS.GRANTED);
       } catch {
         setHasCameraPermission(false);
@@ -154,10 +161,13 @@ const ProductModal = forwardRef(({ onAddToCart, onAddToPrint }, ref) => {
           id: String(t.id ?? t.taxId ?? t._id ?? ''),
           name: String(t.name ?? t.taxName ?? ''),
         })) : [];
-        const normUom = Array.isArray(uoms) ? uoms.map(u => ({
+        const uomSource = Array.isArray(uoms)
+          ? uoms
+          : (Array.isArray(uoms?.data) ? uoms.data : []);
+        const normUom = uomSource.map(u => ({
           id: String(u.id ?? u.uomId ?? u._id ?? ''),
           name: String(u.name ?? u.uomName ?? ''),
-        })) : [];
+        }));
         setAllCats(normCats);
         setVendorList([]);
         setTaxList(normTaxes);
@@ -168,42 +178,63 @@ const ProductModal = forwardRef(({ onAddToCart, onAddToPrint }, ref) => {
     })();
   }, []);
 
-  useImperativeHandle(ref, () => ({ 
+  useImperativeHandle(ref, () => ({
     open: (p) => {
       setProduct(p || null);
       if (p) {
-        // defaults from GET product payload
+        console.log("Opening product modal for:", p);
         setID(String(p.product_id ?? p.id ?? ''));
-        setName(p.productName ?? p.name ?? '');         // new_name
-        setSize(p.productSize ?? p.size ?? '');         // size
+        setName(p.productName ?? p.name ?? '');
+        setSize(p.productSize ?? p.size ?? '');
         setBarcodeOriginal(p.barcode || '');
-        setNewBarcode(''); // new scan/type
-
-        setPrice(p.salePrice != null ? String(p.salePrice) : '');   // new_price
-        setCost(p.costPrice != null ? String(p.costPrice) : '');    // new_std_price
-        setQtyAvailable(''); // not provided in GET; user can set
-
-        setUnitc(p.unit_in_case != null ? String(p.unit_in_case) : '');
-        setCaseCost(p.case_cost != null ? String(p.case_cost) : '');
-
+        setNewBarcode('');
+        setPrice(p.salePrice != null ? String(p.salePrice) : '');
+        setCost(p.costPrice != null ? String(p.costPrice) : '');
+         setQtyAvailable(p.qtyAvailable != null ? String(p.qtyAvailable) : '');
+        setUnitc(p.unitInCase != null ? String(p.unitInCase) : '');
+        setCaseCost(p.caseCost != null ? String(p.caseCost) : '');
         setCategoryId(p.categoryId != null ? String(p.categoryId) : '');
-        setSelectedUomId(p.uom_id != null ? String(p.uom_id) : (p.uomId != null ? String(p.uomId) : ''));
+        const apiUom = p?.unitOfMeasure && typeof p.unitOfMeasure === 'object' ? p.unitOfMeasure : null;
+        const apiUomId = apiUom?.id != null ? String(apiUom.id) : '';
+        const apiUomName = String(apiUom?.name ?? '').trim();
+        const fallbackUomId = p.uom_id != null ? String(p.uom_id) : (p.uomId != null ? String(p.uomId) : '');
+        let resolvedUomId = apiUomId || fallbackUomId;
+        if (!resolvedUomId && apiUomName) {
+          const matchedByName = (Array.isArray(uomList) ? uomList : []).find(
+            (u) => String(u?.name ?? '').trim().toLowerCase() === apiUomName.toLowerCase(),
+          );
+          resolvedUomId = matchedByName ? String(matchedByName.id) : '';
+        }
+        setSelectedUomId(resolvedUomId);
+        setSelectedUomName(apiUomName);
 
-        // taxes -> ids
         const tIds = Array.isArray(p.productTaxes) ? p.productTaxes.map(t => String(t.taxId)) : [];
+        console.log("Selected tax IDs:", tIds);
         setSelectedTaxIds(tIds);
 
-        const vendorId = Array.isArray(p.vendorcode) ? p.vendorcode[0] : p.vendorcode;
-        setSelectedVendorId(vendorId != null ? String(vendorId) : '');
+        const vendorCodeArray = Array.isArray(p.vendorDetails) ? p.vendorDetails : (p.vendorDetails ? [p.vendorDetails] : []);
+
+        // Keep original objects from API for proper submission format
+        const originalVendors = vendorCodeArray.filter(v => v); // Remove empty values
+        console.log('📦 Vendors loaded from product (original):', originalVendors);
+        console.log('📦 Vendor details:', originalVendors.map(v => ({
+          id: v.id ?? v.vendorId ?? v._id,
+          name: v.name ?? v.vendorName ?? v.vendor_name,
+          fullObject: v
+        })));
+        setSelectedVendors(originalVendors);
         setSearchText('');
         setShowVendorDropdown(false);
-
         setAvailablePOS(!!p.availableInPos);
         setIsEBT(!!p.isEbtProduct);
         setEwic(!!p.ewic);
         setOtc(!!p.otc);
-        setToWeight(!!p.to_weight);
-
+        setin_store_label_product(!!p.in_store_label_product);
+        setServerin_store_label_product(
+          p.in_store_label_product === null || p.in_store_label_product === undefined
+            ? null
+            : !!p.in_store_label_product
+        );
         setImgBase64('');
         setImgMime('image/jpeg');
         setVariantsList(Array.isArray(p.variants) ? p.variants : []);
@@ -214,6 +245,21 @@ const ProductModal = forwardRef(({ onAddToCart, onAddToPrint }, ref) => {
     },
     close: () => setVisible(false),
   }));
+
+  const closeAllInnerPopups = () => {
+    setCategoryModalVisible(false);
+    setTaxModalVisible(false);
+    setUomModalVisible(false);
+    setVariantModalVisible(false);
+    setVariantsModalVisible(false);
+    setQdModalVisible(false);
+    setQdShowStartPicker(false);
+    setQdShowEndPicker(false);
+    setVendorModalVisible(false);
+    setSearchText('');
+    setVendorList([]);
+    setShowVendorDropdown(false);
+  };
 
   const openVariantModal = () => {
     setVariantName('');
@@ -245,20 +291,22 @@ const ProductModal = forwardRef(({ onAddToCart, onAddToPrint }, ref) => {
 
     try {
       setVariantSubmitting(true);
-   const variantrespnse =   await createCustomVariantProduct({
+      const variantrespnse = await createCustomVariantProduct({
         name: variantName,
         default_code: variantCode.trim(),
         barcode: (variantBarcode.trim() || barcodeOriginal || ''),
         list_price: priceValue,
         parent_id: baseId,
       });
-      console.log("variantrespnse:",variantrespnse.result);
-      if(variantrespnse.result.error){
-      Alert.alert("Error:",variantrespnse.result.error);
+
+      if (variantrespnse?.result?.error) {
+        Alert.alert('Error', variantrespnse.result.error);
+      } else if (variantrespnse?.result?.message) {
+        Alert.alert('Success', variantrespnse.result.message);
+      } else {
+        Alert.alert('Success', 'Variant created successfully.');
       }
-     else if(variantrespnse.result.message){
-      Alert.alert(variantrespnse.result.message);
-      }
+
       setVariantModalVisible(false);
     } catch (e) {
       Alert.alert('Error', e.message || 'Failed to create variant product.');
@@ -293,6 +341,7 @@ const ProductModal = forwardRef(({ onAddToCart, onAddToPrint }, ref) => {
     const mm = String(date.getMonth() + 1).padStart(2, '0');
     const dd = String(date.getDate()).padStart(2, '0');
     setQdStartDate(`${yyyy}-${mm}-${dd} 00:00:00`);
+    if (Platform.OS === 'ios') setQdShowStartPicker(false);
   };
 
   const handleQdEndDateChange = (_, date) => {
@@ -302,6 +351,7 @@ const ProductModal = forwardRef(({ onAddToCart, onAddToPrint }, ref) => {
     const mm = String(date.getMonth() + 1).padStart(2, '0');
     const dd = String(date.getDate()).padStart(2, '0');
     setQdEndDate(`${yyyy}-${mm}-${dd} 23:59:59`);
+    if (Platform.OS === 'ios') setQdShowEndPicker(false);
   };
 
   const openQdModal = () => {
@@ -369,17 +419,18 @@ const ProductModal = forwardRef(({ onAddToCart, onAddToPrint }, ref) => {
       });
       setVariantsList((prev) =>
         prev.map((v) =>
-          v.product_id === variantId 
+          v.product_id === variantId
             ? { ...v, productName: editingVariantName.trim(), salePrice: priceValue }
             : v
         )
       );
-      console.log("updateresponsevariant:",updateresponsevariant);
-      if(updateresponsevariant.result.message){
-        Alert.alert(updateresponsevariant.result.message);
-      }
-      else if(updateresponsevariant.result.error){
-      Alert.alert("Error:",updateresponsevariant.result.message);
+
+      if (updateresponsevariant?.result?.message) {
+        Alert.alert('Success', updateresponsevariant.result.message);
+      } else if (updateresponsevariant?.result?.error) {
+        Alert.alert('Error', updateresponsevariant.result.error);
+      } else {
+        Alert.alert('Success', 'Variant updated successfully.');
       }
       setEditingVariantId(null);
     } catch (e) {
@@ -447,7 +498,7 @@ const ProductModal = forwardRef(({ onAddToCart, onAddToPrint }, ref) => {
       Alert.alert('Fix inputs', 'Enter valid Case Cost and Units in Case.');
       return;
     }
-    setCost((cc / uc).toFixed(2)); // sets new_std_price
+    setCost((cc / uc).toFixed(2));
   };
 
   const sortedCategories = useMemo(() => (
@@ -494,9 +545,25 @@ const ProductModal = forwardRef(({ onAddToCart, onAddToPrint }, ref) => {
   }, [selectedTaxIds, sortedTaxes]);
 
   const uomSummary = useMemo(() => {
-    if (!selectedUomId) return 'Select UoM';
-    return sortedUom.find((u) => String(u.id) === String(selectedUomId))?.name || 'Select UoM';
-  }, [selectedUomId, sortedUom]);
+    if (!selectedUomId) return selectedUomName || 'Select UoM';
+    return (
+      sortedUom.find((u) => String(u.id) === String(selectedUomId))?.name ||
+      selectedUomName ||
+      'Select UoM'
+    );
+  }, [selectedUomId, selectedUomName, sortedUom]);
+
+  useEffect(() => {
+    if (selectedUomId || !selectedUomName || !Array.isArray(uomList) || !uomList.length) {
+      return;
+    }
+    const matchedByName = uomList.find(
+      (u) => String(u?.name ?? '').trim().toLowerCase() === selectedUomName.toLowerCase(),
+    );
+    if (matchedByName) {
+      setSelectedUomId(String(matchedByName.id));
+    }
+  }, [selectedUomId, selectedUomName, uomList]);
 
   const toggleTax = (taxId) => {
     const id = String(taxId);
@@ -511,12 +578,20 @@ const ProductModal = forwardRef(({ onAddToCart, onAddToPrint }, ref) => {
 
   const toggleUom = (uomId) => {
     const id = String(uomId);
-    setSelectedUomId((prev) => (String(prev) === id ? '' : id));
+    if (String(selectedUomId) === id) {
+      setSelectedUomId('');
+      setSelectedUomName('');
+      return;
+    }
+    setSelectedUomId(id);
+    const matchedById = (Array.isArray(uomList) ? uomList : []).find(
+      (u) => String(u?.id) === id,
+    );
+    setSelectedUomName(String(matchedById?.name ?? '').trim());
   };
 
   const handleVendorSearch = (text) => {
     setSearchText(text);
-    setSelectedVendorId('');
     if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
 
     if (text.trim().length < 3) {
@@ -544,19 +619,37 @@ const ProductModal = forwardRef(({ onAddToCart, onAddToPrint }, ref) => {
   };
 
   const pickVendor = (vendor) => {
-    setSelectedVendorId(String(vendor.id));
-    setSearchText(vendor.name);
+    // Keep the original vendor object from search results
+    setSelectedVendors(prev => {
+      const vendorId = String(vendor.id ?? vendor.vendorId ?? '');
+      const alreadyExists = prev.some(v => (v.id ?? v.vendorId ?? '') === vendorId);
+      return alreadyExists ? prev : [...prev, vendor];
+    });
+    setSearchText('');
+    setVendorList([]);
     setShowVendorDropdown(false);
   };
+
+  const removeVendor = (vendorId) => {
+    setSelectedVendors(prev => prev.filter(v => (v.id ?? v.vendorId ?? v._id) !== vendorId));
+  };
+
+  const isUomLockedByServer = serverin_store_label_product === true;
 
   const handleUpdate = async () => {
     if (!id) {
       Alert.alert('Error', 'Missing product id.');
       return;
     }
+    
+    // Extract vendor IDs from selectedVendors
+    const vendorIds = selectedVendors.length > 0 
+      ? selectedVendors.map(v => Number(v.id ?? v.vendorId ?? v._id))
+      : undefined;
+    
     const body = {
       id: Number(id),
-      new_price: (price ?? '').trim(),          // strings to mirror your API
+      new_price: (price ?? '').trim(),
       new_std_price: (cost ?? '').trim(),
       new_qty: (qtyavailable ?? '').trim(),
       new_name: (name ?? '').trim(),
@@ -564,33 +657,37 @@ const ProductModal = forwardRef(({ onAddToCart, onAddToPrint }, ref) => {
       unit_in_case: (unitc ?? '').trim(),
       case_cost: (casecost ?? '').trim(),
       categ_id: categoryId ? Number(categoryId) : undefined,
-      uom_id: selectedUomId ? Number(selectedUomId) : undefined,
-      vendorcode: selectedVendorId ? Number(selectedVendorId) : undefined,
+      uom_id: !in_store_label_product && !isUomLockedByServer && selectedUomId ? Number(selectedUomId) : undefined,
+      vendorcode: vendorIds,
       available_in_pos: String(!!availablePOS),
       taxes_id: selectedTaxIds.map(t => Number(t)),
       image: imgBase64 || '',
       is_ebt_product: String(!!isEBT),
       ewic: String(!!ewic),
       otc: String(!!otc),
-      to_weight: String(!!toWeight),
+      in_store_label_product: String(!!in_store_label_product),
       barcode: (newBarcode?.trim() || barcodeOriginal || ''),
     };
 
     Object.keys(body).forEach(k => body[k] === undefined && delete body[k]);
-   console.log("access_token",token,"body",body);
+
+    console.log('📤 Sending update body:', JSON.stringify(body, null, 2));
+    console.log('📤 Vendor IDs being sent:', vendorIds);
 
     try {
       setSubmitting(true);
       const res = await fetch(`${storeUrl}/pos/app/product/update`, {
         method: 'PUT',
-        headers: {'access_token': token },
+        headers: { access_token: token },
         body: JSON.stringify(body),
       });
 
       const data = await res.json().catch(() => ({}));
-      console.log("update res:",res);
-        console.log("update data:",data);
-      if (!res.ok) throw new Error(data?.error || data?.message || 'Failed to update product');
+      if (!res.ok) {
+        console.error('❌ Update failed with error:', data);
+        console.error('❌ Full response:', data);
+        throw new Error(data?.error || data?.message || 'Failed to update product');
+      }
 
       Alert.alert('Success', 'Product updated successfully.');
 
@@ -605,19 +702,30 @@ const ProductModal = forwardRef(({ onAddToCart, onAddToPrint }, ref) => {
         barcode: body.barcode || product.barcode,
         categoryId: body.categ_id ?? product.categoryId,
         productTaxes: body.taxes_id?.length
-          ? body.taxes_id.map(tid => ({ taxId: tid, taxName: taxList.find(t => Number(t.id) === Number(tid))?.name || '' }))
+          ? body.taxes_id.map(tid => ({
+              taxId: tid,
+              taxName: taxList.find(t => Number(t.id) === Number(tid))?.name || ''
+            }))
           : product.productTaxes,
         availableInPos: body.available_in_pos === 'true',
         isEbtProduct: body.is_ebt_product === 'true',
         ewic: body.ewic === 'true',
         otc: body.otc === 'true',
-        to_weight: body.to_weight === 'true',
+        in_store_label_product: body.in_store_label_product === 'true',
         unit_in_case: body.unit_in_case !== '' ? Number(body.unit_in_case) : product.unit_in_case,
         case_cost: body.case_cost !== '' ? Number(body.case_cost) : product.case_cost,
         qty_available: body.new_qty !== '' ? Number(body.new_qty) : product.qty_available,
         productImage: imgBase64 ? imgBase64 : product.productImage,
-        vendorcode: body.vendorcode ?? product.vendorcode,
+        vendorcode: selectedVendors.length > 0 ? selectedVendors : product.vendorcode,
       };
+
+      if (data?.product && Object.prototype.hasOwnProperty.call(data.product, 'in_store_label_product')) {
+        const nextServerInStore = data.product.in_store_label_product;
+        setServerin_store_label_product(
+          nextServerInStore === null || nextServerInStore === undefined ? null : !!nextServerInStore
+        );
+      }
+
       setProduct(updated);
       setImgBase64('');
       setImgMime('image/jpeg');
@@ -648,11 +756,11 @@ const ProductModal = forwardRef(({ onAddToCart, onAddToPrint }, ref) => {
 
   const handleArchiveProduct = () => {
     Alert.alert(
-      'Archive Product',
-      'Are you sure you want to archive this product?',
+      'Delete Product',
+      'Are you sure you want to delete this product?',
       [
         { text: 'Cancel', style: 'cancel' },
-        { text: 'Archive', style: 'destructive', onPress: doArchiveProduct },
+        { text: 'Delete', style: 'destructive', onPress: doArchiveProduct },
       ]
     );
   };
@@ -662,564 +770,833 @@ const ProductModal = forwardRef(({ onAddToCart, onAddToPrint }, ref) => {
 
   return (
     <>
-      <Modal visible={visible} transparent animationType="fade" onRequestClose={() => setVisible(false)}>
+      <Modal
+        visible={visible}
+        transparent
+        animationType="fade"
+        presentationStyle="overFullScreen"
+        statusBarTranslucent
+        onRequestClose={() => {
+          closeAllInnerPopups();
+          setVisible(false);
+        }}
+      >
         <View style={styles.mainModalRoot}>
-          <TouchableOpacity style={styles.mainModalBackdrop} activeOpacity={1} onPress={() => setVisible(false)} />
+          <TouchableOpacity
+            style={styles.mainModalBackdrop}
+            activeOpacity={1}
+            onPress={() => {
+              closeAllInnerPopups();
+              setVisible(false);
+            }}
+          />
+
           <View style={styles.mainModalCard}>
-            <TouchableOpacity style={styles.mainModalCloseBtn} onPress={() => setVisible(false)}>
+            <TouchableOpacity style={styles.mainModalCloseBtn} onPress={() => {
+              closeAllInnerPopups();
+              setVisible(false);
+            }}>
               <Icon name="close" size={24} color="#111" />
             </TouchableOpacity>
+
             {!product ? (
-              <View style={styles.emptyBox}><Text style={{ color: '#888' }}>No product selected.</Text></View>
+              <View style={styles.emptyBox}>
+                <Text style={{ color: '#888' }}>No product selected.</Text>
+              </View>
             ) : (
-              <ScrollView contentContainerStyle={{ paddingBottom: 24 }}>
-            {/* Image / Preview */}
-            {imgBase64 ? (
-              <Image source={{ uri: `data:${imgMime};base64,${imgBase64}` }} style={styles.image} />
-            ) : product.productImage ? (
-              <Image source={{ uri: `data:image/webp;base64,${product.productImage}` }} style={styles.image} />
-            ) : (
-              <View style={[styles.image, styles.imagePlaceholder]}>
-                <Text style={{ color: '#aaa' }}>No Image</Text>
-              </View>
-            )}
-
-            {/* Image actions */}
-            <View style={[styles.row, { marginTop: 8 }]}>
-              <TouchableOpacity style={[styles.smallBtn, styles.ghost]} onPress={pickFromGallery}>
-                <Text style={styles.ghostText}>Pick from Gallery</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.smallBtn} onPress={takePhoto}>
-                <Text style={styles.smallBtnText}>Take Photo</Text>
-              </TouchableOpacity>
-            </View>
-
-            {/* Two-column compact form */}
-            <View style={{ marginTop: 12 }}>
-              {/* Row 1: Name | Size */}
-              <View style={styles.rowGap}>
-                <View style={styles.fieldCol}>
-                  <Text style={styles.fieldLabel}>Name</Text>
-                  <TextInput
-                    style={[styles.inputCol, { color: inputTextColor, backgroundColor: inputBg, borderColor: inputBorder }]}
-                    placeholder="Name"
-                    placeholderTextColor={placeholderColor}
-                    value={name}
-                    onChangeText={setName}
-                  />
-                </View>
-                <View style={styles.fieldCol}>
-                  <Text style={styles.fieldLabel}>Size</Text>
-                  <TextInput
-                    style={[styles.inputCol, { color: inputTextColor, backgroundColor: inputBg, borderColor: inputBorder }]}
-                    placeholder="Size"
-                    placeholderTextColor={placeholderColor}
-                    value={size}
-                    onChangeText={setSize}
-                  />
-                </View>
-              </View>
-
-              {/* Barcode display (read-only) */}
-              <View style={[styles.inputWrapper, { marginTop: 10 }]}>
-                <Text style={[styles.inlineHint, { color: inputTextColor }]}>Barcode</Text>
-                <View style={[styles.readonlyField, { borderColor: inputBorder, backgroundColor: inputBg }]}>
-                  <Text style={[styles.readonlyText, { color: inputTextColor }]}>
-                    {barcodeOriginal || '-'}
-                  </Text>
-                </View>
-              </View>
-
-              {/* Row 2: Price | Unit Cost */}
-              <View style={[styles.rowGap, { marginTop: 10 }]}>
-                <View style={styles.fieldCol}>
-                  <Text style={styles.fieldLabel}>Price</Text>
-                  <TextInput
-                    style={[styles.inputCol, { color: inputTextColor, backgroundColor: inputBg, borderColor: inputBorder }]}
-                    placeholder="Price"
-                    placeholderTextColor={placeholderColor}
-                    value={price}
-                    onChangeText={setPrice}
-                    keyboardType="decimal-pad"
-                  />
-                </View>
-                <View style={styles.fieldCol}>
-                  <Text style={styles.fieldLabel}>Cost</Text>
-                  <TextInput
-                    style={[styles.inputCol, { color: inputTextColor, backgroundColor: inputBg, borderColor: inputBorder }]}
-                    placeholder="Cost"
-                    placeholderTextColor={placeholderColor}
-                    value={cost}
-                    onChangeText={setCost}
-                    keyboardType="decimal-pad"
-                  />
-                </View>
-              </View>
-
-              {/* Row 3: Case Cost | Units in Case + Calculate */}
-            <View style={[styles.rowGap, { marginTop: 10 }]}>
-                <View style={styles.fieldCol}>
-                  <Text style={styles.fieldLabel}>Case Cost</Text>
-                  <TextInput
-                    style={[styles.inputCol, { color: inputTextColor, backgroundColor: inputBg, borderColor: inputBorder }]}
-                    placeholder="Case Cost"
-                    placeholderTextColor={placeholderColor}
-                    value={casecost}
-                    onChangeText={setCaseCost}
-                    keyboardType="decimal-pad"
-                  />
-                </View>
-                <View style={styles.fieldCol}>
-                  <Text style={styles.fieldLabel}>Units in Case</Text>
-                  <TextInput
-                    style={[styles.inputCol, { color: inputTextColor, backgroundColor: inputBg, borderColor: inputBorder }]}
-                    placeholder="Units in Case"
-                    placeholderTextColor={placeholderColor}
-                    value={unitc}
-                    onChangeText={setUnitc}
-                    keyboardType="number-pad"
-                  />
-                </View>
-                  <TouchableOpacity style={styles.calcBtn} onPress={calculateUnitCost}>
-                    <Text style={styles.calcBtnText}>Calculate</Text>
-                  </TouchableOpacity>
-              </View>
-
-              {/* Row 4: Qty | Category */}
-              <View style={[styles.rowGap, { marginTop: 10 }]}>
-                <View style={styles.fieldCol}>
-                  <Text style={styles.fieldLabel}>Net QTY</Text>
-                  <TextInput
-                    style={[styles.inputCol, { color: inputTextColor, backgroundColor: inputBg, borderColor: inputBorder }]}
-                    placeholder="Net QTY"
-                    placeholderTextColor={placeholderColor}
-                    value={qtyavailable}
-                    onChangeText={setQtyAvailable}
-                    keyboardType="decimal-pad"
-                  />
-                </View>
-                <TouchableOpacity
-                  style={[styles.selectBox, { borderColor: inputBorder, backgroundColor: inputBg }]}
-                  onPress={() => setCategoryModalVisible(true)}
-                >
-                  <Text style={styles.selectLabel}>Category</Text>
-                  <Text style={[styles.selectValue, { color: inputTextColor }]} numberOfLines={2}>{categorySummary}</Text>
-                </TouchableOpacity>
-              </View>
-              {/* Row 5: Vendors (search) | Taxes (multi) */}
-              <View style={styles.rowGap}>
-                {/* Vendors */}
-                <View style={styles.vendorBox}>
-                  <Text style={styles.fieldLabel}>Vendor</Text>
-                  <TextInput
-                    style={[styles.inputFlex, { color: inputTextColor, backgroundColor: inputBg, borderColor: inputBorder }]}
-                    placeholder="Search vendor (min 3 chars)"
-                    placeholderTextColor={placeholderColor}
-                    value={searchText}
-                    onChangeText={handleVendorSearch}
-                    autoCapitalize="none"
-                  />
-                  {showVendorDropdown && vendorList.length > 0 && (
-                    <View style={styles.vendorDropdown}>
-                      <ScrollView keyboardShouldPersistTaps="handled" style={{ maxHeight: 180 }}>
-                        {vendorList.slice(0, 20).map(v => (
-                          <TouchableOpacity key={v.id} style={styles.vendorItem} onPress={() => pickVendor(v)}>
-                            <Text numberOfLines={1} style={styles.vendorText}>{v.name}</Text>
-                            <Text style={styles.vendorSub}>ID: {v.id}</Text>
-                          </TouchableOpacity>
-                        ))}
-                      </ScrollView>
-                    </View>
-                  )}
-                  {!!selectedVendorId && (
-                    <Text style={styles.selectedVendorNote}>Selected Vendor ID: {selectedVendorId}</Text>
-                  )}
-                </View>
-
-                {/* Taxes */}
-                <View style={styles.fieldCol}>
-                  <Text style={styles.fieldLabel}>Tax</Text>
-                  <TouchableOpacity
-                    style={[styles.pickerCol, styles.fakePicker, { borderColor: inputBorder, backgroundColor: inputBg, marginTop: 0 }]}
-                    onPress={() => setTaxModalVisible(true)}
-                  >
-                    <Text style={[styles.fakePickerText, { color: inputTextColor }]}>
-                      {taxSummary}
-                    </Text>
-                    <Icon name="arrow-drop-down" size={24} color={iconColor} />
-                  </TouchableOpacity>
-                </View>
-              </View>
-
-              <View style={[styles.rowGap, { marginTop: 10 }]}>
-                <TouchableOpacity
-                  style={[styles.selectBox, { borderColor: inputBorder, backgroundColor: inputBg }]}
-                  onPress={() => setUomModalVisible(true)}
-                >
-                  <Text style={styles.selectLabel}>UoM</Text>
-                  <Text style={[styles.selectValue, { color: inputTextColor }]} numberOfLines={2}>{uomSummary}</Text>
-                </TouchableOpacity>
-                <View style={{ flex: 1 }} />
-              </View>
-
-              {/* Switches */}
-              <Text style={styles.subTitle}>Options</Text>
-              <View style={styles.switchGrid}>
-                <View style={styles.switchCell}><Text style={styles.switchLabel}>POS</Text><Switch value={availablePOS} onValueChange={setAvailablePOS} /></View>
-                <View style={styles.switchCell}><Text style={styles.switchLabel}>To Weight</Text><Switch value={toWeight} onValueChange={setToWeight} /></View>
-                <View style={styles.switchCell}><Text style={styles.switchLabel}>EBT</Text><Switch value={isEBT} onValueChange={setIsEBT} /></View>
-              </View>
-              <View style={styles.switchGrid}>
-                <View style={styles.switchCell}><Text style={styles.switchLabel}>EWIC</Text><Switch value={ewic} onValueChange={setEwic} /></View>
-                <View style={styles.switchCell}><Text style={styles.switchLabel}>OTC</Text><Switch value={otc} onValueChange={setOtc} /></View>
-                <View style={styles.switchCell}>
-                  {variantsList.length > 0 ? (
-                    <TouchableOpacity style={styles.variantToggleBtn} onPress={openVariantsModal}>
-                      <Text style={styles.variantToggleText}>Variants</Text>
-                    </TouchableOpacity>
-                  ) : (
-                    <View />
-                  )}
-                </View>
-              </View>
-            </View>
-
-            {/* Cart / Print buttons (unchanged) */}
-            {userrole !== 'customer' && (
-              <View style={[styles.row, { marginTop: 16 }]}>
-                <TouchableOpacity
-                  style={[styles.btn, styles.btnPrimary]}
-                  onPress={openVariantModal}
-                >
-                  <Text style={styles.btnText}>Create Variant Product</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.btn, styles.btnAccent]}
-                  onPress={openQdModal}
-                >
-                  <Text style={styles.btnText}>Create Qty Discount</Text>
-                </TouchableOpacity>
-              </View>
-            )}
-            {userrole === 'customer' ? (
-              <View style={[styles.row, { marginTop: 12 }]}>
-                {inCart ? (
-                  <View style={styles.qtyRow}>
-                    <TouchableOpacity style={styles.qtyBtn} onPress={() => decreaseQty(product.product_id)}><Text style={styles.qtyText}>-</Text></TouchableOpacity>
-                    <Text style={styles.qtyValue}>{inCart.qty}</Text>
-                    <TouchableOpacity style={styles.qtyBtn} onPress={() => increaseQty(product.product_id)}><Text style={styles.qtyText}>+</Text></TouchableOpacity>
+              <ScrollView contentContainerStyle={{ paddingBottom: 24 }} keyboardShouldPersistTaps="handled">
+                {imgBase64 ? (
+                  <Image source={{ uri: `data:${imgMime};base64,${imgBase64}` }} style={styles.image} />
+                ) : product.productImage ? (
+                  <Image source={{ uri: `data:image/webp;base64,${product.productImage}` }} style={styles.image} />
+                ) : (
+                  <View style={[styles.image, styles.imagePlaceholder]}>
+                    <Text style={{ color: '#aaa' }}>No Image</Text>
                   </View>
-                ) : (
-                  <TouchableOpacity style={[styles.btn, { backgroundColor: THEME.secondary }]} onPress={() => addToCart(product)}>
-                    <Text style={styles.btnText}>Add to Cart</Text>
-                  </TouchableOpacity>
                 )}
-              </View>
-            ) : (
-              <View style={[styles.row, { marginTop: 12 }]}>
-                {inPrint ? (
-                  <TouchableOpacity
-                    style={[styles.btn, styles.btnDanger]}
-                    onPress={() => removeFromprint(product.product_id)}
-                  >
-                    <Text style={styles.btnText}>Remove from Print</Text>
+
+                <View style={[styles.row, { marginTop: 8 }]}>
+                  <TouchableOpacity style={[styles.smallBtn, styles.ghost]} onPress={pickFromGallery}>
+                    <Text style={styles.ghostText}>Pick from Gallery</Text>
                   </TouchableOpacity>
-                ) : (
-                  <TouchableOpacity
-                    style={[styles.btn, styles.btnSuccess]}
-                    onPress={() => addToPrint(product)}
-                  >
-                    <Text style={styles.btnText}>Add to Print</Text>
+                  <TouchableOpacity style={styles.smallBtn} onPress={takePhoto}>
+                    <Text style={styles.smallBtnText}>Take Photo</Text>
                   </TouchableOpacity>
-                )}
-                <TouchableOpacity
-                  style={[styles.btn, styles.btnArchive, { opacity: archiving ? 0.6 : 1 }]}
-                  disabled={archiving}
-                  onPress={handleArchiveProduct}
-                >
-                  <Text style={styles.btnText}>{archiving ? 'Archiving…' : 'Archive Product'}</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.btn, styles.btnTeal, { opacity: submitting ? 0.6 : 1 }]}
-                  disabled={submitting}
-                  onPress={handleUpdate}
-                >
-                  <Text style={styles.btnText}>{submitting ? 'Updating…' : 'Update Product'}</Text>
-                </TouchableOpacity>
-              </View>
-            )}
-              </ScrollView>
-            )}
-          </View>
-        </View>
-      </Modal>
+                </View>
 
-      <Modal visible={categoryModalVisible} transparent animationType="fade" onRequestClose={() => setCategoryModalVisible(false)}>
-        <View style={styles.optionModalRoot}>
-          <TouchableOpacity style={styles.optionModalBackdrop} activeOpacity={1} onPress={() => setCategoryModalVisible(false)} />
-          <View style={styles.optionModalCard}>
-            <Text style={styles.optionModalTitle}>Select Category</Text>
-            <ScrollView style={styles.optionList}>
-              {sortedCategories.map((item) => (
-                <TouchableOpacity key={item.id} style={styles.optionRow} onPress={() => setCategoryId(String(item.id))}>
-                  <Text style={styles.optionLabel}>{item.name}</Text>
-                  <Switch value={String(categoryId) === String(item.id)} onValueChange={() => setCategoryId(String(item.id))} />
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
-            <TouchableOpacity style={styles.btn} onPress={() => setCategoryModalVisible(false)}>
-              <Text style={styles.btnText}>Done</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
+                <View style={{ marginTop: 12 }}>
+                  <View style={styles.rowGap}>
+                    <View style={styles.fieldCol}>
+                      <Text style={styles.fieldLabel}>Name</Text>
+                      <TextInput
+                        style={[styles.inputCol, { color: inputTextColor, backgroundColor: inputBg, borderColor: inputBorder }]}
+                        placeholder="Name"
+                        placeholderTextColor={placeholderColor}
+                        value={name}
+                        onChangeText={setName}
+                      />
+                    </View>
+                    <View style={styles.fieldCol}>
+                      <Text style={styles.fieldLabel}>Size</Text>
+                      <TextInput
+                        style={[styles.inputCol, { color: inputTextColor, backgroundColor: inputBg, borderColor: inputBorder }]}
+                        placeholder="Size"
+                        placeholderTextColor={placeholderColor}
+                        value={size}
+                        onChangeText={setSize}
+                      />
+                    </View>
+                  </View>
 
-      <Modal visible={taxModalVisible} transparent animationType="fade" onRequestClose={() => setTaxModalVisible(false)}>
-        <View style={styles.optionModalRoot}>
-          <TouchableOpacity style={styles.optionModalBackdrop} activeOpacity={1} onPress={() => setTaxModalVisible(false)} />
-          <View style={styles.optionModalCard}>
-            <Text style={styles.optionModalTitle}>Select Tax</Text>
-            <ScrollView style={styles.optionList}>
-              {sortedTaxes.map((item) => (
-                <TouchableOpacity key={item.id} style={styles.optionRow} onPress={() => toggleTax(item.id)}>
-                  <Text style={styles.optionLabel}>{item.name}</Text>
-                  <Switch value={selectedTaxIds.includes(String(item.id))} onValueChange={() => toggleTax(item.id)} />
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
-            <TouchableOpacity style={styles.btn} onPress={() => setTaxModalVisible(false)}>
-              <Text style={styles.btnText}>Done</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
+                  <View style={[styles.inputWrapper, { marginTop: 10 }]}>
+                    <Text style={[styles.inlineHint, { color: inputTextColor }]}>Barcode</Text>
+                    <View style={[styles.readonlyField, { borderColor: inputBorder, backgroundColor: inputBg }]}>
+                      <Text style={[styles.readonlyText, { color: inputTextColor }]}>
+                        {barcodeOriginal || '-'}
+                      </Text>
+                    </View>
+                  </View>
 
-      <Modal visible={uomModalVisible} transparent animationType="fade" onRequestClose={() => setUomModalVisible(false)}>
-        <View style={styles.optionModalRoot}>
-          <TouchableOpacity style={styles.optionModalBackdrop} activeOpacity={1} onPress={() => setUomModalVisible(false)} />
-          <View style={styles.optionModalCard}>
-            <Text style={styles.optionModalTitle}>Select UoM</Text>
-            <ScrollView style={styles.optionList}>
-              {sortedUom.map((item) => (
-                <TouchableOpacity key={item.id} style={styles.optionRow} onPress={() => toggleUom(item.id)}>
-                  <Text style={styles.optionLabel}>{item.name}</Text>
-                  <Switch value={String(selectedUomId) === String(item.id)} onValueChange={() => toggleUom(item.id)} />
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
-            <TouchableOpacity style={styles.btn} onPress={() => setUomModalVisible(false)}>
-              <Text style={styles.btnText}>Done</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
+                  <View style={[styles.rowGap, { marginTop: 10 }]}>
+                    <View style={styles.fieldCol}>
+                      <Text style={styles.fieldLabel}>Sale Price</Text>
+                      <TextInput
+                        style={[styles.inputCol, { color: inputTextColor, backgroundColor: inputBg, borderColor: inputBorder }]}
+                        placeholder="Price"
+                        placeholderTextColor={placeholderColor}
+                        value={price}
+                        onChangeText={setPrice}
+                        keyboardType="decimal-pad"
+                      />
+                    </View>
+                    <View style={styles.fieldCol}>
+                      <Text style={styles.fieldLabel}>Cost</Text>
+                      <TextInput
+                        style={[styles.inputCol, { color: inputTextColor, backgroundColor: inputBg, borderColor: inputBorder }]}
+                        placeholder="Cost"
+                        placeholderTextColor={placeholderColor}
+                        value={cost}
+                        onChangeText={setCost}
+                        keyboardType="decimal-pad"
+                      />
+                    </View>
+                  </View>
 
-      <Modal visible={variantModalVisible} transparent animationType="fade">
-        <View style={styles.modalBackdrop}>
-          <View style={styles.modalCard}>
-            <Text style={styles.modalTitle}>Create Variant Product</Text>
-            <TextInput
-              style={styles.modalInput}
-              value={variantName}
-              onChangeText={setVariantName}
-              placeholder="Name"
-              placeholderTextColor="#9CA3AF"
-            />
-            <TextInput
-              style={styles.modalInput}
-              value={variantCode}
-              onChangeText={setVariantCode}
-              placeholder="Default Code"
-              placeholderTextColor="#9CA3AF"
-            />
-            <TextInput
-              style={styles.modalInput}
-              value={variantBarcode}
-              onChangeText={setVariantBarcode}
-              placeholder="Barcode"
-              placeholderTextColor="#9CA3AF"
-            />
-            <TextInput
-              style={styles.modalInput}
-              value={variantPrice}
-              onChangeText={setVariantPrice}
-              placeholder="Price"
-              placeholderTextColor="#9CA3AF"
-              keyboardType="decimal-pad"
-            />
-            <View style={styles.modalBtnRow}>
-              <TouchableOpacity
-                style={[styles.btn, styles.variantBtn]}
-                onPress={handleCreateVariant}
-                disabled={variantSubmitting}
-              >
-                <Text style={styles.btnText}>
-                  {variantSubmitting ? 'Submitting...' : 'Submit'}
-                </Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.btn, styles.modalCancelBtn]}
-                onPress={() => setVariantModalVisible(false)}
-              >
-                <Text style={styles.btnText}>Cancel</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
+                  <View style={[styles.rowGap, { marginTop: 10, alignItems: 'flex-end' }]}>
+                    <View style={styles.fieldCol}>
+                      <Text style={styles.fieldLabel}>Case Cost</Text>
+                      <View style={[styles.readonlyField, { borderColor: inputBorder, backgroundColor: inputBg }]}>
+                      <Text style={[styles.readonlyText, { color: inputTextColor }]}>
+                        {casecost || '-'}
+                      </Text>
+                    </View>
+                      {/* <TextInput
+                        style={[styles.inputCol, { color: inputTextColor, backgroundColor: inputBg, borderColor: inputBorder }]}
+                        placeholder="Case Cost"
+                        placeholderTextColor={placeholderColor}
+                        value={casecost}
+                        onChangeText={setCaseCost}
+                        keyboardType="decimal-pad"
+                      /> */}
+                    </View>
+                    <View style={styles.fieldCol}>
+                      <Text style={styles.fieldLabel}>Units in Case</Text>
+                      <View style={[styles.readonlyField, { borderColor: inputBorder, backgroundColor: inputBg }]}>
+                      <Text style={[styles.readonlyText, { color: inputTextColor }]}>
+                        {unitc || '-'}
+                      </Text>
+                    </View>
+                      {/* <TextInput
+                        style={[styles.inputCol, { color: inputTextColor, backgroundColor: inputBg, borderColor: inputBorder }]}
+                        placeholder="Units in Case"
+                        placeholderTextColor={placeholderColor}
+                        value={unitc}
+                        onChangeText={setUnitc}
+                        keyboardType="number-pad"
+                      /> */}
+                    </View>
+                    {/* <TouchableOpacity style={styles.calcBtn} onPress={calculateUnitCost}>
+                      <Text style={styles.calcBtnText}>Calculate</Text>
+                    </TouchableOpacity> */}
+                  </View>
 
-      <Modal visible={qdModalVisible} transparent animationType="fade">
-        <View style={styles.modalBackdrop}>
-          <View style={styles.modalCard}>
-            <Text style={styles.modalTitle}>Create Quantity Discount</Text>
+                  <View style={[styles.rowGap, { marginTop: 10 }]}>
+                    <View style={styles.fieldCol}>
+                      <Text style={styles.fieldLabel}>Net QTY</Text>
+                        <View style={[styles.readonlyField, { borderColor: inputBorder, backgroundColor: inputBg }]}>
+                      <Text style={[styles.readonlyText, { color: inputTextColor }]}>
+                        {qtyavailable || '-'}
+                      </Text>
+                    </View>
+                      {/* <TextInput
+                        style={[styles.inputCol, { color: inputTextColor, backgroundColor: inputBg, borderColor: inputBorder }]}
+                        placeholder="Net QTY"
+                        placeholderTextColor={placeholderColor}
+                        value={qtyavailable}
+                        onChangeText={setQtyAvailable}
+                        keyboardType="decimal-pad"
+                      /> */}
+                    </View>
+                    <View style={styles.fieldCol}>
+                      <Text style={styles.fieldLabel}>Category</Text>
+                      <TouchableOpacity
+                        style={[styles.selectBox, { borderColor: inputBorder, backgroundColor: inputBg, marginTop: 0 }]}
+                        onPress={() => setCategoryModalVisible(true)}
+                      >
+                        <Text style={[styles.selectValue, { color: inputTextColor }]} numberOfLines={2}>
+                          {categorySummary}
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
 
-            <TextInput
-              style={styles.modalInput}
-              value={qdBuyQty}
-              onChangeText={setQdBuyQty}
-              placeholder="No. of products to buy"
-              placeholderTextColor="#9CA3AF"
-              keyboardType="number-pad"
-            />
-            <TextInput
-              style={styles.modalInput}
-              value={qdDiscount}
-              onChangeText={setQdDiscount}
-              placeholder="Discount amount"
-              placeholderTextColor="#9CA3AF"
-              keyboardType="decimal-pad"
-            />
-
-            <TouchableOpacity
-              style={styles.dateInput}
-              onPress={() => setQdShowStartPicker(true)}
-              activeOpacity={0.8}
-            >
-              <Text style={styles.dateInputLabel}>Start Date</Text>
-              <Text style={qdStartDate ? styles.dateInputText : styles.dateInputPlaceholder}>
-                {qdStartDate ? formatDateOnly(qdStartDate) : 'Select date'}
-              </Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.dateInput}
-              onPress={() => setQdShowEndPicker(true)}
-              activeOpacity={0.8}
-            >
-              <Text style={styles.dateInputLabel}>End Date</Text>
-              <Text style={qdEndDate ? styles.dateInputText : styles.dateInputPlaceholder}>
-                {qdEndDate ? formatDateOnly(qdEndDate) : 'Select date'}
-              </Text>
-            </TouchableOpacity>
-
-            {qdShowStartPicker && (
-              <DateTimePicker
-                value={toDate(qdStartDate)}
-                mode="date"
-                display={Platform.OS === 'ios' ? 'spinner' : 'default'}
-                onChange={handleQdStartDateChange}
-              />
-            )}
-            {qdShowEndPicker && (
-              <DateTimePicker
-                value={toDate(qdEndDate)}
-                mode="date"
-                display={Platform.OS === 'ios' ? 'spinner' : 'default'}
-                onChange={handleQdEndDateChange}
-              />
-            )}
-
-            <View style={styles.modalBtnRow}>
-              <TouchableOpacity
-                style={[styles.btn, styles.modalCancelBtn]}
-                onPress={() => setQdModalVisible(false)}
-              >
-                <Text style={styles.btnText}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.btn, styles.btnSuccess, qdSubmitting && { opacity: 0.6 }]}
-                onPress={handleCreateQuantityDiscount}
-                disabled={qdSubmitting}
-              >
-                <Text style={styles.btnText}>{qdSubmitting ? 'Saving…' : 'Create'}</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
-
-      <Modal visible={variantsModalVisible} transparent animationType="fade">
-        <View style={styles.modalBackdrop}>
-          <View style={styles.modalCard}>
-            <Text style={styles.modalTitle}>Variants</Text>
-            <ScrollView contentContainerStyle={{ paddingBottom: 8 }}>
-              {variantsList.map((variant) => {
-                const isEditing = editingVariantId === variant.product_id;
-                return (
-                  <View key={variant.product_id} style={styles.variantCard}>
-                    {isEditing ? (
-                      <>
-                        <TextInput
-                          style={styles.modalInput}
-                          value={editingVariantName}
-                          onChangeText={setEditingVariantName}
-                          placeholder="Product Name"
-                          placeholderTextColor="#9CA3AF"
-                        />
-                        <TextInput
-                          style={styles.modalInput}
-                          value={editingVariantPrice}
-                          onChangeText={setEditingVariantPrice}
-                          placeholder="Sale Price"
-                          placeholderTextColor="#9CA3AF"
-                          keyboardType="decimal-pad"
-                        />
+                  <View style={[styles.rowGap, { marginTop: 10 }]}>
+                    <View style={styles.fieldCol}>
+                      <Text style={styles.fieldLabel}>Tax</Text>
+                      <TouchableOpacity
+                        style={[styles.selectBox, { borderColor: inputBorder, backgroundColor: inputBg, marginTop: 0 }]}
+                        onPress={() => setTaxModalVisible(true)}
+                      >
+                        <Text style={[styles.selectValue, { color: inputTextColor }]} numberOfLines={2}>
+                          {taxSummary}
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
+                    {!isUomLockedByServer && (
+                      <View style={styles.fieldCol}>
+                        <Text style={styles.fieldLabel}>Unit of Measurement</Text>
                         <TouchableOpacity
-                          style={[styles.btn, styles.variantBtn]}
-                          onPress={() => handleUpdateVariantLocal(variant.product_id)}
-                          disabled={variantSubmitting}
+                          style={[styles.selectBox, { borderColor: inputBorder, backgroundColor: inputBg, marginTop: 0 }]}
+                          onPress={() => setUomModalVisible(true)}
                         >
-                          <Text style={styles.btnText}>Update</Text>
-                        </TouchableOpacity>
-                      </>
-                    ) : (
-                      <View style={styles.variantRow}>
-                        <View style={styles.variantInfo}>
-                          <Text style={styles.variantName}>
-                            {formatVariantName(variant.productName)}
+                          <Text style={[styles.selectValue, { color: inputTextColor }]} numberOfLines={2}>
+                            {uomSummary}
                           </Text>
-                          <Text style={styles.variantPrice}>
-                            ${Number(variant.salePrice || 0).toFixed(2)}
-                          </Text>
-                        </View>
-                        <TouchableOpacity onPress={() => startEditVariant(variant)}>
-                          <Icon name="edit" size={20} color="#333" />
                         </TouchableOpacity>
                       </View>
                     )}
                   </View>
-                );
-              })}
-              {variantsList.length === 0 && (
-                <Text style={styles.emptyVariantsText}>No variants available.</Text>
-              )}
-            </ScrollView>
-            <View style={styles.modalBtnRow}>
-              <TouchableOpacity
-                style={[styles.btn, styles.modalCancelBtn]}
-                onPress={() => setVariantsModalVisible(false)}
-              >
-                <Text style={styles.btnText}>Close</Text>
-              </TouchableOpacity>
-            </View>
+
+                  <View style={{ marginTop: 10 }}>
+                    <Text style={styles.fieldLabel}>Vendor</Text>
+                    <TouchableOpacity
+                      style={[styles.inputFlex, { borderColor: inputBorder, backgroundColor: inputBg, paddingVertical: 10, paddingHorizontal: 12 }]}
+                      onPress={() => setVendorModalVisible(true)}
+                    >
+                      <Text style={{ color: placeholderColor }}>
+                        {selectedVendors.length > 0 ? `${selectedVendors.length} vendor(s) selected` : 'Tap to add vendor'}
+                      </Text>
+                    </TouchableOpacity>
+   
+                  </View>
+
+                  <Text style={styles.subTitle}>Settings:</Text>
+                  <View style={styles.switchGrid}>
+                    <View style={styles.switchCell}><Text style={styles.switchLabel}>In POS</Text><Switch value={availablePOS} onValueChange={setAvailablePOS} /></View>
+                    <View style={styles.switchCell}><Text style={styles.switchLabel}>InStore Label</Text><Switch value={in_store_label_product} onValueChange={setin_store_label_product} /></View>
+                  </View>
+                  <View style={styles.switchGrid}>
+                    <View style={styles.switchCell}><Text style={styles.switchLabel}>EBT Eligible</Text><Switch value={isEBT} onValueChange={setIsEBT} /></View>
+                    <View style={styles.switchCell}><Text style={styles.switchLabel}>eWIC Eligible</Text><Switch value={ewic} onValueChange={setEwic} /></View>
+                  </View>
+                  <View style={styles.switchGrid}>
+                    <View style={styles.switchCell}><Text style={styles.switchLabel}>OTC Product</Text><Switch value={otc} onValueChange={setOtc} /></View>
+                    {variantsList.length > 0 && (
+                      <TouchableOpacity style={[styles.switchCell, styles.variantToggleBtn]} onPress={openVariantsModal}>
+                        <Text style={styles.variantToggleText}>View Variants ({variantsList.length})</Text>
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                </View>
+
+                {userrole !== 'customer' && (
+                  <View>
+                    <View style={[styles.row, { marginTop: 20, marginBottom: 8 }]}>
+                      <TouchableOpacity style={[styles.btn, styles.btnPrimary]} onPress={openVariantModal}>
+                        <Text style={styles.btnText}>📦 Variant</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity style={[styles.btn, styles.btnAccent]} onPress={openQdModal}>
+                        <Text style={styles.btnText}>💰 Qty Disc</Text>
+                      </TouchableOpacity>
+                    </View>
+                    <View style={[styles.row, { marginBottom: 8 }]}>
+                      <TouchableOpacity
+                        style={[styles.btn, styles.btnTeal, { opacity: submitting ? 0.6 : 1 }]}
+                        disabled={submitting}
+                        onPress={handleUpdate}
+                      >
+                        <Text style={styles.btnText}>{submitting ? '⏳ Updating…' : '✓ Update'}</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={[styles.btn, styles.btnArchive, { opacity: archiving ? 0.6 : 1 }]}
+                        disabled={archiving}
+                        onPress={handleArchiveProduct}
+                      >
+                        <Text style={styles.btnText}>{archiving ? '⏳ Deleting..' : '🗑 Delete'}</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                )}
+
+                {userrole === 'customer' ? (
+                  <View style={[styles.row, { marginTop: 12 }]}>
+                    {inCart ? (
+                      <View style={styles.qtyRow}>
+                        <TouchableOpacity style={styles.qtyBtn} onPress={() => decreaseQty(product.product_id)}><Text style={styles.qtyText}>-</Text></TouchableOpacity>
+                        <Text style={styles.qtyValue}>{inCart.qty}</Text>
+                        <TouchableOpacity style={styles.qtyBtn} onPress={() => increaseQty(product.product_id)}><Text style={styles.qtyText}>+</Text></TouchableOpacity>
+                      </View>
+                    ) : (
+                      <TouchableOpacity style={[styles.btn, { backgroundColor: THEME.secondary }]} onPress={() => addToCart(product)}>
+                        <Text style={styles.btnText}>Add to Cart</Text>
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                ) : (
+                  <View style={[styles.row, { marginTop: 12 }]}>
+                    {inPrint ? (
+                      <TouchableOpacity
+                        style={[styles.btn, styles.btnDanger]}
+                        onPress={() => removeFromprint(product.product_id)}
+                      >
+                        <Text style={styles.btnText}>Remove from Print</Text>
+                      </TouchableOpacity>
+                    ) : (
+                      <TouchableOpacity
+                        style={[styles.btn, styles.btnSuccess]}
+                        onPress={() => addToPrint(product)}
+                      >
+                        <Text style={styles.btnText}>Add to Print List</Text>
+                      </TouchableOpacity>
+                    )}
+  
+                  </View>
+                )}
+              </ScrollView>
+            )}
+
+            {/* CATEGORY OVERLAY */}
+            {categoryModalVisible && (
+              <View style={styles.innerOverlay}>
+                <TouchableOpacity
+                  style={styles.innerOverlayBackdrop}
+                  activeOpacity={1}
+                  onPress={() => setCategoryModalVisible(false)}
+                />
+                <View style={[styles.optionModalCard, styles.categoryOptionModalCard, styles.innerOverlayCard]}>
+                  <Text style={styles.optionModalTitle}>Select Category</Text>
+                  <ScrollView style={styles.optionList}>
+                    {sortedCategories.map((item) => (
+                      <TouchableOpacity
+                        key={item.id}
+                        style={styles.optionRow}
+                        onPress={() => setCategoryId(String(item.id))}
+                      >
+                        <Text style={styles.optionLabel}>{item.name}</Text>
+                        <Switch
+                          value={String(categoryId) === String(item.id)}
+                          onValueChange={() => setCategoryId(String(item.id))}
+                        />
+                      </TouchableOpacity>
+                    ))}
+                  </ScrollView>
+                     <View style={styles.optionFooter}>
+        <TouchableOpacity
+          style={[styles.btn, styles.btnPrimary, styles.optionDoneBtn]} 
+          onPress={() => setCategoryModalVisible(false)} >
+        <Text style={styles.btnText}>Done</Text>
+        </TouchableOpacity>
+      </View>
+                </View>
+              </View>
+            )}
+
+            {/* TAX OVERLAY */}
+            {taxModalVisible && (
+              <View style={styles.innerOverlay}>
+                <TouchableOpacity
+                  style={styles.innerOverlayBackdrop}
+                  activeOpacity={1}
+                  onPress={() => setTaxModalVisible(false)}
+                />
+                <View style={[styles.optionModalCard, styles.innerOverlayCard]}>
+                  <Text style={styles.optionModalTitle}>Select Tax</Text>
+                  <ScrollView style={styles.optionList}>
+                    {sortedTaxes.map((item) => (
+                      <TouchableOpacity key={item.id} style={styles.optionRow} onPress={() => toggleTax(item.id)}>
+                        <Text style={styles.optionLabel}>{item.name}</Text>
+                        <Switch
+                          value={selectedTaxIds.includes(String(item.id))}
+                          onValueChange={() => toggleTax(item.id)}
+                        />
+                      </TouchableOpacity>
+                    ))}
+                  </ScrollView>
+                               <View style={styles.optionFooter}>
+        <TouchableOpacity
+          style={[styles.btn, styles.btnPrimary, styles.optionDoneBtn]} 
+          onPress={() => setTaxModalVisible(false)} >
+                 
+                    <Text style={styles.btnText}>Done</Text>
+                  </TouchableOpacity>
+                </View>
+                </View>
+              </View>
+            )}
+
+            {/* UOM OVERLAY */}
+            {uomModalVisible && (
+              <View style={styles.innerOverlay}>
+                <TouchableOpacity
+                  style={styles.innerOverlayBackdrop}
+                  activeOpacity={1}
+                  onPress={() => setUomModalVisible(false)}
+                />
+                <View style={[styles.optionModalCard, styles.innerOverlayCard]}>
+                  <Text style={styles.optionModalTitle}>Select UoM</Text>
+                  <ScrollView style={styles.optionList}>
+                    {sortedUom.map((item) => (
+                      <TouchableOpacity key={item.id} style={styles.optionRow} onPress={() => toggleUom(item.id)}>
+                        <Text style={styles.optionLabel}>{item.name}</Text>
+                        <Switch
+                          value={String(selectedUomId) === String(item.id)}
+                           onValueChange={() => toggleUom(item.id)}
+                        />
+                      </TouchableOpacity>
+                    ))}
+                  </ScrollView>
+                     <View style={styles.optionFooter}>
+                    <TouchableOpacity
+                     style={[styles.btn, styles.btnPrimary, styles.optionDoneBtn]} 
+                     onPress={() => setUomModalVisible(false)} >
+                    <Text style={styles.btnText}>Done</Text>
+                  </TouchableOpacity>
+                  </View>
+                </View>
+              </View>
+            )}
+
+            {/* VENDOR OVERLAY */}
+            {vendorModalVisible && (
+              <View style={styles.innerOverlay}>
+                <TouchableOpacity
+                  style={styles.innerOverlayBackdrop}
+                  activeOpacity={1}
+                  onPress={() => setVendorModalVisible(false)}
+                />
+                <View style={[styles.modalCard, styles.innerOverlayCard]}>
+                  <Text style={styles.modalTitle}>Add Vendor</Text>
+                  
+                  {selectedVendors.length > 0 && (
+                    <View style={{ backgroundColor: '#ECFDF5', borderRadius: 8, padding: 10, marginBottom: 12, borderWidth: 1, borderColor: '#BBF7D0' }}>
+                      <Text style={{ fontSize: 11, fontWeight: '700', color: '#166534', marginBottom: 6 }}>Added Vendors ({selectedVendors.length})</Text>
+                      {selectedVendors.map(vendor => {
+                        const vendorId = vendor.id ?? vendor.vendorId ?? vendor._id;
+                        const vendorName = vendor.name ?? vendor.vendorName ?? vendor.vendor_name ?? '';
+                        return (
+                          <View key={vendorId} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 4 }}>
+                            <Text style={{ fontSize: 12, fontWeight: '600', color: '#111', flex: 1 }}>
+                              {vendorName || `ID: ${vendorId}`}
+                            </Text>
+                            {/* <TouchableOpacity onPress={() => removeVendor(vendorId)}>
+                              <Icon name="delete" size={16} color="#D9534F" />
+                            </TouchableOpacity> */}
+                          </View>
+                        );
+                      })}
+                    </View>
+                  )}
+                  
+                  <TextInput
+                    style={styles.modalInput}
+                    value={searchText}
+                    onChangeText={handleVendorSearch}
+                    placeholder="Search vendor (min 3 chars)"
+                    placeholderTextColor="#9CA3AF"
+                    autoCapitalize="none"
+                  />
+
+                  {showVendorDropdown && vendorList.length > 0 && (
+                    <ScrollView style={{ maxHeight: 200, marginBottom: 10 }}>
+                      {vendorList.slice(0, 20).map(v => (
+                        <TouchableOpacity
+                          key={v.id}
+                          style={styles.vendorListItem}
+                          onPress={() => pickVendor(v)}
+                        >
+                          <View>
+                            <Text style={styles.vendorListName}>{v.name}</Text>
+                            <Text style={styles.vendorListId}>ID: {v.id}</Text>
+                          </View>
+                          <Icon name="add-circle" size={24} color="#319241" />
+                        </TouchableOpacity>
+                      ))}
+                    </ScrollView>
+                  )}
+
+                  <View style={styles.modalBtnRow}>
+                    <TouchableOpacity
+                      style={[styles.btn, styles.modalCancelBtn]}
+                      onPress={() => {
+                        setVendorModalVisible(false);
+                        setSearchText('');
+                        setVendorList([]);
+                        setShowVendorDropdown(false);
+                      }}
+                    >
+                      <Text style={styles.btnText}>Done</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              </View>
+            )}
+
+            {/* CREATE VARIANT OVERLAY */}
+            {variantModalVisible && (
+              <View style={styles.innerOverlay}>
+                <TouchableOpacity
+                  style={styles.innerOverlayBackdrop}
+                  activeOpacity={1}
+                  onPress={() => setVariantModalVisible(false)}
+                />
+                <KeyboardAvoidingView
+                  behavior={Platform.select({ ios: 'padding', android: 'height' })}
+                  style={styles.variantKeyboardAvoidWrapper}
+                >
+                  <View style={[styles.modalCard, styles.innerOverlayCard]}>
+                    <Text style={styles.modalTitle}>Create Variant Product</Text>
+                    <ScrollView
+                      style={{ maxHeight: 280, marginBottom: 16 }}
+                      contentContainerStyle={{ paddingHorizontal: 0 }}
+                      keyboardShouldPersistTaps="handled"
+                      showsVerticalScrollIndicator={true}
+                    >
+                      <TextInput
+                        style={styles.modalInput}
+                        value={variantName}
+                        onChangeText={setVariantName}
+                        placeholder="Name"
+                        placeholderTextColor="#9CA3AF"
+                      />
+                      <TextInput
+                        style={styles.modalInput}
+                        value={variantCode}
+                        onChangeText={setVariantCode}
+                        placeholder="Default Code"
+                        placeholderTextColor="#9CA3AF"
+                      />
+                      <TextInput
+                        style={styles.modalInput}
+                        value={variantBarcode}
+                        onChangeText={setVariantBarcode}
+                        placeholder="Barcode"
+                        placeholderTextColor="#9CA3AF"
+                      />
+                      <TextInput
+                        style={styles.modalInput}
+                        value={variantPrice}
+                        onChangeText={setVariantPrice}
+                        placeholder="Price"
+                        placeholderTextColor="#9CA3AF"
+                        keyboardType="decimal-pad"
+                      />
+                    </ScrollView>
+                    <View style={styles.modalBtnRow}>
+                      <TouchableOpacity
+                        style={[styles.btn, styles.variantBtn]}
+                        onPress={handleCreateVariant}
+                        disabled={variantSubmitting}
+                      >
+                        <Text style={styles.btnText}>{variantSubmitting ? 'Submitting...' : 'Submit'}</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={[styles.btn, styles.modalCancelBtn]}
+                        onPress={() => setVariantModalVisible(false)}
+                      >
+                        <Text style={styles.btnText}>Cancel</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                </KeyboardAvoidingView>
+              </View>
+            )}
+
+            {/* QTY DISCOUNT OVERLAY */}
+            {qdModalVisible && (
+              <View style={styles.innerOverlay}>
+                <TouchableOpacity
+                  style={styles.innerOverlayBackdrop}
+                  activeOpacity={1}
+                  onPress={() => {
+                    setQdModalVisible(false);
+                    setQdShowStartPicker(false);
+                    setQdShowEndPicker(false);
+                  }}
+                />
+                <KeyboardAvoidingView
+                  behavior={Platform.select({ ios: 'padding', android: 'height' })}
+                  style={styles.qdKeyboardAvoidWrapper}
+                >
+                  <View style={[styles.modalCard, styles.innerOverlayCard]}>
+                  <Text style={styles.modalTitle}>Create Quantity Discount</Text>
+
+                  <ScrollView
+                    style={{ maxHeight: 320, marginBottom: 16 }}
+                    contentContainerStyle={{ paddingHorizontal: 0 }}
+                    keyboardShouldPersistTaps="handled"
+                    showsVerticalScrollIndicator={true}
+                  >
+                    <TextInput
+                      style={styles.modalInput}
+                      value={qdBuyQty}
+                      onChangeText={setQdBuyQty}
+                      placeholder="No. of products to buy"
+                      placeholderTextColor="#9CA3AF"
+                      keyboardType="number-pad"
+                    />
+                    <TextInput
+                      style={styles.modalInput}
+                      value={qdDiscount}
+                      onChangeText={setQdDiscount}
+                      placeholder="Discount amount"
+                      placeholderTextColor="#9CA3AF"
+                      keyboardType="decimal-pad"
+                    />
+
+                    <TouchableOpacity
+                      style={styles.qdDateInput}
+                      onPress={() => {
+                        setQdShowEndPicker(false);
+                        setQdShowStartPicker(true);
+                      }}
+                      activeOpacity={0.8}
+                    >
+                      <View style={styles.qdDateInputHeader}>
+                        <Icon name="event" size={16} color="#319241" />
+                        <Text style={styles.qdDateInputLabel}>Start Date</Text>
+                      </View>
+                      <Text style={qdStartDate ? styles.qdDateInputText : styles.qdDateInputPlaceholder}>
+                        {qdStartDate ? formatDateOnly(qdStartDate) : 'Select'}
+                      </Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={styles.qdDateInput}
+                      onPress={() => {
+                        setQdShowStartPicker(false);
+                        setQdShowEndPicker(true);
+                      }}
+                      activeOpacity={0.8}
+                    >
+                      <View style={styles.qdDateInputHeader}>
+                        <Icon name="event" size={16} color="#D9534F" />
+                        <Text style={styles.qdDateInputLabel}>End Date</Text>
+                      </View>
+                      <Text style={qdEndDate ? styles.qdDateInputText : styles.qdDateInputPlaceholder}>
+                        {qdEndDate ? formatDateOnly(qdEndDate) : 'Select'}
+                      </Text>
+                    </TouchableOpacity>
+                  </ScrollView>
+
+                  <View style={styles.qdModalBtnRow}>
+                    <TouchableOpacity
+                      style={[styles.qdBtn, styles.qdBtnCancel]}
+                      onPress={() => {
+                        setQdModalVisible(false);
+                        setQdShowStartPicker(false);
+                        setQdShowEndPicker(false);
+                      }}
+                    >
+                      <Text style={styles.qdBtnCancelText}>Cancel</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.qdBtn, styles.qdBtnConfirm, qdSubmitting && { opacity: 0.6 }]}
+                      onPress={handleCreateQuantityDiscount}
+                      disabled={qdSubmitting}
+                    >
+                      <Text style={styles.qdBtnConfirmText}>{qdSubmitting ? 'Saving…' : 'Create'}</Text>
+                    </TouchableOpacity>
+                  </View>
+
+                  {qdShowStartPicker && (
+                    <Modal visible={qdShowStartPicker} transparent animationType="fade">
+                      <View style={styles.qdDatePickerModal}>
+                        <TouchableOpacity 
+                          style={styles.qdDatePickerBackdrop}
+                          activeOpacity={1}
+                          onPress={() => setQdShowStartPicker(false)}
+                        />
+                        <View style={styles.qdDatePickerContainer}>
+                          <View style={styles.qdDatePickerHeader}>
+                            <Text style={styles.qdDatePickerTitle}>Select Start Date</Text>
+                            <TouchableOpacity onPress={() => setQdShowStartPicker(false)}>
+                              <Icon name="close" size={24} color="#111" />
+                            </TouchableOpacity>
+                          </View>
+                          <View style={styles.qdDatePickerContent}>
+                            <DateTimePicker
+                              value={toDate(qdStartDate)}
+                              mode="date"
+                              display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+                              onChange={handleQdStartDateChange}
+                              textColor="#111"
+                              themeVariant="light"
+                            />
+                          </View>
+                          <View style={styles.qdDatePickerFooter}>
+                            <TouchableOpacity 
+                              style={[styles.qdBtn, styles.qdBtnCancel]}
+                              onPress={() => setQdShowStartPicker(false)}
+                            >
+                              <Text style={styles.qdBtnCancelText}>Cancel</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity 
+                              style={[styles.qdBtn, styles.qdBtnConfirm]}
+                              onPress={() => setQdShowStartPicker(false)}
+                            >
+                              <Text style={styles.qdBtnConfirmText}>Confirm</Text>
+                            </TouchableOpacity>
+                          </View>
+                        </View>
+                      </View>
+                    </Modal>
+                  )}
+
+                  {qdShowEndPicker && (
+                    <Modal visible={qdShowEndPicker} transparent animationType="fade">
+                      <View style={styles.qdDatePickerModal}>
+                        <TouchableOpacity 
+                          style={styles.qdDatePickerBackdrop}
+                          activeOpacity={1}
+                          onPress={() => setQdShowEndPicker(false)}
+                        />
+                        <View style={styles.qdDatePickerContainer}>
+                          <View style={styles.qdDatePickerHeader}>
+                            <Text style={styles.qdDatePickerTitle}>Select End Date</Text>
+                            <TouchableOpacity onPress={() => setQdShowEndPicker(false)}>
+                              <Icon name="close" size={24} color="#111" />
+                            </TouchableOpacity>
+                          </View>
+                          <View style={styles.qdDatePickerContent}>
+                            <DateTimePicker
+                              value={toDate(qdEndDate)}
+                              mode="date"
+                              display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+                              onChange={handleQdEndDateChange}
+                              textColor="#111"
+                              themeVariant="light"
+                            />
+                          </View>
+                          <View style={styles.qdDatePickerFooter}>
+                            <TouchableOpacity 
+                              style={[styles.qdBtn, styles.qdBtnCancel]}
+                              onPress={() => setQdShowEndPicker(false)}
+                            >
+                              <Text style={styles.qdBtnCancelText}>Cancel</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity 
+                              style={[styles.qdBtn, styles.qdBtnConfirm]}
+                              onPress={() => setQdShowEndPicker(false)}
+                            >
+                              <Text style={styles.qdBtnConfirmText}>Confirm</Text>
+                            </TouchableOpacity>
+                          </View>
+                        </View>
+                      </View>
+                    </Modal>
+                  )}
+                  </View>
+                </KeyboardAvoidingView>
+              </View>
+            )}
+
+            {/* VARIANTS LIST OVERLAY */}
+            {variantsModalVisible && (
+              <View style={styles.innerOverlay}>
+                <TouchableOpacity
+                  style={styles.innerOverlayBackdrop}
+                  activeOpacity={1}
+                  onPress={() => setVariantsModalVisible(false)}
+                />
+                <View style={[styles.modalCard, styles.innerOverlayCard]}>
+                  <Text style={styles.modalTitle}>Variants</Text>
+                  <ScrollView contentContainerStyle={{ paddingBottom: 8 }}>
+                    {variantsList.map((variant) => {
+                      const isEditing = editingVariantId === variant.product_id;
+                      return (
+                        <View key={variant.product_id} style={styles.variantCard}>
+                          {isEditing ? (
+                            <>
+                              <TextInput
+                                style={styles.modalInput}
+                                value={editingVariantName}
+                                onChangeText={setEditingVariantName}
+                                placeholder="Product Name"
+                                placeholderTextColor="#9CA3AF"
+                              />
+                              <TextInput
+                                style={styles.modalInput}
+                                value={editingVariantPrice}
+                                onChangeText={setEditingVariantPrice}
+                                placeholder="Sale Price"
+                                placeholderTextColor="#9CA3AF"
+                                keyboardType="decimal-pad"
+                              />
+                              <TouchableOpacity
+                                style={[styles.btn, styles.variantBtn]}
+                                onPress={() => handleUpdateVariantLocal(variant.product_id)}
+                                disabled={variantSubmitting}
+                              >
+                                <Text style={styles.btnText}>Update</Text>
+                              </TouchableOpacity>
+                            </>
+                          ) : (
+                            <View style={styles.variantRow}>
+                              <View style={styles.variantInfo}>
+                                <Text style={styles.variantName}>{formatVariantName(variant.productName)}</Text>
+                                <Text style={styles.variantPrice}>${Number(variant.salePrice || 0).toFixed(2)}</Text>
+                              </View>
+                              <TouchableOpacity onPress={() => startEditVariant(variant)}>
+                                <Icon name="edit" size={20} color="#333" />
+                              </TouchableOpacity>
+                            </View>
+                          )}
+                        </View>
+                      );
+                    })}
+                    {variantsList.length === 0 && (
+                      <Text style={styles.emptyVariantsText}>No variants available.</Text>
+                    )}
+                  </ScrollView>
+                  <View style={styles.modalBtnRow}>
+                    <TouchableOpacity
+                      style={[styles.btn, styles.modalCancelBtn]}
+                      onPress={() => setVariantsModalVisible(false)}
+                    >
+                      <Text style={styles.btnText}>Close</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              </View>
+            )}
           </View>
         </View>
       </Modal>
 
-      {/* Fullscreen Scanner */}
-      <Modal visible={scannerVisible} animationType="slide">
+      <Modal
+        visible={scannerVisible}
+        animationType="slide"
+        presentationStyle="fullScreen"
+        onRequestClose={() => setScannerVisible(false)}
+      >
         {hasCameraPermission ? (
           <View style={{ flex: 1 }}>
-            <Camera style={styles.camera} cameraType={CameraType.Back} scanBarcode onReadCode={onReadCode} />
+            <Camera
+              style={styles.camera}
+              cameraType={CameraType.Back}
+              scanBarcode
+              onReadCode={onReadCode}
+            />
             <View style={styles.controls}>
               <TouchableOpacity style={styles.controlBtn} onPress={() => setScannerVisible(false)}>
                 <Text style={styles.controlText}>Close</Text>
@@ -1260,27 +1637,27 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
     borderRadius: 14,
     padding: 12,
+    zIndex: 1,
+    overflow: 'hidden',
   },
   mainModalCloseBtn: {
     alignSelf: 'flex-end',
     padding: 4,
+    zIndex: 2,
   },
   emptyBox: { flex: 1, alignItems: 'center', justifyContent: 'center' },
 
   image: { width: '100%', height: 200, borderRadius: 12, resizeMode: 'contain' },
   imagePlaceholder: { backgroundColor: '#f2f2f2', alignItems: 'center', justifyContent: 'center' },
 
-  metaLabel: { color: '#666', fontSize: 12, marginTop: 6 },
-  metaValue: { color: '#111', fontWeight: '600', marginTop: 2 },
-
   row: { flexDirection: 'row', gap: 12 },
   rowGap: { flexDirection: 'row', gap: 10 },
-  btn: { flex: 1, paddingVertical: 12, borderRadius: 10, alignItems: 'center' },
-  btnText: { color: '#fff', fontWeight: '700' },
+  btn: { flex: 1, paddingVertical: 14, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
+  btnText: { color: '#fff', fontWeight: '700', fontSize: 13 },
   btnPrimary: { backgroundColor: THEME.primary },
   btnAccent: { backgroundColor: THEME.secondary },
   btnSuccess: { backgroundColor: '#16A34A' },
-  btnArchive: { backgroundColor: '#F59E0B' },
+  btnArchive: { backgroundColor: '#D9534F' },
   btnTeal: { backgroundColor: '#1B9C85' },
   btnDanger: { backgroundColor: '#D9534F' },
 
@@ -1289,20 +1666,27 @@ const styles = StyleSheet.create({
   ghost: { backgroundColor: '#fff', borderWidth: 1, borderColor: '#ddd' },
   ghostText: { color: '#333', fontWeight: '700' },
 
-  input: { borderWidth: 1, borderColor: '#ddd', borderRadius: 8, paddingVertical: 10, paddingHorizontal: 12, color: '#333', marginTop: 10 },
   inputFlex: {
     flex: 1,
     borderWidth: 1,
     borderColor: '#ddd',
     borderRadius: 8,
-    paddingVertical: 10,
+    paddingVertical: 12,
     paddingHorizontal: 12,
     color: '#333',
     backgroundColor: '#fff',
   },
-  inputCol: { flex: 1, borderWidth: 1, borderColor: '#ddd', borderRadius: 8, paddingVertical: 10, paddingHorizontal: 12, color: '#333' },
+  inputCol: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderRadius: 8,
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    color: '#333'
+  },
   fieldCol: { flex: 1 },
-  fieldLabel: { fontSize: 12, fontWeight: '700', color: '#4B5563', marginBottom: 6 },
+  fieldLabel: { fontSize: 12, fontWeight: '700', color: '#555', marginBottom: 6 },
   inputWrapper: { position: 'relative' },
   inlineHint: { fontSize: 11, marginBottom: 6, fontWeight: '600' },
   readonlyField: {
@@ -1312,21 +1696,30 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
   },
   readonlyText: { fontSize: 14, fontWeight: '600' },
-  inputWithRightIcon: {
-    borderWidth: 1, borderColor: '#ddd', borderRadius: 8,
-    paddingVertical: 10, paddingLeft: 12, paddingRight: 44, color: '#333', backgroundColor: '#fff',
+
+  pickerCol: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderRadius: 8,
+    overflow: 'hidden',
+    marginTop: 10
   },
-  inputRightIcon: { position: 'absolute', right: 12, top: '50%', marginTop: -14, justifyContent: 'center', alignItems: 'center', height: 28, width: 28 },
 
-  pickerCol: { flex: 1, borderWidth: 1, borderColor: '#ddd', borderRadius: 8, overflow: 'hidden', marginTop: 10 },
+  fakePicker: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 12,
+    paddingVertical: 12
+  },
+  fakePickerText: { color: '#333', flex: 1, paddingRight: 8 },
 
-  fakePicker: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 12, paddingVertical: 12 },
-  fakePickerText: { color: '#333' },
   selectBox: {
     flex: 1,
     borderWidth: 1,
     borderRadius: 8,
-    paddingVertical: 10,
+    paddingVertical: 12,
     paddingHorizontal: 12,
     justifyContent: 'center',
   },
@@ -1338,9 +1731,11 @@ const styles = StyleSheet.create({
   },
   selectValue: {
     color: '#111',
-    fontSize: 14,
+    fontSize: 13,
+    fontWeight: '600',
   },
-  vendorBox: { flex: 1, position: 'relative' },
+
+  vendorBox: { flex: 1, position: 'relative', zIndex: 20, },
   vendorDropdown: {
     position: 'absolute',
     top: 46,
@@ -1357,24 +1752,28 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.15,
     shadowRadius: 8,
   },
-  vendorItem: { paddingVertical: 10, paddingHorizontal: 12, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: '#eee' },
+  vendorItem: {
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: '#eee'
+  },
   vendorText: { color: '#111', fontWeight: '600' },
   vendorSub: { color: '#666', fontSize: 12, marginTop: 2 },
   selectedVendorNote: { fontSize: 12, color: '#2c1e70', marginTop: 6 },
-  optionModalRoot: {
-    flex: 1,
-    justifyContent: 'center',
-    paddingHorizontal: 20,
-  },
-  optionModalBackdrop: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: '#00000077',
-  },
+
   optionModalCard: {
     backgroundColor: '#fff',
     borderRadius: 12,
     maxHeight: '75%',
+    width: '100%',
+    maxWidth: 560,
+    alignSelf: 'center',
     padding: 14,
+  },
+  categoryOptionModalCard: {
+    maxWidth: 420,
+    maxHeight: '58%',
   },
   optionModalTitle: {
     fontSize: 16,
@@ -1400,13 +1799,31 @@ const styles = StyleSheet.create({
     paddingRight: 10,
   },
 
-  colWithButton: { flex: 1, flexDirection: 'column', gap: 8 },
-  calcBtn: { backgroundColor: THEME.secondary, paddingVertical: 8, paddingHorizontal: 12, borderRadius: 8, marginTop: 8, alignSelf: 'flex-end' },
-  calcBtnText: { color: '#fff', fontWeight: '700' },
+  calcBtn: {
+    backgroundColor: THEME.secondary,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    alignSelf: 'flex-end',
+    marginBottom: 1,
+  },
+  calcBtnText: { color: '#fff', fontWeight: '700', fontSize: 12 },
 
   camera: { flex: 1 },
-  controls: { position: 'absolute', bottom: 30, width: '100%', flexDirection: 'row', justifyContent: 'center', gap: 10 },
-  controlBtn: { backgroundColor: '#000000AA', paddingVertical: 10, paddingHorizontal: 16, borderRadius: 8 },
+  controls: {
+    position: 'absolute',
+    bottom: 30,
+    width: '100%',
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 10
+  },
+  controlBtn: {
+    backgroundColor: '#000000AA',
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: 8
+  },
   controlText: { color: '#fff', fontWeight: '700' },
   permissionDenied: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 20 },
 
@@ -1415,16 +1832,22 @@ const styles = StyleSheet.create({
   qtyText: { color: '#fff', fontSize: 16, fontWeight: 'bold' },
   qtyValue: { marginHorizontal: 10, fontSize: 16, fontWeight: 'bold', color: '#000' },
 
-  subTitle: { marginTop: 12, marginBottom: 6, fontWeight: '700', color: '#111' },
-  switchGrid: { flexDirection: 'row', gap: 10, marginTop: 10 },
-  variantBtn: { backgroundColor: THEME.secondary },
-  modalBackdrop: {
+  subTitle: { marginTop: 14, marginBottom: 8, fontWeight: '700', color: '#111', fontSize: 13 },
+  switchGrid: { flexDirection: 'row', gap: 10, marginTop: 12 },
+  switchCell: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.35)',
+    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    padding: 16,
+    justifyContent: 'space-between',
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+    borderRadius: 8,
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    backgroundColor: '#fafafa',
   },
+  switchLabel: { color: '#111', fontWeight: '600', fontSize: 12 },
+
   modalCard: {
     width: '100%',
     maxWidth: 420,
@@ -1456,15 +1879,20 @@ const styles = StyleSheet.create({
   dateInputPlaceholder: { marginTop: 4, fontSize: 13, color: '#9CA3AF' },
   modalBtnRow: { flexDirection: 'row', gap: 10, marginTop: 4 },
   modalCancelBtn: { backgroundColor: '#D9534F' },
+
+  variantBtn: { backgroundColor: THEME.secondary },
   variantToggleBtn: {
     backgroundColor: '#1B9C85',
-    paddingVertical: 10,
-    paddingHorizontal: 14,
-    borderRadius: 10,
+    paddingVertical: 0,
+    paddingHorizontal: 12,
+    borderRadius: 8,
     alignSelf: 'stretch',
     alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 0,
+    borderColor: 'transparent',
   },
-  variantToggleText: { color: '#fff', fontWeight: '700', fontSize: 13 },
+  variantToggleText: { color: '#fff', fontWeight: '700', fontSize: 12 },
   variantCard: {
     borderWidth: 1,
     borderColor: '#eee',
@@ -1478,10 +1906,224 @@ const styles = StyleSheet.create({
   variantName: { fontSize: 14, fontWeight: '700', color: '#111' },
   variantPrice: { marginTop: 4, fontSize: 12, color: '#319241', fontWeight: '700' },
   emptyVariantsText: { color: '#6B7280', textAlign: 'center', paddingVertical: 8 },
-  removePrintBtn: { backgroundColor: '#D9534F' },
-  switchCell: {
-    flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    borderWidth: StyleSheet.hairlineWidth, borderColor: '#eee', borderRadius: 8, paddingVertical: 10, paddingHorizontal: 12,
+
+  innerOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 999,
+    elevation: 50,
   },
-  switchLabel: { color: '#111', fontWeight: '600' },
+  innerOverlayBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.30)',
+  },
+  innerOverlayCard: {
+    zIndex: 1000,
+    elevation: 60,
+  },
+  qdKeyboardAvoidWrapper: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  variantKeyboardAvoidWrapper: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+
+  vendorChipsContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: 10,
+  },
+  vendorChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#319241',
+    borderRadius: 20,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderWidth: 1,
+    borderColor: '#27a337',
+  },
+  vendorChipText: {
+    color: '#fff',
+    fontWeight: '600',
+    fontSize: 12,
+    maxWidth: 150,
+  },
+  vendorChipRemove: {
+    padding: 2,
+  },
+  vendorListItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#eee',
+  },
+  vendorListName: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#111',
+  },
+  vendorListId: {
+    fontSize: 11,
+    color: '#666',
+    marginTop: 2,
+  },
+  selectedVendorLabel: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#111',
+    marginTop: 12,
+    marginBottom: 8,
+  },
+  selectedVendorsList: {
+    backgroundColor: '#f9f9f9',
+    borderRadius: 8,
+    padding: 8,
+    marginBottom: 12,
+  },
+  selectedVendorItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    backgroundColor: '#fff',
+    borderRadius: 6,
+    marginBottom: 6,
+    borderWidth: 1,
+    borderColor: '#ddd',
+  },
+  selectedVendorName: {
+    flex: 1,
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#111',
+  },
+
+optionDoneBtn: {
+  flex: 0,
+  width: '100%',
+},
+qdDateInput: {
+  borderWidth: 1,
+  borderColor: '#E5E7EB',
+  borderRadius: 10,
+  paddingHorizontal: 12,
+  paddingVertical: 12,
+  backgroundColor: '#F9FAFB',
+  marginBottom: 12,
+},
+qdDateInputHeader: { 
+  flexDirection: 'row', 
+  alignItems: 'center', 
+  gap: 6, 
+  marginBottom: 6 
+},
+qdDateInputLabel: { 
+  fontSize: 11, 
+  color: '#6B7280', 
+  fontWeight: '700' 
+},
+qdDateInputText: { 
+  fontSize: 14, 
+  color: '#111', 
+  fontWeight: '700' 
+},
+qdDateInputPlaceholder: { 
+  fontSize: 14, 
+  color: '#9CA3AF', 
+  fontWeight: '500' 
+},
+qdDatePickerModal: {
+  flex: 1,
+  justifyContent: 'flex-end',
+  backgroundColor: 'rgba(0,0,0,0.5)',
+},
+qdDatePickerBackdrop: {
+  flex: 1,
+},
+qdDatePickerContainer: {
+  backgroundColor: '#fff',
+  borderTopLeftRadius: 20,
+  borderTopRightRadius: 20,
+  paddingTop: 0,
+  maxHeight: '70%',
+  ...Platform.select({
+    ios: {
+      shadowColor: '#000',
+      shadowOpacity: 0.15,
+      shadowRadius: 12,
+      shadowOffset: { width: 0, height: -4 },
+    },
+    android: {
+      elevation: 8,
+    },
+  }),
+},
+qdDatePickerHeader: {
+  flexDirection: 'row',
+  justifyContent: 'space-between',
+  alignItems: 'center',
+  paddingHorizontal: 16,
+  paddingVertical: 14,
+  borderBottomWidth: 1,
+  borderBottomColor: '#E5E7EB',
+},
+qdDatePickerTitle: {
+  fontSize: 16,
+  fontWeight: '700',
+  color: '#111',
+},
+qdDatePickerContent: {
+  paddingVertical: 20,
+  alignItems: 'center',
+},
+qdDatePickerFooter: {
+  flexDirection: 'row',
+  gap: 12,
+  paddingHorizontal: 16,
+  paddingVertical: 14,
+  borderTopWidth: 1,
+  borderTopColor: '#E5E7EB',
+},
+qdModalBtnRow: {
+  flexDirection: 'row',
+  gap: 12,
+  marginTop: 12,
+},
+qdBtn: {
+  flex: 1,
+  paddingVertical: 12,
+  borderRadius: 10,
+  alignItems: 'center',
+  justifyContent: 'center',
+},
+qdBtnCancel: {
+  backgroundColor: '#F3F4F6',
+  borderWidth: 1,
+  borderColor: '#E5E7EB',
+},
+qdBtnConfirm: {
+  backgroundColor: '#319241',
+},
+qdBtnCancelText: {
+  color: '#666',
+  fontWeight: '700',
+  fontSize: 14,
+},
+qdBtnConfirmText: {
+  color: '#fff',
+  fontWeight: '700',
+  fontSize: 14,
+},
 });

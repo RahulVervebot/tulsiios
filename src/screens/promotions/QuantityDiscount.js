@@ -38,6 +38,7 @@ const DEFAULT_FORM = {
 
 export default function QuantityDiscountScreen() {
   const onEndReachedCalledDuringMomentum = useRef(false);
+  const searchInputRef = useRef(null);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -80,39 +81,47 @@ export default function QuantityDiscountScreen() {
   };
 
   const handleStartDateChange = (_, date) => {
-    if (Platform.OS === 'android') setShowStartPicker(false);
     if (!date) return;
     const yyyy = date.getFullYear();
     const mm = String(date.getMonth() + 1).padStart(2, '0');
     const dd = String(date.getDate()).padStart(2, '0');
     updateForm('start_date', `${yyyy}-${mm}-${dd} 00:00:00`);
+    // if (Platform.OS === 'ios') {
+    //   setShowStartPicker(false);
+    // } else {
+    //   setShowStartPicker(false);
+    // }
   };
 
   const handleEndDateChange = (_, date) => {
-    if (Platform.OS === 'android') setShowEndPicker(false);
     if (!date) return;
     const yyyy = date.getFullYear();
     const mm = String(date.getMonth() + 1).padStart(2, '0');
     const dd = String(date.getDate()).padStart(2, '0');
     updateForm('end_date', `${yyyy}-${mm}-${dd} 23:59:59`);
+    // if (Platform.OS === 'ios') {
+    //   setShowEndPicker(false);
+    // } else {
+    //   setShowEndPicker(false);
+    // }
   };
 
   const handleFilterStartDateChange = (_, date) => {
-    if (Platform.OS === 'android') setShowFilterStartPicker(false);
     if (!date) return;
     const yyyy = date.getFullYear();
     const mm = String(date.getMonth() + 1).padStart(2, '0');
     const dd = String(date.getDate()).padStart(2, '0');
     setFilterStart(`${yyyy}-${mm}-${dd}`);
+    setShowFilterStartPicker(false);
   };
 
   const handleFilterEndDateChange = (_, date) => {
-    if (Platform.OS === 'android') setShowFilterEndPicker(false);
     if (!date) return;
     const yyyy = date.getFullYear();
     const mm = String(date.getMonth() + 1).padStart(2, '0');
     const dd = String(date.getDate()).padStart(2, '0');
     setFilterEnd(`${yyyy}-${mm}-${dd}`);
+    setShowFilterEndPicker(false);
   };
 
   const updateForm = (key, value) => setForm((prev) => ({ ...prev, [key]: value }));
@@ -128,6 +137,7 @@ export default function QuantityDiscountScreen() {
         end_date: filterEnd || undefined,
       });
       const nextRows = Array.isArray(res?.data) ? res.data : [];
+      console.log("loaded promotions,", res);
       setRows((prev) => (append ? [...prev, ...nextRows] : nextRows));
       setPage(Number(res?.page ?? nextPage) || nextPage);
       setTotalPages(Number(res?.total_pages ?? 1) || 1);
@@ -163,7 +173,14 @@ export default function QuantityDiscountScreen() {
     setProductQuery('');
     setProductResults([]);
     setProductDropdownVisible(false);
+    setShowStartPicker(false);
+    setShowEndPicker(false);
     setFormModalVisible(true);
+    setTimeout(() => {
+      if (searchInputRef.current) {
+        searchInputRef.current.focus();
+      }
+    }, 300);
   };
 
   const handleCreateOrUpdate = async () => {
@@ -220,7 +237,7 @@ export default function QuantityDiscountScreen() {
   const handleSearchProducts = (text) => {
     setProductQuery(text);
     if (productDebounceRef.current) clearTimeout(productDebounceRef.current);
-    if (text.trim().length < 3) {
+    if (text.trim().length < 2) {
       setProductResults([]);
       setProductDropdownVisible(false);
       return;
@@ -231,12 +248,23 @@ export default function QuantityDiscountScreen() {
         const normalized = Array.isArray(results)
           ? results.map((p) => ({
               id: Number(p.id ?? p.product_id ?? p._id),
-              name: p.productName ?? p.name ?? p.product_name ?? 'Product',
-              barcode: p.barcode,
+              name: p.productName ?? p.product_name ?? p.name ?? 'Product',
+              barcode: p.barcode || '',
+              salePrice: p.salePrice ?? p.sale_price ?? '',
             }))
           : [];
-        setProductResults(normalized.filter((p) => Number.isFinite(p.id)));
-        setProductDropdownVisible(true);
+          console.log("search products results,", results);
+        const searchTerm = text.trim().toLowerCase();
+        const filtered = normalized.filter((p) => {
+          if (!Number.isFinite(p.id)) return false;
+          const nameMatch = String(p.name).toLowerCase().includes(searchTerm);
+          const barcodeMatch = String(p.barcode).toLowerCase().includes(searchTerm);
+          const priceMatch = String(p.salePrice).toLowerCase().includes(searchTerm);
+          return nameMatch || barcodeMatch || priceMatch;
+        });
+        setProductResults(filtered);
+ 
+        setProductDropdownVisible(filtered.length > 0);
       } catch (e) {
         setProductResults([]);
         setProductDropdownVisible(false);
@@ -260,28 +288,32 @@ export default function QuantityDiscountScreen() {
     handleSearchProducts(value);
   };
 
-  const filteredRows = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    const startFilter = filterStart.trim();
-    const endFilter = filterEnd.trim();
-    return rows.filter((item) => {
-      const nameMatch = !q || String(item?.product_name || '').toLowerCase().includes(q);
-      if (!nameMatch) return false;
+const filteredRows = useMemo(() => {
+  const q = query.trim().toLowerCase();
+  const startFilter = filterStart.trim();
+  const endFilter = filterEnd.trim();
 
-      const startVal = formatDateOnly(item?.start_date || '');
-      const endVal = formatDateOnly(item?.end_date || '');
-      if (!startFilter && !endFilter) return true;
-      if (startFilter && !endFilter) return startVal && startVal >= startFilter;
-      if (!startFilter && endFilter) return endVal && endVal <= endFilter;
-      // overlap between [startVal, endVal] and [startFilter, endFilter]
-      return (
-        startVal &&
-        endVal &&
-        startVal <= endFilter &&
-        endVal >= startFilter
-      );
-    });
-  }, [rows, query, filterStart, filterEnd]);
+  return rows.filter((item) => {
+    const productName = String(item?.product_name || '').toLowerCase();
+    const barcode = String(item?.barcode || '').toLowerCase();
+
+    const searchMatch =
+      !q ||
+      productName.includes(q) ||
+      barcode.includes(q);
+
+    if (!searchMatch) return false;
+
+    const startVal = formatDateOnly(item?.start_date || '');
+    const endVal = formatDateOnly(item?.end_date || '');
+
+    if (!startFilter && !endFilter) return true;
+    if (startFilter && !endFilter) return startVal && startVal >= startFilter;
+    if (!startFilter && endFilter) return endVal && endVal <= endFilter;
+
+    return startVal && endVal && startVal <= endFilter && endVal >= startFilter;
+  });
+}, [rows, query, filterStart, filterEnd]);
 
   const handleLoadMore = () => {
     if (loadingMore || loading) return;
@@ -298,6 +330,7 @@ export default function QuantityDiscountScreen() {
         setEditingId(item?.id ?? null);
         setForm({
           product_id: item?.product_id ?? null,
+          product_name: item?.product_name ?? null,
           no_of_product_to_buy: String(item?.number_of_product_to_buy ?? 1),
           discount_amount: String(item?.discount_amount ?? 0),
           start_date: item?.start_date || '',
@@ -308,9 +341,12 @@ export default function QuantityDiscountScreen() {
           name: item?.product_name || 'Product',
           barcode: item?.barcode || '',
         });
+        console.log("editing promotion,", item);
         setProductQuery('');
         setProductResults([]);
         setProductDropdownVisible(false);
+        setShowStartPicker(false);
+        setShowEndPicker(false);
         setFormModalVisible(true);
       }}
     >
@@ -326,16 +362,16 @@ export default function QuantityDiscountScreen() {
       </View>
       <View style={styles.detailGrid}>
         <View style={styles.detailItem}>
-          <Text style={styles.detailLabel}>Price</Text>
-          <Text style={styles.detailValue}>{item?.actual_product_price ?? '-'}</Text>
+          <Text style={styles.detailLabel}>Sale Price</Text>
+          <Text style={styles.detailValue}>{item?.actual_product_price.toFixed(2) ?? '-'}</Text>
         </View>
         <View style={styles.detailItem}>
           <Text style={styles.detailLabel}>Buy Qty</Text>
-          <Text style={styles.detailValue}>{item?.number_of_product_to_buy ?? '-'}</Text>
+          <Text style={styles.detailValue}>{(item?.number_of_product_to_buy) ?? '-'}</Text>
         </View>
         <View style={styles.detailItem}>
-          <Text style={styles.detailLabel}>Discount</Text>
-          <Text style={styles.detailValue}>{item?.discount_amount ?? '-'}</Text>
+          <Text style={styles.detailLabel}>Discount Amount</Text>
+          <Text style={styles.detailValue}>{Number(item?.discount_amount).toFixed(2) ?? '-'}</Text>
         </View>
       </View>
       <View style={styles.detailRow}>
@@ -357,7 +393,7 @@ export default function QuantityDiscountScreen() {
         <View style={styles.searchCard}>
           <TextInput
             style={styles.searchInput}
-            placeholder="Search by product name"
+            placeholder="Search by product name or barcode"
             placeholderTextColor="#9CA3AF"
             value={query}
             onChangeText={setQuery}
@@ -395,23 +431,92 @@ export default function QuantityDiscountScreen() {
             </View>
           </View>
         </View>
-        {showFilterStartPicker && (
-          <DateTimePicker
-            value={toDate(filterStart)}
-            mode="date"
-            display={Platform.OS === 'ios' ? 'spinner' : 'default'}
-            onChange={handleFilterStartDateChange}
-          />
+         {showFilterStartPicker && (
+          <Modal visible={showFilterStartPicker} transparent animationType="fade">
+            <View style={styles.datePickerModal}>
+              <TouchableOpacity 
+                style={styles.datePickerBackdrop}
+                activeOpacity={1}
+                onPress={() => setShowFilterStartPicker(false)}
+              />
+              <View style={styles.datePickerContainer}>
+                <View style={styles.datePickerHeader}>
+                  <Text style={styles.datePickerTitle}>Filter by Start Date</Text>
+                  <TouchableOpacity onPress={() => setShowFilterStartPicker(false)}>
+                    <Icon name="close" size={24} color="#111" />
+                  </TouchableOpacity>
+                </View>
+                <View style={styles.datePickerContent}>
+                  <DateTimePicker
+                    value={toDate(filterStart)}
+                    mode="date"
+                    display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+                    onChange={handleFilterStartDateChange}
+                    textColor="#111"
+                    themeVariant="light"
+                  />
+                </View>
+                <View style={styles.datePickerFooter}>
+                  <TouchableOpacity 
+                    style={[styles.btn, styles.btnCancel]}
+                    onPress={() => setShowFilterStartPicker(false)}
+                  >
+                    <Text style={styles.btnCancelText}>Cancel</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity 
+                    style={[styles.btn, styles.btnConfirm]}
+                    onPress={() => setShowFilterStartPicker(false)}
+                  >
+                    <Text style={styles.btnConfirmText}>Confirm</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </View>
+          </Modal>
         )}
         {showFilterEndPicker && (
-          <DateTimePicker
-            value={toDate(filterEnd)}
-            mode="date"
-            display={Platform.OS === 'ios' ? 'spinner' : 'default'}
-            onChange={handleFilterEndDateChange}
-          />
+          <Modal visible={showFilterEndPicker} transparent animationType="fade">
+            <View style={styles.datePickerModal}>
+              <TouchableOpacity 
+                style={styles.datePickerBackdrop}
+                activeOpacity={1}
+                onPress={() => setShowFilterEndPicker(false)}
+              />
+              <View style={styles.datePickerContainer}>
+                <View style={styles.datePickerHeader}>
+                  <Text style={styles.datePickerTitle}>Filter by End Date</Text>
+                  <TouchableOpacity onPress={() => setShowFilterEndPicker(false)}>
+                    <Icon name="close" size={24} color="#111" />
+                  </TouchableOpacity>
+                </View>
+                <View style={styles.datePickerContent}>
+                  <DateTimePicker
+                    value={toDate(filterEnd)}
+                    mode="date"
+                    display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+                    onChange={handleFilterEndDateChange}
+                    textColor="#111"
+                    themeVariant="light"
+                  />
+                </View>
+                <View style={styles.datePickerFooter}>
+                  <TouchableOpacity 
+                    style={[styles.btn, styles.btnCancel]}
+                    onPress={() => setShowFilterEndPicker(false)}
+                  >
+                    <Text style={styles.btnCancelText}>Cancel</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity 
+                    style={[styles.btn, styles.btnConfirm]}
+                    onPress={() => setShowFilterEndPicker(false)}
+                  >
+                    <Text style={styles.btnConfirmText}>Confirm</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </View>
+          </Modal>
         )}
-
         {loading ? (
           <View style={styles.center}>
             <ActivityIndicator size="large" />
@@ -460,7 +565,7 @@ export default function QuantityDiscountScreen() {
       </TouchableOpacity>
 
       <Modal
-        visible={formModalVisible}
+        visible={formModalVisible && !scannerVisible}
         transparent
         animationType="fade"
         onRequestClose={() => setFormModalVisible(false)}
@@ -483,7 +588,9 @@ export default function QuantityDiscountScreen() {
               <Text style={styles.sheetTitle}>{editingId ? 'Update Quantity Discount' : 'Create Quantity Discount'}</Text>
 
           <View style={styles.searchBox}>
-            <View style={styles.searchRowInline}>
+           { !editingId ?
+           <>
+             <View style={styles.searchRowInline}>
               <TextInput
                 style={[styles.input, styles.inputFlex]}
                 placeholder="Search product by barcode (min 3 chars)"
@@ -517,78 +624,168 @@ export default function QuantityDiscountScreen() {
                 </ScrollView>
               </View>
             )}
+            </>
+      :''    }
             {selectedProduct && (
-              <View style={styles.selectedWrap}>
-                <View style={styles.chip}>
-                  <Text style={styles.chipText}>{selectedProduct.name}</Text>
-                  <TouchableOpacity
-                    onPress={() => {
-                      setSelectedProduct(null);
-                      updateForm('product_id', null);
-                    }}
-                  >
-                    <Text style={styles.chipRemove}>×</Text>
-                  </TouchableOpacity>
+              <View style={[styles.card, { marginTop: 8 }]}>
+                <Text style={styles.cardTitle}>{selectedProduct?.name || 'Product'}</Text>
+                <View style={styles.detailRow}>
+                  <Text style={styles.detailLabel}>Barcode</Text>
+                  <Text style={styles.detailValue}>{selectedProduct?.barcode || '-'}</Text>
                 </View>
               </View>
             )}
+
+          
           </View>
 
           <View style={styles.row}>
-            <TextInput
-              style={[styles.input, styles.inputHalf]}
-              placeholder="Buy Qty"
-              placeholderTextColor="#9CA3AF"
-              keyboardType="number-pad"
-              value={form.no_of_product_to_buy}
-              onChangeText={(v) => updateForm('no_of_product_to_buy', v)}
-            />
-            <TextInput
-              style={[styles.input, styles.inputHalf]}
-              placeholder="Discount Amount"
-              placeholderTextColor="#9CA3AF"
-              keyboardType="decimal-pad"
-              value={form.discount_amount}
-              onChangeText={(v) => updateForm('discount_amount', v)}
-            />
+            <View style={styles.inputHalf}>
+              <View style={styles.dateInputHeader}>
+                <Icon name="shopping-cart" size={16} color="#319241" />
+                <Text style={styles.dateInputLabel}>Buy Qty</Text>
+              </View>
+              <TextInput
+                style={[styles.input, { marginBottom: 0 }]}
+                placeholder="Enter quantity"
+                placeholderTextColor="#9CA3AF"
+                keyboardType="number-pad"
+                value={form.no_of_product_to_buy}
+                onChangeText={(v) => updateForm('no_of_product_to_buy', v)}
+              />
+            </View>
+      
+            <View style={styles.inputHalf}>
+              <View style={styles.dateInputHeader}>
+                <Icon name="local-offer" size={16} color="#D9534F" />
+                <Text style={styles.dateInputLabel}>Discount Amount</Text>
+              </View>
+              <TextInput
+                style={[styles.input, { marginBottom: 0 }]}
+                placeholder="Enter discount"
+                placeholderTextColor="#9CA3AF"
+                keyboardType="decimal-pad"
+                value={form.discount_amount}
+                onChangeText={(v) => updateForm('discount_amount', v)}
+              />
+            </View>
+         
           </View>
 
-          <TouchableOpacity
-            style={styles.dateInput}
-            onPress={() => setShowStartPicker(true)}
-            activeOpacity={0.8}
-          >
-            <Text style={styles.dateInputLabel}>Start Date</Text>
-            <Text style={form.start_date ? styles.dateInputText : styles.dateInputPlaceholder}>
-              {form.start_date ? formatDateOnly(form.start_date) : 'Select date'}
-            </Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.dateInput}
-            onPress={() => setShowEndPicker(true)}
-            activeOpacity={0.8}
-          >
-            <Text style={styles.dateInputLabel}>End Date</Text>
-            <Text style={form.end_date ? styles.dateInputText : styles.dateInputPlaceholder}>
-              {form.end_date ? formatDateOnly(form.end_date) : 'Select date'}
-            </Text>
-          </TouchableOpacity>
+          <View style={styles.dateRow}>
+            <TouchableOpacity
+              style={[styles.dateInput, { flex: 1 }]}
+              onPress={() => setShowStartPicker(true)}
+              activeOpacity={0.7}
+            >
+              <View style={styles.dateInputHeader}>
+                <Icon name="event" size={16} color="#319241" />
+                <Text style={styles.dateInputLabel}>Start Date</Text>
+              </View>
+              <Text style={form.start_date ? styles.dateInputText : styles.dateInputPlaceholder}>
+                {form.start_date ? formatDateOnly(form.start_date) : 'Select'}
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.dateInput, { flex: 1 }]}
+              onPress={() => setShowEndPicker(true)}
+              activeOpacity={0.7}
+            >
+              <View style={styles.dateInputHeader}>
+                <Icon name="event" size={16} color="#D9534F" />
+                <Text style={styles.dateInputLabel}>End Date</Text>
+              </View>
+              <Text style={form.end_date ? styles.dateInputText : styles.dateInputPlaceholder}>
+                {form.end_date ? formatDateOnly(form.end_date) : 'Select'}
+              </Text>
+            </TouchableOpacity>
+          </View>
 
           {showStartPicker && (
-            <DateTimePicker
-              value={toDate(form.start_date)}
-              mode="date"
-              display={Platform.OS === 'ios' ? 'spinner' : 'default'}
-              onChange={handleStartDateChange}
-            />
+            <Modal visible={showStartPicker} transparent animationType="fade">
+              <View style={styles.datePickerModal}>
+                <TouchableOpacity 
+                  style={styles.datePickerBackdrop}
+                  activeOpacity={1}
+                  onPress={() => setShowStartPicker(false)}
+                />
+                <View style={styles.datePickerContainer}>
+                  <View style={styles.datePickerHeader}>
+                    <Text style={styles.datePickerTitle}>Select Start Date</Text>
+                    <TouchableOpacity onPress={() => setShowStartPicker(false)}>
+                      <Icon name="close" size={24} color="#111" />
+                    </TouchableOpacity>
+                  </View>
+                  <View style={styles.datePickerContent}>
+                    <DateTimePicker
+                      value={toDate(form.start_date)}
+                      mode="date"
+                      display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+                      onChange={handleStartDateChange}
+                      textColor="#111"
+                      themeVariant="light"
+                    />
+                  </View>
+                  <View style={styles.datePickerFooter}>
+                    <TouchableOpacity 
+                      style={[styles.btn, styles.btnCancel]}
+                      onPress={() => setShowStartPicker(false)}
+                    >
+                      <Text style={styles.btnCancelText}>Cancel</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity 
+                      style={[styles.btn, styles.btnConfirm]}
+                      onPress={() => setShowStartPicker(false)}
+                    >
+                      <Text style={styles.btnConfirmText}>Confirm</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              </View>
+            </Modal>
           )}
           {showEndPicker && (
-            <DateTimePicker
-              value={toDate(form.end_date)}
-              mode="date"
-              display={Platform.OS === 'ios' ? 'spinner' : 'default'}
-              onChange={handleEndDateChange}
-            />
+            <Modal visible={showEndPicker} transparent animationType="fade">
+              <View style={styles.datePickerModal}>
+                <TouchableOpacity 
+                  style={styles.datePickerBackdrop}
+                  activeOpacity={1}
+                  onPress={() => setShowEndPicker(false)}
+                />
+                <View style={styles.datePickerContainer}>
+                  <View style={styles.datePickerHeader}>
+                    <Text style={styles.datePickerTitle}>Select End Date</Text>
+                    <TouchableOpacity onPress={() => setShowEndPicker(false)}>
+                      <Icon name="close" size={24} color="#111" />
+                    </TouchableOpacity>
+                  </View>
+                  <View style={styles.datePickerContent}>
+                    <DateTimePicker
+                      value={toDate(form.end_date)}
+                      mode="date"
+                      display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+                      onChange={handleEndDateChange}
+                      textColor="#111"
+                      themeVariant="light"
+                    />
+                  </View>
+                  <View style={styles.datePickerFooter}>
+                    <TouchableOpacity 
+                      style={[styles.btn, styles.btnCancel]}
+                      onPress={() => setShowEndPicker(false)}
+                    >
+                      <Text style={styles.btnCancelText}>Cancel</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity 
+                      style={[styles.btn, styles.btnConfirm]}
+                      onPress={() => setShowEndPicker(false)}
+                    >
+                      <Text style={styles.btnConfirmText}>Confirm</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              </View>
+            </Modal>
           )}
 
           <TouchableOpacity
@@ -781,10 +978,21 @@ const styles = StyleSheet.create({
   formModalCard: {
     width: '100%',
     maxWidth: 520,
-    maxHeight: '86%',
+    maxHeight: '90%',
     backgroundColor: '#fff',
-    borderRadius: 16,
-    padding: 16,
+    borderRadius: 18,
+    padding: 18,
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOpacity: 0.15,
+        shadowRadius: 12,
+        shadowOffset: { width: 0, height: 4 },
+      },
+      android: {
+        elevation: 8,
+      },
+    }),
   },
   formModalCloseBtn: {
     position: 'absolute',
@@ -798,49 +1006,63 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: '#F3F4F6',
   },
-  sheetTitle: { fontSize: 16, fontWeight: '700', color: '#111', marginBottom: 12, textAlign: 'center' },
+  sheetTitle: { fontSize: 16, fontWeight: '700', color: '#111', marginBottom: 14, textAlign: 'center' },
   input: {
     borderWidth: 1,
     borderColor: '#E5E7EB',
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
     color: '#111',
-    marginBottom: 10,
+    fontSize: 14,
+    backgroundColor: '#FAFBFC',
+    marginBottom: 12,
   },
-  row: { flexDirection: 'row', gap: 10 },
+  row: { flexDirection: 'row', gap: 12, marginBottom: 4 },
   inputHalf: { flex: 1 },
+  dateRow: { flexDirection: 'row', gap: 10, marginBottom: 10 },
   dateInput: {
     borderWidth: 1,
     borderColor: '#E5E7EB',
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 10,
-    marginBottom: 10,
-    backgroundColor: '#fff',
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    backgroundColor: '#F9FAFB',
   },
-  dateInputLabel: { fontSize: 11, color: '#6B7280', fontWeight: '600' },
-  dateInputText: { marginTop: 4, fontSize: 13, color: '#111', fontWeight: '600' },
-  dateInputPlaceholder: { marginTop: 4, fontSize: 13, color: '#9CA3AF' },
+  dateInputHeader: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 6 },
+  dateInputLabel: { fontSize: 11, color: '#6B7280', fontWeight: '700' },
+  dateInputText: { fontSize: 14, color: '#111', fontWeight: '700' },
+  dateInputPlaceholder: { fontSize: 14, color: '#9CA3AF', fontWeight: '500' },
   submitBtn: {
     backgroundColor: '#319241',
-    paddingVertical: 12,
+    paddingVertical: 14,
     borderRadius: 10,
     alignItems: 'center',
-    marginTop: 6,
+    marginTop: 10,
+    elevation: 2,
+    shadowColor: '#319241',
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 2 },
   },
-  submitBtnText: { color: '#fff', fontWeight: '700' },
+  submitBtnText: { color: '#fff', fontWeight: '700', fontSize: 14 },
 
-  searchBox: { position: 'relative', marginBottom: 10 },
+  searchBox: { position: 'relative', marginBottom: 10, overflow: 'visible', zIndex: 100 },
   searchRowInline: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   inputFlex: { flex: 1 },
+  searchInput: {
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    fontSize: 14,
+  },
   scanBtn: {
     borderWidth: 1,
     borderColor: '#E5E7EB',
     borderRadius: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-    backgroundColor: '#fff',
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    backgroundColor: '#F9FAFB',
+    borderColor: '#319241',
   },
   dropdown: {
     position: 'absolute',
@@ -851,24 +1073,104 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#E5E7EB',
     borderRadius: 8,
-    zIndex: 10,
-    elevation: 4,
+    zIndex: 999,
+    elevation: 20,
   },
   dropdownItem: { paddingHorizontal: 12, paddingVertical: 10, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: '#EFEFEF' },
   dropdownTitle: { fontSize: 13, fontWeight: '700', color: '#111' },
-  dropdownMeta: { fontSize: 11, color: '#666', marginTop: 2 },
-  selectedWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 6 },
+  dropdownMetaRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 4 },
+  dropdownMeta: { fontSize: 11, color: '#666' },
+  datePickerModal: {
+    flex: 1,
+    justifyContent: 'flex-end',
+    backgroundColor: 'rgba(0,0,0,0.5)',
+  },
+  datePickerBackdrop: {
+    flex: 1,
+  },
+  datePickerContainer: {
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingTop: 0,
+    maxHeight: '70%',
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOpacity: 0.15,
+        shadowRadius: 12,
+        shadowOffset: { width: 0, height: -4 },
+      },
+      android: {
+        elevation: 8,
+      },
+    }),
+  },
+  datePickerHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E5E7EB',
+  },
+  datePickerTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#111',
+  },
+  datePickerContent: {
+    paddingVertical: 20,
+    alignItems: 'center',
+  },
+  datePickerFooter: {
+    flexDirection: 'row',
+    gap: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderTopWidth: 1,
+    borderTopColor: '#E5E7EB',
+  },
+  btn: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  btnCancel: {
+    backgroundColor: '#F3F4F6',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  btnConfirm: {
+    backgroundColor: '#319241',
+  },
+  btnCancelText: {
+    color: '#666',
+    fontWeight: '700',
+    fontSize: 14,
+  },
+  btnConfirmText: {
+    color: '#fff',
+    fontWeight: '700',
+    fontSize: 14,
+  },
+  selectedWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 8, marginBottom: 10 },
   chip: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    backgroundColor: '#EEF2FF',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 999,
+    gap: 8,
+    backgroundColor: '#E7F5EC',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#B7E4C7',
   },
-  chipText: { fontSize: 11, fontWeight: '600', color: '#1E3A8A' },
-  chipRemove: { fontSize: 12, fontWeight: '700', color: '#1E3A8A' },
+  chipText: { fontSize: 12, fontWeight: '700', color: '#166534', flex: 1 },
+  chipRemove: { fontSize: 14, fontWeight: '700', color: '#D9534F' },
 
   scannerControls: {
     position: 'absolute',

@@ -1,10 +1,13 @@
 import UIKit
+import FirebaseCore
 import React
 import React_RCTAppDelegate
 import ReactAppDependencyProvider
+import UserNotifications
+import OneSignal
 
 @main
-class AppDelegate: UIResponder, UIApplicationDelegate {
+class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterDelegate {
   var window: UIWindow?
 
   var reactNativeDelegate: ReactNativeDelegate?
@@ -23,6 +26,23 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
 
     window = UIWindow(frame: UIScreen.main.bounds)
 
+    // Initialize Firebase
+    FirebaseApp.configure()
+    
+    // Initialize OneSignal for push notifications (v4.4.1 API)
+    // Suppress verbose logging - only show errors
+    OneSignal.setLogLevel(.LL_ERROR, visualLevel: .LL_ERROR)
+    OneSignal.initWithLaunchOptions(launchOptions)
+    OneSignal.setAppId("53886d23-f2ee-43f6-99ac-9c3ac95cdb9d")
+    
+    // Request push notification permission
+    OneSignal.promptForPushNotifications(userResponse: { accepted in
+      print("OneSignal: User accepted push notification: \(accepted)")
+    })
+    
+    // Set notification center delegate
+    UNUserNotificationCenter.current().delegate = self
+
     factory.startReactNative(
       withModuleName: "PIMS",
       in: window,
@@ -30,6 +50,28 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     )
 
     return true
+  }
+
+  func userNotificationCenter(
+    _ center: UNUserNotificationCenter,
+    willPresent notification: UNNotification,
+    withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
+  ) {
+    // Show notification while app is in foreground
+    if #available(iOS 14.0, *) {
+      completionHandler([.banner, .list, .sound])
+    } else {
+      completionHandler([.alert, .sound])
+    }
+  }
+  
+  func userNotificationCenter(
+    _ center: UNUserNotificationCenter,
+    didReceive response: UNNotificationResponse,
+    withCompletionHandler completionHandler: @escaping () -> Void
+  ) {
+    // OneSignal will handle the notification automatically
+    completionHandler()
   }
 }
 

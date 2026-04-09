@@ -1,7 +1,7 @@
 import React, {useState, useEffect, useMemo, useCallback} from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import {View, Text, TextInput, Platform, FlatList, TouchableOpacity, StyleSheet, ImageBackground,ActivityIndicator, Alert} from 'react-native';
-import {useNavigation, useRoute} from '@react-navigation/native';
+import {View, Text, TextInput, Platform, FlatList, TouchableOpacity, StyleSheet, ImageBackground,ActivityIndicator, Alert,ScrollView} from 'react-native';
+import {useNavigation, useRoute, useFocusEffect} from '@react-navigation/native';
 import API_ENDPOINTS, { initICMSBase, setICMSBase } from '../../../icms_config/api';
 import AppHeader from '../../components/AppHeader';
 import reportbg from '../../assets/images/report-bg.png';
@@ -49,6 +49,55 @@ async function fetchInvoicesForVendor(vendor) {
   } catch (e) {
     console.error('fetchInvoices error:', e);
     return [];
+  }
+}
+
+async function markSavedInvoiceAsSeen({ vendor, SavedInvoiceNo, SavedDate }) {
+  try {
+    await initICMSBase();
+
+    const token = await AsyncStorage.getItem('access_token');
+    const icms_store = await AsyncStorage.getItem('icms_store');
+
+    const body = {
+      params: {
+      InvoiceStatus: 'not_seen',
+      InvoiceName: String(vendor?.slug || ''),
+      SavedInvoiceNo: String(SavedInvoiceNo || ''),
+      SavedDate: String(SavedDate || ''),
+        }
+    };
+
+    const res = fetch(API_ENDPOINTS.SAVEDINVSTATUS, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        store: icms_store ?? '',
+        access_token: token ?? '',
+        mode: 'MOBILE',
+      },
+      body: JSON.stringify(body),
+    });
+
+    console.log('SAVEDINVSTATUS API URL:', API_ENDPOINTS.SAVEDINVSTATUS);
+    console.log('SAVEDINVSTATUS raw response:', res);
+
+    const responseText = await res.text().catch(() => '');
+
+    console.log('SAVEDINVSTATUS response text:', responseText);
+
+    if (!res.ok) {
+      throw new Error(responseText || `Saved invoice status failed (${res.status})`);
+    }
+
+    const json = responseText ? JSON.parse(responseText) : {};
+
+    console.log('SAVEDINVSTATUS parsed response:', json);
+
+    return json;
+  } catch (error) {
+    console.log('SAVEDINVSTATUS error:', error?.message || error);
+    return null;
   }
 }
 
@@ -129,8 +178,10 @@ export default function InvoiceList() {
 
   // vendor search (debounced suggestions)
   const runVendorSearch = async (q) => {
+      setVendorSearching(true);
     const results = await searchVendors(q);
     setVendorResults(results);
+    setVendorSearching(false);
   };
   const debouncedVendorSearch = useMemo(() => debounce(runVendorSearch, 300), []);
 
@@ -191,6 +242,20 @@ const onSelectVendor = async (v) => {
     })();
   }, []);
 
+  // Refresh invoice list whenever screen comes into focus
+  useFocusEffect(
+    useCallback(() => {
+      if (selectedVendor) {
+        (async () => {
+          setLoading(true);
+          const data = await fetchInvoicesForVendor(selectedVendor);
+          setAllInvoices(data);
+          setLoading(false);
+        })();
+      }
+    }, [selectedVendor])
+  );
+
   const toggleSort = (key) => {
     setSortState(prev => prev.key === key
       ? { key, dir: prev.dir === 'asc' ? 'desc' : 'asc' }
@@ -216,11 +281,16 @@ const onSelectVendor = async (v) => {
     );
   };
 
-  const openInvoice = (item) => {
+  const openInvoice = async (item) => {
     const currentStep = Number(item?.StepGuider?.currentStep || 0);
     const isCompleted = item?.StepGuider?.isCompleted === true;
     const isReady = currentStep === 4 && isCompleted;
     if (isReady) {
+      await markSavedInvoiceAsSeen({
+        vendor: selectedVendor,
+        SavedInvoiceNo: item?.SavedInvoiceNo,
+        SavedDate: item?.SavedDate,
+      });
       navigation.navigate('InvoiceDetails', {
         invoiceNo: item?.SavedInvoiceNo,
         invoiceName: item?.InvoiceName,
@@ -269,7 +339,11 @@ const onSelectVendor = async (v) => {
 
             {vendorResults.length > 0 && (
               <View style={styles.dropdownContainer}>
-                <View style={styles.dropdown}>
+                <ScrollView 
+                  style={styles.dropdown}
+                  nestedScrollEnabled
+                  showsVerticalScrollIndicator={true}
+                >
                   {vendorResults.map((v, i) => (
                     <TouchableOpacity
                       key={(v.slug ?? v.value ?? '') + i}
@@ -281,28 +355,31 @@ const onSelectVendor = async (v) => {
                       </Text>
                     </TouchableOpacity>
                   ))}
-                </View>
+                </ScrollView>
               </View>
             )}
           </View>
 
-          {/* Invoice number search */}
-          <View style={styles.invoiceWrap}>
-            <TextInput
-              value={invoiceSearch}
-              onChangeText={setInvoiceSearch}
-              placeholder="Search Invoice No…"
-              style={styles.searchInput}
-              placeholderTextColor="#6b7280"
-              selectionColor="#1f1f1f"
-            />
-          </View>
+          {/* Invoice number search: show only after list data is loaded */}
+          {!loading && allInvoices.length > 0 ? (
+            <View style={styles.invoiceWrap}>
+              <TextInput
+                value={invoiceSearch}
+                onChangeText={setInvoiceSearch}
+                placeholder="Search Invoice No…"
+                style={styles.searchInput}
+                placeholderTextColor="#6b7280"
+                selectionColor="#1f1f1f"
+              />
+            </View>
+          ) : null}
         </View>
 
         {loading ? (
           <Text style={styles.helperText}>Loading invoices…</Text>
         ) : (
           <FlatList
+            style={styles.invoiceList}
             data={visibleInvoices}
             keyExtractor={(item, idx) => (normalizeInvNo(item) || idx).toString()}
             ListHeaderComponent={header}
@@ -349,12 +426,19 @@ const onSelectVendor = async (v) => {
           const inv = selectedInvoiceForStepper;
           setStepperVisible(false);
           if (!inv) return;
-          navigation.navigate('InvoiceDetails', {
-            invoiceNo: inv?.SavedInvoiceNo,
-            invoiceName: inv?.InvoiceName,
-            date: inv?.SavedDate,
-            vendorDatabaseName: selectedVendor?.databaseName,
-          });
+          (async () => {
+            await markSavedInvoiceAsSeen({
+              vendor: selectedVendor,
+              SavedInvoiceNo: inv?.SavedInvoiceNo,
+              SavedDate: inv?.SavedDate,
+            });
+            navigation.navigate('InvoiceDetails', {
+              invoiceNo: inv?.SavedInvoiceNo,
+              invoiceName: inv?.InvoiceName,
+              date: inv?.SavedDate,
+              vendorDatabaseName: selectedVendor?.databaseName,
+            });
+          })();
         }}
       />
     </ImageBackground>
@@ -389,15 +473,21 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     alignItems: 'center',
     marginBottom: 10,
+    zIndex: 30,
+    elevation: 30,
   },
   vendorWrap: {
     flex: 1,
     position: 'relative',
     minWidth: 260,
+    zIndex: 40,
+    elevation: 40,
   },
   invoiceWrap: {
     flex: 1,
     minWidth: 260,
+    zIndex: 1,
+    elevation: 1,
   },
   searchInput: {
     borderWidth: 1, borderColor: '#ccc', borderRadius: 10,
@@ -427,7 +517,7 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.12,
     shadowRadius: 4,
     elevation: 4,
-    zIndex: 50,
+    zIndex: 999,
     maxHeight: 240,
   },
   dropdown: { paddingVertical: 4 },
@@ -485,5 +575,9 @@ const styles = StyleSheet.create({
   errorText: { marginTop: 6, color: '#d9534f', fontWeight: '600' },
   helperText: { textAlign: 'center', color: '#666' },
   emptyText: { textAlign: 'center', color: '#666', marginTop: 20 },
+  invoiceList: {
+    zIndex: 1,
+    elevation: 1,
+  },
 
 });

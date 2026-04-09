@@ -9,7 +9,7 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { getTopCategories, capitalizeWords } from '../functions/product-function';
 
 const countFromCategory = (c) =>
@@ -23,20 +23,31 @@ export default function CategoriesRow() {
   const [bottomBanner, setBottomBanner] = useState('');
   const [search, setSearch] = useState('');
 
-  useEffect(() => {
-    (async () => {
-      try {
-        const cats = await getTopCategories();
-        const bb = await AsyncStorage.getItem('bottombanner');
-        setBottomBanner(bb || '');
-        setAllCats(Array.isArray(cats) ? cats : []);
-      } catch (e) {
-        console.log('Failed to fetch categories:', e?.message);
-      } finally {
-        setLoading(false);
-      }
-    })();
+  const loadCategories = useCallback(async () => {
+    try {
+      setLoading(true);
+      const cats = await getTopCategories();
+      const bb = await AsyncStorage.getItem('bottombanner');
+      setBottomBanner(bb || '');
+      setAllCats(Array.isArray(cats) ? cats : []);
+    } catch (e) {
+      console.log('Failed to fetch categories:', e?.message);
+    } finally {
+      setLoading(false);
+    }
   }, []);
+
+  // Run when component mounts
+  useEffect(() => {
+    loadCategories();
+  }, [loadCategories]);
+
+  // Run every time screen is focused
+  useFocusEffect(
+    useCallback(() => {
+      loadCategories();
+    }, [loadCategories])
+  );
 
   const filtered = useMemo(() => {
     const term = search.trim().toLowerCase();
@@ -119,6 +130,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#E9FDEB',
     borderRadius: 20,
     padding: 14,
+    
   },
   headerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 },
   headerTitle: { fontSize: 20, fontWeight: '800', color: '#111' },
@@ -148,10 +160,10 @@ const styles = StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: 22,
-    backgroundColor: '#2E7D32',
+    backgroundColor: '#E9FDEB',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  badgeText: { color: '#fff', fontWeight: '800', fontSize: 14 },
+  badgeText: { color: '#000', fontWeight: '800', fontSize: 14 },
   center: { justifyContent: 'center', alignItems: 'center', paddingVertical: 16 },
 });

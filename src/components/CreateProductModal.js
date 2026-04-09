@@ -14,14 +14,23 @@ import {
   Switch,
   ScrollView
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { getUOMList, VendorList, TaxList, getTopCategories } from '../functions/product-function';
 import { launchImageLibrary, launchCamera } from 'react-native-image-picker';
 import Icon from "react-native-vector-icons/MaterialIcons";
-import { request, PERMISSIONS, RESULTS } from "react-native-permissions";
+import { check, request, PERMISSIONS, RESULTS } from "react-native-permissions";
 import { Camera, CameraType } from "react-native-camera-kit";
 import AsyncStorage from '@react-native-async-storage/async-storage';
+ import { sendNotificationToStoreUsers,sendNotificationToAdministrators } from '../config/OneSignalConfig';
 
-export default function CreateProductModal({ visible, onClose, onCreated, initialCategoryId = '' }) {
+export default function CreateProductModal({
+  visible,
+  onClose,
+  onCreated,
+  initialCategoryId = '',
+  initialValues = null,
+}) {
+  const insets = useSafeAreaInsets();
   const [name, setName] = useState('');
   const [size, setSize] = useState('');
   const [barcode, setBarcode] = useState('');
@@ -31,9 +40,9 @@ export default function CreateProductModal({ visible, onClose, onCreated, initia
   const [unitc, setUnitc] = useState('');                // unit_in_case
   const [qtyavailable, setQtyAvailable] = useState('');  // qty_available
 
-  const [toWeight, setToWeight] = useState(false);
-  const [availablePOS, setAvailablePOS] = useState(false);
-  const [isEBT, setIsEBT] = useState(false);
+  const [inStoreLabelProduct, setInStoreLabelProduct] = useState(false);
+  const [availablePOS, setAvailablePOS] = useState(true);
+  const [isEBT, setIsEBT] = useState(true);
   const [ewic, setEwic] = useState(false);
   const [otc, setOtc] = useState(false);
 
@@ -54,6 +63,7 @@ export default function CreateProductModal({ visible, onClose, onCreated, initia
   const [scannerVisible, setScannerVisible] = useState(false);
   const [hasCameraPermission, setHasCameraPermission] = useState(false);
   const cameraRef = useRef(null);
+  const isHandlingScanRef = useRef(false);
 
   const [imgBase64, setImgBase64] = useState('');
   const [imgMime, setImgMime] = useState('image/jpeg');
@@ -63,9 +73,10 @@ export default function CreateProductModal({ visible, onClose, onCreated, initia
   const [uomList, setUomList] = useState([]);
 
   const [submitting, setSubmitting] = useState(false);
-  const [successVisible, setSuccessVisible] = useState(false);
   const [storeUrl, setStoreUrl] = useState('');
   const [token, setToken] = useState('');
+  const hasInitializedRef = useRef(false);
+  const previousVisibleRef = useRef(false);
 
   useEffect(() => {
     (async () => {
@@ -188,10 +199,80 @@ export default function CreateProductModal({ visible, onClose, onCreated, initia
   ), [allCats]);
 
   useEffect(() => {
-    if (!visible) return;
-    if (initialCategoryId === null || initialCategoryId === undefined || initialCategoryId === '') return;
-    setSelectedCategoryId(String(initialCategoryId));
-  }, [visible, initialCategoryId]);
+    // Track modal open/close transitions
+    const isOpening = visible && !previousVisibleRef.current;
+    const isClosing = !visible && previousVisibleRef.current;
+    
+    previousVisibleRef.current = visible;
+
+    // Reset initialization flag when modal closes
+    if (isClosing) {
+      hasInitializedRef.current = false;
+      return;
+    }
+
+    // Only initialize when modal first opens
+    if (!isOpening) return;
+    
+    let cancelled = false;
+    
+    // Default blank form on each open
+    resetForm();
+    hasInitializedRef.current = true;
+    
+    // Set "no tax" as default
+    if (noTaxId) {
+      setSelectedTaxIds([noTaxId]);
+    }
+    if (initialCategoryId !== null && initialCategoryId !== undefined && initialCategoryId !== '') {
+      setSelectedCategoryId(String(initialCategoryId));
+    }
+    // LinkProduct passes this explicitly; only then prefill defaults.
+    if (!initialValues || typeof initialValues !== 'object') return;
+    if (initialValues.name !== undefined && initialValues.name !== null) setName(String(initialValues.name));
+    if (initialValues.size !== undefined && initialValues.size !== null) setSize(String(initialValues.size));
+    if (initialValues.barcode !== undefined && initialValues.barcode !== null) setBarcode(String(initialValues.barcode));
+    if (initialValues.case_cost !== undefined && initialValues.case_cost !== null) setCaseCost(String(initialValues.case_cost));
+    const vendorNamePrefill = String(initialValues.vendor_name ?? '').trim();
+    if (vendorNamePrefill) {
+      setSearchText(vendorNamePrefill);
+      if (vendorNamePrefill.length >= 3) {
+        (async () => {
+          try {
+            const vendors = await VendorList(vendorNamePrefill);
+            if (cancelled) return;
+            const normalized = Array.isArray(vendors)
+              ? vendors.map(v => ({
+                  id: String(v.id ?? v.vendorId ?? v._id ?? ''),
+                  name: String(v.name ?? v.vendorName ?? ''),
+                }))
+              : [];
+            const exact = normalized.find(
+              (v) => v.name.trim().toLowerCase() === vendorNamePrefill.toLowerCase()
+            );
+            const partial = normalized.find(
+              (v) => vendorNamePrefill.toLowerCase().includes(v.name.trim().toLowerCase()) ||
+                v.name.trim().toLowerCase().includes(vendorNamePrefill.toLowerCase())
+            );
+            const matched = exact || partial;
+            if (matched) {
+              setSelectedVendorId(String(matched.id));
+              setSearchText(String(matched.name));
+              setShowVendorDropdown(false);
+            }
+            setVendorList(normalized);
+          } catch (err) {
+            if (!cancelled) {
+              console.log('Vendor prefill failed:', err?.message);
+            }
+          }
+        })();
+      }
+    }
+    return () => {
+      cancelled = true;
+    };
+  }, [visible, initialCategoryId, noTaxId]);
 
   const sortedTaxes = useMemo(() => (
     (Array.isArray(taxList) ? taxList : [])
@@ -232,19 +313,58 @@ export default function CreateProductModal({ visible, onClose, onCreated, initia
   }, [selectedTaxIds, sortedTaxes]);
 
   const uomSummary = useMemo(() => {
-    if (!selectedUomId) return 'Select UoM';
-    return sortedUom.find((u) => u.id === selectedUomId)?.label || 'Select UoM';
+    if (!selectedUomId) return 'Unit of Measurement';
+    return sortedUom.find((u) => u.id === selectedUomId)?.label || 'Unit of Measurement';
   }, [selectedUomId, sortedUom]);
+
+  useEffect(() => {
+    if (inStoreLabelProduct) {
+      setSelectedUomId('');
+    }
+  }, [inStoreLabelProduct]);
 
   const onReadCode = (event) => {
     const value = event?.nativeEvent?.codeStringValue;
-    if (value) setBarcode(value);
+    if (!value || isHandlingScanRef.current) return;
+    isHandlingScanRef.current = true;
+    setBarcode(value);
     setScannerVisible(false);
+    setTimeout(() => {
+      isHandlingScanRef.current = false;
+    }, 600);
+  };
+
+  const openScanner = async () => {
+
+    try {
+      const perm = Platform.OS === "ios" ? PERMISSIONS.IOS.CAMERA : PERMISSIONS.ANDROID.CAMERA;
+      let result = await check(perm);
+      console.log("camera result",result);
+      if (result !== RESULTS.GRANTED) {
+        result = await request(perm);
+      }
+
+      const granted = result === RESULTS.GRANTED;
+      setHasCameraPermission(granted);
+
+      if (!granted) {
+        Alert.alert('Camera Permission', 'Enable camera access in settings to scan.');
+        return;
+      }
+
+      setScannerVisible(true);
+    } catch (error) {
+      console.warn('Open scanner error:', error);
+      Alert.alert('Camera', 'Unable to open scanner right now.');
+    }
   };
 
   const validate = () => {
     if (!name.trim()) return 'Please enter product name.';
+    if (!barcode.trim()) return 'Please enter barcode.';
     if (!price.trim()) return 'Please enter price.';
+    if (!selectedCategoryId) return 'Please select a category.';
+    if (selectedTaxIds.length === 0) return 'Please select at least one tax.';
     if (!Number.isFinite(priceNumber) || priceNumber < 0) return 'Price must be a non-negative number.';
     if (casecost && (!Number.isFinite(caseCostNumber) || caseCostNumber < 0)) return 'Case cost must be a non-negative number.';
     if (unitc && (!Number.isFinite(unitcNumber) || unitcNumber <= 0)) return 'Units in case must be a positive integer.';
@@ -256,9 +376,10 @@ export default function CreateProductModal({ visible, onClose, onCreated, initia
     setName(''); setSize(''); setPrice(''); setCost('');
     setImgBase64(''); setImgMime('image/jpeg');
     setCaseCost(''); setUnitc(''); setQtyAvailable('');
-    setToWeight(false); setAvailablePOS(false); setIsEBT(false); setEwic(false); setOtc(false);
+    setInStoreLabelProduct(false); setAvailablePOS(true); setIsEBT(true); setEwic(false); setOtc(true);
     setSelectedCategoryId(''); setSelectedTaxIds([]); setSelectedVendorId(''); setSelectedUomId('');
     setBarcode(''); setSearchText(''); setVendorList([]); setShowVendorDropdown(false);
+    setScannerVisible(false);
   };
 
   const toggleCategory = (categoryId) => {
@@ -356,13 +477,13 @@ export default function CreateProductModal({ visible, onClose, onCreated, initia
         standard_price: Number.isFinite(costNumber) ? costNumber : undefined, // ✅ sale price
         detailed_type: 'product',
         categ_id: selectedCategoryId ? Number(selectedCategoryId) : undefined,
-        uom_id: selectedUomId ? Number(selectedUomId) : undefined,
+        uom_id: !inStoreLabelProduct && selectedUomId ? Number(selectedUomId) : undefined,
         vendorcode: selectedVendorId ? Number(selectedVendorId) : undefined, // from search selection
         size: size?.trim() || undefined,
         taxes_id: selectedTaxIds.map((id) => Number(id)).filter(Number.isFinite),
         is_ebt_product: !!isEBT,
         available_in_pos: !!availablePOS,
-        to_weight: !!toWeight,
+        in_store_label_product: String(!!inStoreLabelProduct),
         case_cost: Number.isFinite(caseCostNumber) ? caseCostNumber : undefined,
         unit_in_case: Number.isFinite(unitcNumber) ? unitcNumber : undefined,
         qty_available: Number.isFinite(qtyAvailableNumber) ? qtyAvailableNumber : undefined,
@@ -381,15 +502,52 @@ export default function CreateProductModal({ visible, onClose, onCreated, initia
       });
 
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data?.error || data?.message || 'Failed to create product');
+      const resultValue = data?.result;
+      console.log("response store:", storeUrl);
+       console.log("created body,",body);
+      console.log("created data,",data);
+      const embeddedErrorMessage =
+        typeof resultValue === 'string' &&
+        /\b4\d{2}\b.*bad request|\bbad request\b|<response .*?\[(4\d{2}|5\d{2})[^\]]*\]>/i.test(resultValue)
+          ? resultValue
+          : null;
+      const responseMessage =
+        data?.message ||
+        data?.error ||
+        data?.result?.message ||
+        data?.data?.message ||
+        embeddedErrorMessage ||
+        (res.ok ? 'Product created successfully.' : 'Failed to create product');
 
-      onCreated?.(data || body);
-      resetForm();
-      onClose?.();
-      setSuccessVisible(true);
+      if (!res.ok || embeddedErrorMessage) {
+        throw new Error(responseMessage);
+      }
+
+      console.log("body:", body, "res:", data);
+      
+      // Ensure device is subscribed before sending notification
+      console.log('🔔 Checking device subscription status...');
+
+       const notificationResult = await sendNotificationToStoreUsers('Product Created', responseMessage, name); 
+  //  const notificationResult =  await sendNotificationToAdministrators(
+  // 'Admin Alert',responseMessage, name);
+      console.log('🔔 Notification result:', notificationResult);
+         
+      Alert.alert('Success', responseMessage, [
+        {
+          text: 'OK',
+          onPress: () => {
+            // Send the body (form values) so LinkProduct can extract actual user-entered data
+            // Also include the API response for reference
+            onCreated?.({ ...body, apiResponse: data });
+            resetForm();
+            onClose?.();
+          },
+        },
+      ]);
     } catch (e) {
       console.log('Create product error:', e);
-      Alert.alert('Error', e.message);
+      Alert.alert('Error', e?.message || 'Failed to create product.');
     } finally {
       setSubmitting(false);
     }
@@ -397,15 +555,22 @@ export default function CreateProductModal({ visible, onClose, onCreated, initia
 
   return (
     <>
-      <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+      <Modal visible={visible && !scannerVisible} transparent animationType="fade" onRequestClose={onClose}>
         <View style={styles.mainModalRoot}>
-          <TouchableOpacity style={styles.backdrop} activeOpacity={1} onPress={onClose} />
+          <>
+            <TouchableOpacity style={styles.backdrop} activeOpacity={1} onPress={onClose} />
 
-          <KeyboardAvoidingView
-            behavior={Platform.select({ ios: 'padding', android: undefined })}
-            style={styles.centered}
-          >
-            <View style={styles.sheet}>
+            <KeyboardAvoidingView
+              behavior={Platform.select({ ios: 'padding', android: undefined })}
+              style={styles.centered}
+            >
+              <View style={styles.sheet}>
+              <ScrollView
+                keyboardShouldPersistTaps="handled"
+                showsVerticalScrollIndicator={false}
+                nestedScrollEnabled
+                contentContainerStyle={{ paddingBottom: 14 }}
+              >
             <Text style={styles.title}>Create Product</Text>
 
             {/* Image */}
@@ -427,53 +592,65 @@ export default function CreateProductModal({ visible, onClose, onCreated, initia
 
             {/* Row 1: Name | Size */}
             <View style={styles.rowGap}>
-              <TextInput style={styles.inputCol} placeholder="Name *" placeholderTextColor={PLACEHOLDER} value={name} onChangeText={setName} />
-              <TextInput style={styles.inputCol} placeholder="Size (e.g., 500ml)" placeholderTextColor={PLACEHOLDER} value={size} onChangeText={setSize} />
+              <View style={styles.inputGroupCol}>
+                <Text style={styles.fieldLabel}>Name *</Text>
+                <TextInput style={styles.inputCol} placeholder="Name *" placeholderTextColor={PLACEHOLDER} value={name} onChangeText={setName} />
+              </View>
+              <View style={styles.inputGroupCol}>
+                <Text style={styles.fieldLabel}>Size</Text>
+                <TextInput style={styles.inputCol} placeholder="Size (e.g., 500ml)" placeholderTextColor={PLACEHOLDER} value={size} onChangeText={setSize} />
+              </View>
             </View>
 
             {/* Barcode (full width with scan) */}
-            <View style={styles.inputWrapper}>
+            <Text style={styles.fieldLabel}>Barcode *</Text>
+            <View style={styles.barcodeRow}>
               <TextInput
-                style={styles.inputWithRightIcon}
+                style={[styles.inputWithRightIcon, styles.barcodeInput]}
                 placeholder="Barcode"
                 placeholderTextColor={PLACEHOLDER}
                 value={barcode}
                 onChangeText={setBarcode}
               />
               <TouchableOpacity
-                style={styles.inputRightIcon}
-                onPress={() => hasCameraPermission ? setScannerVisible(true) :
-                  Alert.alert('Camera Permission','Enable camera access in settings to scan.')}
-                hitSlop={{ top: 8, right: 8, bottom: 8, left: 8 }}
+                style={styles.scanButton}
+                onPress={openScanner}
+                activeOpacity={0.85}
               >
-                <Icon name="camera-alt" size={22} color="#333" />
+                <Icon name="camera-alt" size={20} color="#333" />
               </TouchableOpacity>
             </View>
 
             {/* Row 2: Price | Unit Cost */}
             <View style={styles.rowGap}>
-              <TextInput
-                style={styles.inputCol}
-                placeholder="Price*"
-                placeholderTextColor={PLACEHOLDER}
-                value={price}
-                onChangeText={setPrice}
-                keyboardType="decimal-pad"
-              />
-  
+              <View style={styles.inputGroupCol}>
+                <Text style={styles.fieldLabel}>Sale Price *</Text>
                 <TextInput
-                style={styles.inputCol}
-                placeholder="Case Cost"
-                placeholderTextColor={PLACEHOLDER}
-                value={casecost}
-                keyboardType="decimal-pad"
-                onChangeText={setCaseCost}
-              />
+                  style={styles.inputCol}
+                  placeholder="Sale Price*"
+                  placeholderTextColor={PLACEHOLDER}
+                  value={price}
+                  onChangeText={setPrice}
+                  keyboardType="decimal-pad"
+                />
+              </View>
+              <View style={styles.inputGroupCol}>
+                <Text style={styles.fieldLabel}>Case Cost</Text>
+                <TextInput
+                  style={styles.inputCol}
+                  placeholder="Case Cost"
+                  placeholderTextColor={PLACEHOLDER}
+                  value={casecost}
+                  keyboardType="decimal-pad"
+                  onChangeText={setCaseCost}
+                />
+              </View>
             </View>
 
-            {/* Row 3: Case Cost | Units in Case + Calculate */}
+            {/* Row 3: Units in Case | Unit Cost */}
             <View style={styles.rowGap}>
-      
+              <View style={styles.inputGroupCol}>
+                <Text style={styles.fieldLabel}>Units in Case</Text>
                 <TextInput
                   style={[styles.inputCol, { marginTop: 0 }]}
                   placeholder="Units in Case"
@@ -482,22 +659,27 @@ export default function CreateProductModal({ visible, onClose, onCreated, initia
                   keyboardType="number-pad"
                   onChangeText={setUnitc}
                 />
-                   <TextInput
-                style={styles.inputCol}
-                placeholder="Unit Cost"
-                placeholderTextColor={PLACEHOLDER}
-                value={cost}
-                onChangeText={setCost}
-                keyboardType="decimal-pad"
-              />
-                <TouchableOpacity style={styles.calcBtn} onPress={calculateUnitCost}>
-                  <Text style={styles.calcBtnText}>Calculate</Text>
-                </TouchableOpacity>
-          
+              </View>
+              <View style={styles.inputGroupCol}>
+                <Text style={styles.fieldLabel}>Cost</Text>
+                <TextInput
+                  style={styles.inputCol}
+                  placeholder="Cost"
+                  placeholderTextColor={PLACEHOLDER}
+                  value={cost}
+                  onChangeText={setCost}
+                  keyboardType="decimal-pad"
+                />
+              </View>
+            </View>
+            <View style={styles.calcBtnRow}>
+              <TouchableOpacity style={styles.calcBtn} onPress={calculateUnitCost}>
+                <Text style={styles.calcBtnText}>Calculate Unit Cost</Text>
+              </TouchableOpacity>
             </View>
 
             {/* Row 4: Qty Available (full) */}
-      
+            <Text style={styles.fieldLabel}>Qty Available</Text>
             <TextInput
               style={styles.input}
               placeholder="Qty Available"
@@ -508,9 +690,9 @@ export default function CreateProductModal({ visible, onClose, onCreated, initia
             />
 
             {/* Row 5: Category | Vendor Search | UoM */}
-            <View style={styles.rowGap}>
+            <View style={[styles.rowGap, styles.rowGapRaised]}>
               <TouchableOpacity style={styles.selectBox} onPress={() => setCategoryModalVisible(true)}>
-                <Text style={styles.selectLabel}>Category</Text>
+                <Text style={styles.selectLabel}>Category *</Text>
                 <Text numberOfLines={2} style={styles.selectValue}>{categorySummary}</Text>
               </TouchableOpacity>
 
@@ -547,13 +729,17 @@ export default function CreateProductModal({ visible, onClose, onCreated, initia
             {/* Row 6: Tax */}
             <View style={styles.rowGap}>
               <TouchableOpacity style={styles.selectBox} onPress={() => setTaxModalVisible(true)}>
-                <Text style={styles.selectLabel}>Tax</Text>
+                <Text style={styles.selectLabel}>Tax *</Text>
                 <Text numberOfLines={2} style={styles.selectValue}>{taxSummary}</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={styles.selectBox} onPress={() => setUomModalVisible(true)}>
-                <Text style={styles.selectLabel}>UoM</Text>
-                <Text numberOfLines={2} style={styles.selectValue}>{uomSummary}</Text>
-              </TouchableOpacity>
+              {!inStoreLabelProduct ? (
+                <TouchableOpacity style={styles.selectBox} onPress={() => setUomModalVisible(true)}>
+                  <Text style={styles.selectLabel}>UoM</Text>
+                  <Text numberOfLines={2} style={styles.selectValue}>{uomSummary}</Text>
+                </TouchableOpacity>
+              ) : (
+                <View style={styles.selectBoxHidden} />
+              )}
 
             </View>
 
@@ -565,8 +751,8 @@ export default function CreateProductModal({ visible, onClose, onCreated, initia
                 <Switch value={availablePOS} onValueChange={setAvailablePOS} />
               </View>
               <View style={styles.switchCell}>
-                <Text style={styles.switchLabel}>To Weight</Text>
-                <Switch value={toWeight} onValueChange={setToWeight} />
+                <Text style={styles.switchLabel}>In Store</Text>
+                <Switch value={inStoreLabelProduct} onValueChange={setInStoreLabelProduct} />
               </View>
               <View style={styles.switchCell}>
                 <Text style={styles.switchLabel}>EBT</Text>
@@ -599,16 +785,83 @@ export default function CreateProductModal({ visible, onClose, onCreated, initia
                 {submitting ? <ActivityIndicator /> : <Text style={styles.btnText}>Create</Text>}
               </TouchableOpacity>
             </View>
+              </ScrollView>
+              </View>
+            </KeyboardAvoidingView>
 
-            </View>
-          </KeyboardAvoidingView>
+            {categoryModalVisible && (
+              <View style={styles.optionModalRoot}>
+                <TouchableOpacity style={styles.optionModalBackdrop} activeOpacity={1} onPress={() => setCategoryModalVisible(false)} />
+                <View style={styles.optionModalCard}>
+                  <Text style={styles.optionModalTitle}>Select Category</Text>
+                  <ScrollView style={styles.optionList}>
+                    {sortedCategories.map((item) => (
+                      <TouchableOpacity key={item.id} style={styles.optionRow} onPress={() => toggleCategory(item.id)}>
+                        <Text style={styles.optionLabel}>{item.label}</Text>
+                        <Switch value={selectedCategoryId === item.id} onValueChange={() => toggleCategory(item.id)} />
+                      </TouchableOpacity>
+                    ))}
+                  </ScrollView>
+                  <TouchableOpacity style={styles.btn} onPress={() => setCategoryModalVisible(false)}>
+                    <Text style={styles.btnText}>Done</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            )}
+
+            {taxModalVisible && (
+              <View style={styles.optionModalRoot}>
+                <TouchableOpacity style={styles.optionModalBackdrop} activeOpacity={1} onPress={() => setTaxModalVisible(false)} />
+                <View style={styles.optionModalCard}>
+                  <Text style={styles.optionModalTitle}>Select Tax</Text>
+                  <ScrollView style={styles.optionList}>
+                    {sortedTaxes.map((item) => (
+                      <TouchableOpacity key={item.id} style={styles.optionRow} onPress={() => toggleTax(item.id)}>
+                        <Text style={styles.optionLabel}>{item.label}</Text>
+                        <Switch value={selectedTaxIds.includes(item.id)} onValueChange={() => toggleTax(item.id)} />
+                      </TouchableOpacity>
+                    ))}
+                  </ScrollView>
+                  <TouchableOpacity style={styles.btn} onPress={() => setTaxModalVisible(false)}>
+                    <Text style={styles.btnText}>Done</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            )}
+
+            {uomModalVisible && (
+              <View style={styles.optionModalRoot}>
+                <TouchableOpacity style={styles.optionModalBackdrop} activeOpacity={1} onPress={() => setUomModalVisible(false)} />
+                <View style={styles.optionModalCard}>
+                  <Text style={styles.optionModalTitle}>Unit of Measurement</Text>
+                  <ScrollView style={styles.optionList}>
+                    {sortedUom.map((item) => (
+                      <TouchableOpacity key={item.id} style={styles.optionRow} onPress={() => toggleUom(item.id)}>
+                        <Text style={styles.optionLabel}>{item.label}</Text>
+                        <Switch value={selectedUomId === item.id} onValueChange={() => toggleUom(item.id)} />
+                      </TouchableOpacity>
+                    ))}
+                  </ScrollView>
+                  <TouchableOpacity style={styles.btn} onPress={() => setUomModalVisible(false)}>
+                    <Text style={styles.btnText}>Done</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            )}
+
+          </>
         </View>
       </Modal>
 
-      {/* Scanner */}
-      <Modal visible={scannerVisible} animationType="slide">
+      <Modal
+        visible={visible && scannerVisible}
+        animationType="slide"
+        presentationStyle="fullScreen"
+        statusBarTranslucent
+        onRequestClose={() => setScannerVisible(false)}
+      >
         {hasCameraPermission ? (
-          <View style={{ flex: 1 }}>
+          <View style={styles.scannerRoot}>
             <Camera
               ref={cameraRef}
               style={styles.camera}
@@ -616,98 +869,38 @@ export default function CreateProductModal({ visible, onClose, onCreated, initia
               scanBarcode
               onReadCode={onReadCode}
             />
-            <View style={styles.controls}>
-              <TouchableOpacity style={styles.controlBtn} onPress={() => setScannerVisible(false)}>
-                <Text style={styles.controlText}>Close</Text>
-              </TouchableOpacity>
+            <View pointerEvents="none" style={styles.scannerFrameWrap}>
+              <View style={styles.scannerFrame} />
+            </View>
+            <TouchableOpacity
+              style={[styles.closeScannerBtn, { top: Math.max(insets.top, 16) + 8 }]}
+              onPress={() => setScannerVisible(false)}
+              activeOpacity={0.85}
+            >
+              <Icon name="close" size={22} color="#fff" />
+            </TouchableOpacity>
+            <View style={styles.scannerFooter}>
+              <Text style={styles.scannerHint}>Align the barcode inside the frame</Text>
             </View>
           </View>
         ) : (
           <View style={styles.permissionDenied}>
-            <Text style={{ color: "red" }}>
+            <Text style={styles.permissionDeniedText}>
               Camera permission denied. Please allow access in settings.
             </Text>
-            <TouchableOpacity style={[styles.controlBtn, { marginTop: 16 }]} onPress={() => setScannerVisible(false)}>
-              <Text style={styles.controlText}>Close</Text>
+            <TouchableOpacity
+              style={[styles.closePermissionBtn, { marginTop: 16 }]}
+              onPress={() => setScannerVisible(false)}
+            >
+              <Text style={styles.closePermissionText}>Close</Text>
             </TouchableOpacity>
           </View>
         )}
       </Modal>
 
-      <Modal visible={categoryModalVisible} transparent animationType="fade" onRequestClose={() => setCategoryModalVisible(false)}>
-        <View style={styles.optionModalRoot}>
-          <TouchableOpacity style={styles.optionModalBackdrop} activeOpacity={1} onPress={() => setCategoryModalVisible(false)} />
-          <View style={styles.optionModalCard}>
-            <Text style={styles.optionModalTitle}>Select Category</Text>
-            <ScrollView style={styles.optionList}>
-              {sortedCategories.map((item) => (
-                <TouchableOpacity key={item.id} style={styles.optionRow} onPress={() => toggleCategory(item.id)}>
-                  <Text style={styles.optionLabel}>{item.label}</Text>
-                  <Switch value={selectedCategoryId === item.id} onValueChange={() => toggleCategory(item.id)} />
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
-            <TouchableOpacity style={styles.btn} onPress={() => setCategoryModalVisible(false)}>
-              <Text style={styles.btnText}>Done</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
-
-      <Modal visible={taxModalVisible} transparent animationType="fade" onRequestClose={() => setTaxModalVisible(false)}>
-        <View style={styles.optionModalRoot}>
-          <TouchableOpacity style={styles.optionModalBackdrop} activeOpacity={1} onPress={() => setTaxModalVisible(false)} />
-          <View style={styles.optionModalCard}>
-            <Text style={styles.optionModalTitle}>Select Tax</Text>
-            <ScrollView style={styles.optionList}>
-              {sortedTaxes.map((item) => (
-                <TouchableOpacity key={item.id} style={styles.optionRow} onPress={() => toggleTax(item.id)}>
-                  <Text style={styles.optionLabel}>{item.label}</Text>
-                  <Switch value={selectedTaxIds.includes(item.id)} onValueChange={() => toggleTax(item.id)} />
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
-            <TouchableOpacity style={styles.btn} onPress={() => setTaxModalVisible(false)}>
-              <Text style={styles.btnText}>Done</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
-
-      <Modal visible={uomModalVisible} transparent animationType="fade" onRequestClose={() => setUomModalVisible(false)}>
-        <View style={styles.optionModalRoot}>
-          <TouchableOpacity style={styles.optionModalBackdrop} activeOpacity={1} onPress={() => setUomModalVisible(false)} />
-          <View style={styles.optionModalCard}>
-            <Text style={styles.optionModalTitle}>Select UoM</Text>
-            <ScrollView style={styles.optionList}>
-              {sortedUom.map((item) => (
-                <TouchableOpacity key={item.id} style={styles.optionRow} onPress={() => toggleUom(item.id)}>
-                  <Text style={styles.optionLabel}>{item.label}</Text>
-                  <Switch value={selectedUomId === item.id} onValueChange={() => toggleUom(item.id)} />
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
-            <TouchableOpacity style={styles.btn} onPress={() => setUomModalVisible(false)}>
-              <Text style={styles.btnText}>Done</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
-
-      <Modal visible={successVisible} transparent animationType="fade" onRequestClose={() => setSuccessVisible(false)}>
-        <View style={styles.optionModalRoot}>
-          <TouchableOpacity style={styles.optionModalBackdrop} activeOpacity={1} onPress={() => setSuccessVisible(false)} />
-          <View style={styles.successCard}>
-            <Text style={styles.optionModalTitle}>Success</Text>
-            <Text style={styles.successText}>Product created successfully.</Text>
-            <TouchableOpacity style={styles.btn} onPress={() => setSuccessVisible(false)}>
-              <Text style={styles.btnText}>OK</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
     </>
   );
+
 }
 
 const THEME = { primary: '#2C1E70', secondary: '#319241' };
@@ -731,17 +924,19 @@ const styles = StyleSheet.create({
   sheet: {
     width: '100%',
     maxWidth: 620,
+    maxHeight: '92%',
     backgroundColor: '#fff',
     borderRadius: 16,
     padding: 16,
   },
-  title: { fontSize: 18, fontWeight: '700', color: THEME.primary, marginBottom: 10 },
+  title: { fontSize: 18, fontWeight: '700', color: "#000", marginBottom: 10 },
   subTitle: { marginTop: 12, marginBottom: 6, fontWeight: '700', color: '#111' },
 
   input: {
     borderWidth: 1, borderColor: '#ddd', borderRadius: 8,
     paddingVertical: 10, paddingHorizontal: 12, color: '#333', marginTop: 10
   },
+
   inputFlex: {
     flex: 1,
     borderWidth: 1, borderColor: '#ddd', borderRadius: 8,
@@ -749,15 +944,33 @@ const styles = StyleSheet.create({
   },
 
   preview: { width: '100%', height: 150, borderRadius: 8, marginTop: 10, backgroundColor: '#f4f4f4' },
+
   row: { flexDirection: 'row', gap: 10, marginTop: 10, alignItems: 'center' },
+
   rowRight: { flexDirection: 'row', justifyContent: 'flex-end', gap: 10, marginTop: 12 },
 
   smallBtn: { backgroundColor: THEME.secondary, paddingVertical: 10, paddingHorizontal: 12, borderRadius: 10 },
+
   smallBtnText: { color: '#fff', fontWeight: '700' },
+
   ghost: { backgroundColor: '#fff', borderWidth: 1, borderColor: '#ddd' },
+
   ghostText: { color: '#333', fontWeight: '700' },
 
-  calcBtn: { backgroundColor: THEME.secondary, paddingVertical: 8, paddingHorizontal: 12, borderRadius: 8 },
+  calcBtnRow: {
+    marginTop: 8,
+    alignItems: 'flex-end',
+  },
+
+  calcBtn: {
+    backgroundColor: THEME.secondary,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderRadius: 8,
+    minWidth: 170,
+    alignItems: 'center',
+  },
+  
   calcBtnText: { color: '#fff', fontWeight: '700' },
 
   btn: { backgroundColor: THEME.secondary, paddingVertical: 12, paddingHorizontal: 18, borderRadius: 10, alignItems: 'center' },
@@ -765,28 +978,102 @@ const styles = StyleSheet.create({
   btnGhost: { backgroundColor: '#fff', borderWidth: 1, borderColor: '#ddd' },
   btnGhostText: { color: '#333' },
 
-  camera: { flex: 1 },
-  controls: {
-    position: "absolute",
-    bottom: 30,
-    width: "100%",
-    flexDirection: "row",
-    justifyContent: "center",
-    gap: 10,
+  scannerRoot: {
+    flex: 1,
+    backgroundColor: '#000',
+  },
+  camera: {
+    flex: 1,
+    backgroundColor: '#000',
+  },
+  scannerFrameWrap: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  scannerFrame: {
+    width: 260,
+    height: 180,
+    borderWidth: 2,
+    borderColor: '#A3E635',
+    borderRadius: 18,
+    backgroundColor: 'transparent',
+  },
+  closeScannerBtn: {
+    position: 'absolute',
+    right: 16,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(0, 0, 0, 0.55)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 3,
+  },
+  scannerFooter: {
+    position: 'absolute',
+    left: 16,
+    right: 16,
+    bottom: 32,
+    alignItems: 'center',
+    zIndex: 2,
+  },
+  scannerHint: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '600',
+    textAlign: 'center',
   },
   inputWrapper: { position: 'relative', marginTop: 10 },
   inputWithRightIcon: {
     borderWidth: 1, borderColor: '#ddd', borderRadius: 8,
-    paddingVertical: 10, paddingLeft: 12, paddingRight: 44, color: '#333', backgroundColor: '#fff',
+    paddingVertical: 10, paddingLeft: 12, paddingRight: 12, color: '#333', backgroundColor: '#fff',
   },
-  inputRightIcon: {
-    position: 'absolute', right: 12, top: '50%', marginTop: -14,
-    justifyContent: 'center', alignItems: 'center', height: 28, width: 28,
+  barcodeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginTop: 10,
+  },
+  barcodeInput: {
+    flex: 1,
+  },
+  scanButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#ddd',
+    backgroundColor: '#fff',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   pickerWrapper: {
     borderWidth: 1, borderColor: '#ddd', borderRadius: 8, marginTop: 10, overflow: 'hidden',
   },
-  permissionDenied: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  permissionDenied: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 24,
+    backgroundColor: '#000',
+  },
+  permissionDeniedText: {
+    color: '#fff',
+    textAlign: 'center',
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  closePermissionBtn: {
+    backgroundColor: '#fff',
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderRadius: 10,
+  },
+  closePermissionText: {
+    color: '#111',
+    fontWeight: '700',
+  },
 
   rowBetween: {
     flexDirection: 'row',
@@ -798,6 +1085,18 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 10,
     marginTop: 10,
+  },
+  rowGapRaised: {
+    zIndex: 15,
+  },
+  inputGroupCol: {
+    flex: 1,
+  },
+  fieldLabel: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#374151',
+    marginBottom: 6,
   },
   inputCol: {
     flex: 1,
@@ -826,6 +1125,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     backgroundColor: '#fff'
   },
+  selectBoxHidden: {
+    flex: 1,
+  },
   selectLabel: {
     fontSize: 12,
     fontWeight: '700',
@@ -842,10 +1144,11 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   switchGrid: {
-    flexDirection: 'row',
+    flexDirection: 'column',
     gap: 10,
     marginTop: 10,
   },
+
   switchCell: {
     flex: 1,
     flexDirection: 'row',
@@ -857,10 +1160,15 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     paddingHorizontal: 12,
   },
+
   switchLabel: { color: '#111', fontWeight: '600' },
 
   // Vendor search UI
-  vendorBox: { flex: 1, position: 'relative' },
+  vendorBox: {
+    flex: 1,
+    position: 'relative',
+    zIndex: 20,
+  },
   vendorDropdown: {
     position: 'absolute',
     top: 46,
@@ -882,9 +1190,12 @@ const styles = StyleSheet.create({
   vendorSub: { color: '#666', fontSize: 12, marginTop: 2 },
   selectedVendorNote: { fontSize: 12, color: '#2c1e70', marginTop: 6 },
   optionModalRoot: {
+    ...StyleSheet.absoluteFillObject,
     flex: 1,
     justifyContent: 'center',
     paddingHorizontal: 20,
+    zIndex: 20,
+    elevation: 20,
   },
   optionModalBackdrop: {
     ...StyleSheet.absoluteFillObject,
@@ -918,14 +1229,5 @@ const styles = StyleSheet.create({
     color: '#111',
     fontWeight: '600',
     paddingRight: 10,
-  },
-  successCard: {
-    backgroundColor: '#fff',
-    borderRadius: 12,
-    padding: 16,
-  },
-  successText: {
-    color: '#111',
-    marginBottom: 12,
   },
 });

@@ -185,80 +185,84 @@ export default function DateRangePickerModal({
               </ScrollView>
             </View>
 
-            {preset === 'custom' ? (
-              <View style={styles.customBlock}>
-                <Text style={styles.sectionLabel}>Start</Text>
-                <View style={styles.row}>
-                  <TouchableOpacity
-                    style={styles.selector}
-                    onPress={() => Platform.OS === 'android' ? setShowStartDatePicker(true) : null}
-                  >
-                    <Text style={styles.selectorLabel}>Date</Text>
-                    {Platform.OS === 'ios' ? (
-                      <DateTimePicker
-                        value={customStartDate}
-                        mode="date"
-                        display="inline"
-                        onChange={(_e, d) => d && setCustomStartDate(atStartOfDay(d))}
-                        style={styles.iosPicker}
-                      />
-                    ) : (
+	            {preset === 'custom' ? (
+	              <View style={styles.customBlock}>
+	                <Text style={styles.sectionLabel}>Start</Text>
+	                <View style={styles.pairRow}>
+	                  <TouchableOpacity
+	                    style={[styles.selector, styles.selectorHalf]}
+	                    onPress={() => Platform.OS === 'android' ? setShowStartDatePicker(true) : null}
+	                  >
+	                    <Text style={styles.selectorLabel}>Date</Text>
+	                    {Platform.OS === 'ios' ? (
+	                      <DateTimePicker
+	                        value={customStartDate}
+	                        mode="date"
+	                        display="compact"
+	                        themeVariant="light"
+	                        onChange={(_e, d) => d && setCustomStartDate(atStartOfDay(d))}
+	                        style={styles.iosPicker}
+	                      />
+	                    ) : (
                       <Text style={styles.selectorValue}>{fmt(customStartDate).split(' ')[0]}</Text>
                     )}
                   </TouchableOpacity>
 
-                  <TouchableOpacity
-                    style={styles.selector}
-                    onPress={() => Platform.OS === 'android' ? setShowStartTimePicker(true) : null}
-                  >
-                    <Text style={styles.selectorLabel}>Time</Text>
-                    {Platform.OS === 'ios' ? (
-                      <DateTimePicker
-                        value={customStartTime}
-                        mode="time"
-                        display="spinner"
-                        onChange={(_e, d) => d && setCustomStartTime(d)}
-                        style={styles.iosPicker}
-                      />
-                    ) : (
+	                  <TouchableOpacity
+	                    style={[styles.selector, styles.selectorHalf]}
+	                    onPress={() => Platform.OS === 'android' ? setShowStartTimePicker(true) : null}
+	                  >
+	                    <Text style={styles.selectorLabel}>Time</Text>
+	                    {Platform.OS === 'ios' ? (
+	                      <DateTimePicker
+	                        value={customStartTime}
+	                        mode="time"
+	                        display="compact"
+	                        themeVariant="light"
+	                        onChange={(_e, d) => d && setCustomStartTime(d)}
+	                        style={styles.iosPicker}
+	                      />
+	                    ) : (
                       <Text style={styles.selectorValue}>{fmt(customStartTime).split(' ')[1]}</Text>
                     )}
                   </TouchableOpacity>
                 </View>
 
-                <Text style={[styles.sectionLabel, { marginTop: 12 }]}>End</Text>
-                <View style={styles.row}>
-                  <TouchableOpacity
-                    style={styles.selector}
-                    onPress={() => Platform.OS === 'android' ? setShowEndDatePicker(true) : null}
-                  >
-                    <Text style={styles.selectorLabel}>Date</Text>
-                    {Platform.OS === 'ios' ? (
-                      <DateTimePicker
-                        value={customEndDate}
-                        mode="date"
-                        display="inline"
-                        onChange={(_e, d) => d && setCustomEndDate(atStartOfDay(d))}
-                        style={styles.iosPicker}
-                      />
-                    ) : (
+	                <Text style={[styles.sectionLabel, { marginTop: 12 }]}>End</Text>
+	                <View style={styles.pairRow}>
+	                  <TouchableOpacity
+	                    style={[styles.selector, styles.selectorHalf]}
+	                    onPress={() => Platform.OS === 'android' ? setShowEndDatePicker(true) : null}
+	                  >
+	                    <Text style={styles.selectorLabel}>Date</Text>
+	                    {Platform.OS === 'ios' ? (
+	                      <DateTimePicker
+	                        value={customEndDate}
+	                        mode="date"
+	                        display="compact"
+	                        themeVariant="light"
+	                        onChange={(_e, d) => d && setCustomEndDate(atStartOfDay(d))}
+	                        style={styles.iosPicker}
+	                      />
+	                    ) : (
                       <Text style={styles.selectorValue}>{fmt(customEndDate).split(' ')[0]}</Text>
                     )}
                   </TouchableOpacity>
 
-                  <TouchableOpacity
-                    style={styles.selector}
-                    onPress={() => Platform.OS === 'android' ? setShowEndTimePicker(true) : null}
-                  >
-                    <Text style={styles.selectorLabel}>Time</Text>
-                    {Platform.OS === 'ios' ? (
-                      <DateTimePicker
-                        value={customEndTime}
-                        mode="time"
-                        display="spinner"
-                        onChange={(_e, d) => d && setCustomEndTime(d)}
-                        style={styles.iosPicker}
-                      />
+	                  <TouchableOpacity
+	                    style={[styles.selector, styles.selectorHalf]}
+	                    onPress={() => Platform.OS === 'android' ? setShowEndTimePicker(true) : null}
+	                  >
+	                    <Text style={styles.selectorLabel}>Time</Text>
+	                    {Platform.OS === 'ios' ? (
+	                      <DateTimePicker
+	                        value={customEndTime}
+	                        mode="time"
+	                        display="compact"
+	                        themeVariant="light"
+	                        onChange={(_e, d) => d && setCustomEndTime(d)}
+	                        style={styles.iosPicker}
+	                      />
                     ) : (
                       <Text style={styles.selectorValue}>{fmt(customEndTime).split(' ')[1]}</Text>
                     )}
@@ -363,25 +367,43 @@ const styles = StyleSheet.create({
   pillTextActive: { color: '#fff', fontWeight: '700' },
   customBlock: {
     borderWidth: 1,
-    borderColor: '#d9d9d9',
-    borderRadius: 12,
-    padding: 12,
-    backgroundColor: '#f7f7f7',
+    borderColor: '#d6e7da',
+    borderRadius: 16,
+    padding: 14,
+    backgroundColor: '#eef8f0',
   },
-  sectionLabel: { color: '#444', marginBottom: 8, fontWeight: '600' },
+  sectionLabel: { color: '#17351d', marginBottom: 8, fontWeight: '700', fontSize: 14 },
   row: { flexDirection: 'row', gap: 12, flexWrap: 'wrap' },
-  selector: {
-    flex: 1,
-    borderWidth: 1,
-    borderColor: '#cfd6ea',
-    borderRadius: 10,
-    padding: 10,
-    backgroundColor: '#fff',
-    minWidth: 150,
+  pairRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 12,
   },
-  selectorLabel: { color: '#4b5563', marginBottom: 6 },
-  selectorValue: { color: '#111', fontSize: 16 },
-  iosPicker: { alignSelf: 'flex-start', width: '100%' },
+  selector: {
+    borderWidth: 1,
+    borderColor: '#bdd6c3',
+    borderRadius: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    backgroundColor: '#fff',
+    minWidth: 140,
+    shadowColor: '#0f2f19',
+    shadowOpacity: 0.04,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 1,
+  },
+  selectorHalf: {
+    flex: 1,
+    minWidth: 0,
+  },
+  selectorLabel: { color: '#46614d', marginBottom: 6, fontSize: 12, fontWeight: '600' },
+  selectorValue: { color: '#111827', fontSize: 16, fontWeight: '600' },
+  iosPicker: {
+    alignSelf: 'stretch',
+    width: '100%',
+    minHeight: 36,
+  },
   preview: {
     borderWidth: 1,
     borderColor: '#d9d9d9',

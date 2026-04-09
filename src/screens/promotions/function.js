@@ -232,6 +232,7 @@ export async function createQuantityDiscountPromotion(payload) {
     throw new Error(json?.message || json?.error || `Failed to create quantity discount (${res.status})`);
   }
   return json;
+
 }
 
 export async function deleteQuantityDiscountPromotion(productId) {

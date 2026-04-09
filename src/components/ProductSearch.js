@@ -3,33 +3,26 @@ import React, { useState, useRef, useEffect, useContext } from "react";
 import {
   View,
   TextInput,
-  FlatList,
   Text,
   StyleSheet,
   TouchableOpacity,
   Modal,
   Alert,
   Platform,
-  Image,
   Pressable,
+  ScrollView,
+  Dimensions,
 } from "react-native";
-import axios from "axios";
 import Icon from "react-native-vector-icons/MaterialIcons";
 import { Camera, CameraType } from "react-native-camera-kit";
-import { API_URL } from "@env";
-import { request, PERMISSIONS, RESULTS } from "react-native-permissions";
+import { check, request, PERMISSIONS, RESULTS } from "react-native-permissions";
 import { CartContext } from "../context/CartContext";
 import { PrintContext } from "../context/PrintContext";
 import ProductModal from "./ProductModal";
-import AsyncStorage from '@react-native-async-storage/async-storage';
-const THEME = {
-  primary: "#2C1E70",
-  accent: "#319241",
-  text: "#222",
-  muted: "#777",
-  success: "#27ae60",
-};
+import AsyncStorage from "@react-native-async-storage/async-storage";
+
 const PLACEHOLDER = "#9AA3AF";
+const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
 
 export default function ProductSearch() {
   const [searchText, setSearchText] = useState("");
@@ -44,25 +37,28 @@ export default function ProductSearch() {
   const cameraRef = useRef(null);
   const isHandlingScanRef = useRef(false);
   const [torchOn, setTorchOn] = useState(false);
-  const [access_token, setAccessToken] = useState('');
-  const [storeURL, setStoreurl] = useState('');
-  // floating results position
-  const [searchRowH, setSearchRowH] = useState(0);
+  const [access_token, setAccessToken] = useState("");
+  const [storeURL, setStoreurl] = useState("");
 
-  // barcode result modal
-  const [resultModalVisible, setResultModalVisible] = useState(false);
-  const [scannedProduct, setScannedProduct] = useState(null);
+  const [searchBoxLayout, setSearchBoxLayout] = useState({
+    x: 0,
+    y: 0,
+    width: 0,
+    height: 0,
+  });
 
-  // ✅ bottom sheet ref
+  const searchRowRef = useRef(null);
   const sheetRef = useRef(null);
 
   useEffect(() => {
     (async () => {
       let result;
-     const storeulr =    await AsyncStorage.getItem('storeurl');
-     const access_token =    await AsyncStorage.getItem('access_token');
-setAccessToken(access_token);
-setStoreurl(storeulr)
+      const storeulr = await AsyncStorage.getItem("storeurl");
+      const token = await AsyncStorage.getItem("access_token");
+
+      setAccessToken(token || "");
+      setStoreurl(storeulr || "");
+
       if (Platform.OS === "ios") {
         result = await request(PERMISSIONS.IOS.CAMERA);
       } else {
@@ -71,6 +67,14 @@ setStoreurl(storeulr)
       setHasCameraPermission(result === RESULTS.GRANTED);
     })();
   }, []);
+
+  const measureSearchBox = () => {
+    requestAnimationFrame(() => {
+      searchRowRef.current?.measureInWindow((x, y, width, height) => {
+        setSearchBoxLayout({ x, y, width, height });
+      });
+    });
+  };
 
   const handleSearch = (text) => {
     setSearchText(text);
@@ -83,23 +87,29 @@ setStoreurl(storeulr)
     }
 
     typingTimeout.current = setTimeout(async () => {
-      if (text.length >= 3) {
+      if (text.trim().length >= 3) {
         try {
-   const res = await fetch(`${storeURL}/pos/app/product/search?query=${encodeURIComponent(text)}`, {
-    method: 'GET',
-    headers: {
-      accept: 'application/json',
-      access_token: access_token,
-    },
-  });
-   if (!res.ok) {
-    const text = await res.text().catch(() => '');
-    throw new Error(`Failed to fetch categories (${res.status}): ${text || 'No details'}`);
-  }
+          measureSearchBox();
 
-  const json = await res.json();
-  const list = Array.isArray(json?.products) ? json.products : [];
-          setResults(list || []);
+          const res = await fetch(
+            `${storeURL}/pos/app/product/search?query=${encodeURIComponent(text)}`,
+            {
+              method: "GET",
+              headers: {
+                accept: "application/json",
+                access_token: access_token,
+              },
+            }
+          );
+
+          if (!res.ok) {
+            const txt = await res.text().catch(() => "");
+            throw new Error(`Failed to fetch products (${res.status}): ${txt || "No details"}`);
+          }
+
+          const json = await res.json();
+          const list = Array.isArray(json?.products) ? json.products : [];
+          setResults(list);
         } catch (err) {
           console.error("❌ Search error:", err?.message);
           setResults([]);
@@ -110,46 +120,128 @@ setStoreurl(storeulr)
     }, 500);
   };
 
-  const runQueryWithBarcode = async (barcode) => {
-    if (isHandlingScanRef.current) return;
-    isHandlingScanRef.current = true;
+const runQueryWithBarcode = async (barcode) => {
+  if (isHandlingScanRef.current) return;
+  isHandlingScanRef.current = true;
 
-    setScannerVisible(false);
-    try {
-  const res = await fetch(`${storeURL}/pos/app/product/search?query=${encodeURIComponent(barcode)}`, {
-    method: 'GET',
-    headers: {
-      accept: 'application/json',
-      access_token: access_token,
-    },
-  });
-   if (!res.ok) {
-    const text = await res.text().catch(() => '');
-    throw new Error(`Failed to fetch categories (${res.status}): ${text || 'No details'}`);
-  }
+  setScannerVisible(false);
 
-  const json = await res.json();
-  const list = Array.isArray(json?.products) ? json.products : [];
-
-      if (list.length >= 1) {
-        setScannedProduct(list[0]);
-        setResultModalVisible(true);
-      } else {
-        Alert.alert("Not found", "No product matched this barcode.");
+  const searchProduct = async (query) => {
+    const res = await fetch(
+      `${storeURL}/pos/app/product/search?query=${encodeURIComponent(query)}`,
+      {
+        method: "GET",
+        headers: {
+          accept: "application/json",
+          access_token: access_token,
+        },
       }
-    } catch (err) {
-      console.error("❌ Barcode search error:", err?.message);
-      Alert.alert("Error", "Could not fetch product for this barcode.");
-    } finally {
-      setTimeout(() => {
-        isHandlingScanRef.current = false;
-      }, 600);
+    );
+
+    if (!res.ok) {
+      const txt = await res.text().catch(() => "");
+      throw new Error(`Failed to fetch products (${res.status}): ${txt || "No details"}`);
     }
+
+    const json = await res.json();
+    return Array.isArray(json?.products) ? json.products : [];
   };
+
+  try {
+    const originalBarcode = String(barcode || "").trim();
+    if (!originalBarcode) {
+      Alert.alert("Not found", "Invalid barcode.");
+      return;
+    }
+
+    const attempts = [];
+    const tried = new Set();
+
+    // 1. original barcode
+    attempts.push(originalBarcode);
+
+    // 2. if starts with 0, remove first zero
+    if (originalBarcode.startsWith("0") && originalBarcode.length > 1) {
+      attempts.push(originalBarcode.slice(1));
+    }
+
+    // 3. remove last digit
+    if (originalBarcode.length > 1) {
+      attempts.push(originalBarcode.slice(0, -1));
+    }
+
+    // 4. remove first and last digit
+    if (originalBarcode.length > 2) {
+      attempts.push(originalBarcode.slice(1, -1));
+    }
+
+    let foundList = [];
+    let matchedBarcode = originalBarcode;
+
+    for (const attempt of attempts) {
+      const cleaned = String(attempt || "").trim();
+      if (!cleaned || tried.has(cleaned)) continue;
+
+      tried.add(cleaned);
+
+      const list = await searchProduct(cleaned);
+      if (list.length >= 1) {
+        foundList = list;
+        matchedBarcode = cleaned;
+        break;
+      }
+    }
+
+    if (foundList.length >= 1) {
+      setResults([]);
+      setSearchText(matchedBarcode);
+      setTimeout(() => {
+        sheetRef.current?.open(foundList[0]);
+      }, 180);
+    } else {
+      Alert.alert("Not found", "No product matched this barcode.");
+    }
+  } catch (err) {
+    console.error("❌ Barcode search error:", err?.message);
+    Alert.alert("Error", "Could not fetch product for this barcode.");
+  } finally {
+    setTimeout(() => {
+      isHandlingScanRef.current = false;
+    }, 600);
+  }
+};
 
   const onReadCode = (event) => {
     const value = event?.nativeEvent?.codeStringValue;
     if (value) runQueryWithBarcode(value);
+  };
+
+  const openScanner = async () => {
+    try {
+      const perm =
+        Platform.OS === "ios" ? PERMISSIONS.IOS.CAMERA : PERMISSIONS.ANDROID.CAMERA;
+
+      let result = await check(perm);
+      if (result !== RESULTS.GRANTED) {
+        result = await request(perm);
+      }
+
+      const granted = result === RESULTS.GRANTED;
+      setHasCameraPermission(granted);
+
+      if (!granted) {
+        Alert.alert(
+          "Camera Permission",
+          "Camera access is required to scan barcodes. Please enable it in settings."
+        );
+        return;
+      }
+
+      setScannerVisible(true);
+    } catch (error) {
+      console.warn("Open scanner error:", error);
+      Alert.alert("Camera", "Unable to open scanner right now.");
+    }
   };
 
   const takePicture = async () => {
@@ -163,35 +255,35 @@ setStoreurl(storeulr)
   };
 
   const onAddToCart = (product) => {
-    const p = product || scannedProduct;
-    if (!p) return;
-    addToCart(p);
-    setResultModalVisible(false);
+    if (!product) return;
+    addToCart(product);
     Alert.alert("Added", "Item added to cart.");
   };
 
   const onAddToPrint = (product) => {
-    const p = product || scannedProduct;
-    if (!p) return;
-    addToPrint(p);
-    setResultModalVisible(false);
+    if (!product) return;
+    addToPrint(product);
     Alert.alert("Added", "Item added to print list.");
+  };
+
+  const openSheetFor = (item) => {
+    setResults([]);
+    sheetRef.current?.open(item);
   };
 
   const showDropdown = results.length > 0 && searchText.trim().length >= 3;
 
-  // ✅ open bottom sheet from list result
-  const openSheetFor = (item) => {
-    setResults([]); // hide dropdown
-    sheetRef.current?.open(item);
-  };
+  const dropdownTop = searchBoxLayout.y + searchBoxLayout.height + 6;
+  const dropdownLeft = searchBoxLayout.x;
+  const dropdownWidth = searchBoxLayout.width || SCREEN_WIDTH - 32;
+  const dropdownMaxHeight = Math.min(260, SCREEN_HEIGHT - dropdownTop - 20);
 
   return (
-    <View style={[styles.container, { zIndex: 100 }]}>
-      {/* Search Input */}
+    <View style={styles.container}>
       <View
+        ref={searchRowRef}
         style={styles.searchRow}
-        onLayout={(e) => setSearchRowH(e.nativeEvent.layout.height)}
+        onLayout={measureSearchBox}
       >
         <TextInput
           style={styles.input}
@@ -199,57 +291,72 @@ setStoreurl(storeulr)
           placeholderTextColor={PLACEHOLDER}
           value={searchText}
           onChangeText={handleSearch}
+          onFocus={measureSearchBox}
         />
-        <TouchableOpacity
-          onPress={() => {
-            if (hasCameraPermission) {
-              setScannerVisible(true);
-            } else {
-              Alert.alert(
-                "Camera Permission",
-                "Camera access is required to scan barcodes. Please enable it in settings."
-              );
-            }
-          }}
-        >
+        <TouchableOpacity onPress={openScanner}>
           <Icon name="camera-alt" size={28} color="#333" />
         </TouchableOpacity>
       </View>
 
-      {/* 🔽 Floating dropdown over tabs */}
-      {showDropdown && (
-        <>
-          <Pressable
-            style={styles.backdropTapCatcher}
-            onPress={() => setResults([])}
-          />
-          <View style={[styles.resultsOverlay, { top: searchRowH + 6 }]}>
-            <FlatList
-              data={results}
-              keyExtractor={(item, idx) => item?._id || String(idx)}
-              renderItem={({ item }) => (
-                <TouchableOpacity onPress={() => openSheetFor(item)}>
-                  <View style={styles.resultItem}>
-                    <Text style={styles.resultTitle} numberOfLines={1}>
-                      {item?.productName}
-                    </Text>
-                    <Text style={styles.resultMeta} numberOfLines={1}>
-                      {item?.category} {item?.barcode ? `• ${item.barcode}` : ""}
-                    </Text>
-                  </View>
-                </TouchableOpacity>
-              )}
-              ListEmptyComponent={<Text style={styles.empty}>No products found.</Text>}
-              keyboardShouldPersistTaps="handled"
-            />
-          </View>
-        </>
-      )}
+      {/* Search result overlay in Modal */}
+      <Modal
+        visible={showDropdown}
+        transparent
+        animationType="none"
+        statusBarTranslucent
+        onRequestClose={() => setResults([])}
+      >
+        <Pressable style={styles.modalBackdrop} onPress={() => setResults([])}>
+          <View />
+        </Pressable>
+
+        <View
+          style={[
+            styles.resultsOverlay,
+            {
+              top: dropdownTop,
+              left: dropdownLeft,
+              width: dropdownWidth,
+              maxHeight: dropdownMaxHeight,
+            },
+          ]}
+        >
+          <ScrollView
+            style={{ maxHeight: dropdownMaxHeight }}
+            keyboardShouldPersistTaps="handled"
+            nestedScrollEnabled
+            showsVerticalScrollIndicator={false}
+          >
+            {results.map((item, idx) => (
+              <TouchableOpacity
+                key={item?._id || String(idx)}
+                activeOpacity={0.8}
+                onPress={() => openSheetFor(item)}
+              >
+                <View style={styles.resultItem}>
+                  <Text style={styles.resultTitle} numberOfLines={1}>
+                    {item?.productName}
+                  </Text>
+                  <Text style={styles.resultMeta} numberOfLines={1}>
+                    {item?.category}
+                    {item?.barcode ? ` • ${item.barcode}` : ""}
+                  </Text>
+                </View>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+        </View>
+      </Modal>
 
       {/* Scanner Modal */}
-      <Modal visible={scannerVisible} animationType="slide">
+      <Modal
+        visible={scannerVisible}
+        animationType="slide"
+        presentationStyle="fullScreen"
+        statusBarTranslucent
+      >
         {hasCameraPermission ? (
-          <View style={{ flex: 1 }}>
+          <View style={styles.scannerRoot}>
             <Camera
               ref={cameraRef}
               style={styles.camera}
@@ -259,7 +366,10 @@ setStoreurl(storeulr)
               flashMode={torchOn ? "on" : "off"}
             />
 
-            {/* Controls */}
+            <View pointerEvents="none" style={styles.scannerFrameWrap}>
+              <View style={styles.scannerFrame} />
+            </View>
+
             <View style={styles.controls}>
               <TouchableOpacity
                 style={[styles.controlBtn, { marginRight: 10 }]}
@@ -300,52 +410,6 @@ setStoreurl(storeulr)
         )}
       </Modal>
 
-      {/* Result Modal (after scan) */}
-      <Modal
-        visible={resultModalVisible}
-        animationType="fade"
-        transparent
-        onRequestClose={() => setResultModalVisible(false)}
-      >
-        <View style={styles.modalBackdrop}>
-          <View style={styles.resultCard}>
-            {scannedProduct?.productImage ? (
-              <Image source={{ uri: `data:image/webp;base64,${scannedProduct.productImage}`}} style={styles.resultImage} />
-            ) : (
-              <View style={[styles.resultImage, styles.resultImagePlaceholder]}>
-                <Icon name="image" size={32} color="#bbb" />
-              </View>
-            )}
-
-            <Text style={styles.title}>{scannedProduct?.productName || "Product"}</Text>
-            <Text style={styles.metaText}>
-              {scannedProduct?.categoryName || "Category"} {scannedProduct?.productSize ? `• ${scannedProduct.productSize}` : ""}
-            </Text>
-            <Text style={styles.priceText}>
-              ₹{Number(scannedProduct?.price || 0).toFixed(2)}
-            </Text>
-            {scannedProduct?.barcode ? (
-              <Text style={styles.codeText}>Barcode: {scannedProduct.barcode}</Text>
-            ) : null}
-
-            <View style={styles.rowButtons}>
-              {/* <TouchableOpacity style={[styles.actionBtn, { backgroundColor: THEME.accent }]} onPress={() => onAddToCart()}>
-                <Text style={styles.actionText}>Add to Cart</Text>
-              </TouchableOpacity> */}
-
-              <TouchableOpacity style={[styles.actionBtn, { backgroundColor: THEME.accent }]} onPress={() => onAddToPrint()}>
-                <Text style={styles.actionText}>Add to Print</Text>
-              </TouchableOpacity>
-            </View>
-
-            <TouchableOpacity style={styles.closeBtn} onPress={() => setResultModalVisible(false)}>
-              <Text style={styles.closeText}>Close</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
-
-      {/* ✅ Bottom Sheet for list item tap */}
       <ProductModal
         ref={sheetRef}
         onAddToCart={(p) => onAddToCart(p)}
@@ -356,7 +420,10 @@ setStoreurl(storeulr)
 }
 
 const styles = StyleSheet.create({
-  container: { paddingTop: 16,paddingBottom: 16, position: "relative" },
+  container: {
+    paddingTop: 16,
+    paddingBottom: 16,
+  },
   searchRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -367,42 +434,70 @@ const styles = StyleSheet.create({
     backgroundColor: "#fff",
     minHeight: 48,
   },
-  input: { flex: 1, paddingVertical: 10, color: "#111" },
+  input: {
+    flex: 1,
+    paddingVertical: 10,
+    color: "#111",
+  },
 
-  // Floating dropdown
+  modalBackdrop: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: "transparent",
+  },
   resultsOverlay: {
     position: "absolute",
-    left: 16,
-    right: 16,
     backgroundColor: "#fff",
     borderRadius: 10,
-    maxHeight: 260,
     paddingVertical: 6,
     shadowColor: "#000",
     shadowOpacity: 0.15,
     shadowRadius: 12,
     shadowOffset: { width: 0, height: 6 },
-    elevation: 8,
-    zIndex: 999,
-  },
-  backdropTapCatcher: {
-    position: "absolute",
-    top: 0, left: 0, right: 0, bottom: 0,
-    zIndex: 900,
+    elevation: 20,
+    zIndex: 9999,
+    overflow: "hidden",
   },
   resultItem: {
     paddingHorizontal: 12,
     paddingVertical: 10,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: "#eee",
+    backgroundColor: "#fff",
   },
-  resultTitle: { fontWeight: "600", color: "#111" },
-  resultMeta: { color: "#666", marginTop: 2 },
+  resultTitle: {
+    fontWeight: "600",
+    color: "#111",
+  },
+  resultMeta: {
+    color: "#666",
+    marginTop: 2,
+  },
 
-  empty: { textAlign: "center", color: "#888", paddingVertical: 12 },
-
-  // Scanner
-  camera: { flex: 1 },
+  scannerRoot: {
+    flex: 1,
+    backgroundColor: "#000",
+  },
+  camera: {
+    flex: 1,
+    backgroundColor: "#000",
+  },
+  scannerFrameWrap: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  scannerFrame: {
+    width: 260,
+    height: 180,
+    borderWidth: 2,
+    borderColor: "#A3E635",
+    borderRadius: 18,
+    backgroundColor: "transparent",
+  },
   controls: {
     position: "absolute",
     bottom: 30,
@@ -417,38 +512,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     borderRadius: 8,
   },
-  controlText: { color: "#fff", fontWeight: "600" },
+  controlText: {
+    color: "#fff",
+    fontWeight: "600",
+  },
   permissionDenied: {
-    flex: 1, justifyContent: "center", alignItems: "center", padding: 24,
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 24,
   },
-
-  // Barcode result modal
-  modalBackdrop: {
-    flex: 1, backgroundColor: "rgba(0,0,0,0.5)",
-    justifyContent: "center", alignItems: "center", padding: 20,
-  },
-  resultCard: {
-    width: "95%", maxWidth: 420,
-    backgroundColor: "#fff", borderRadius: 16, padding: 16,
-    alignItems: "center", elevation: 6,
-  },
-  resultImage: {
-    width: "100%", height: 180, borderRadius: 12, marginBottom: 12, resizeMode: "cover",
-  },
-  resultImagePlaceholder: { justifyContent: "center", alignItems: "center", backgroundColor: "#f2f2f2" },
-  title: { fontSize: 18, fontWeight: "700", color: THEME.text, textAlign: "center" },
-  metaText: { color: THEME.muted, marginTop: 4, textAlign: "center" },
-  priceText: { color: THEME.success, fontWeight: "700", fontSize: 18, marginTop: 8 },
-  codeText: { color: "#555", marginTop: 6 },
-
-  rowButtons: {
-    flexDirection: "row", gap: 12, marginTop: 16, width: "100%",
-  },
-  actionBtn: {
-    flex: 1, paddingVertical: 12, borderRadius: 10, alignItems: "center",
-  },
-  actionText: { color: "#fff", fontWeight: "700" },
-
-  closeBtn: { marginTop: 12, paddingVertical: 10, paddingHorizontal: 16 },
-  closeText: { color: THEME.primary, fontWeight: "700" },
 });

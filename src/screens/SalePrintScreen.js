@@ -145,61 +145,103 @@ export default function SalePrintScreen() {
     handleIndividualBarcodeSearch(currentBoxKey, scannedData);
   };
 
-  const handleIndividualBarcodeSearch = async (boxKey, scannedData) => {
-    const barcodeValue = scannedData || boxData?.[boxKey]?.barcode || '';
-    if (!barcodeValue) {
-      Alert.alert('Error', 'Please enter a valid barcode to search.');
-      return;
-    }
-    if (!storeUrl || !token) {
-      Alert.alert('Error', 'Missing store URL or access token.');
-      return;
-    }
+const handleIndividualBarcodeSearch = async (boxKey, scannedData) => {
+  const barcodeValue = String(scannedData || boxData?.[boxKey]?.barcode || '').trim();
 
-    setLoadingBarcode(true);
-    try {
-      const res = await fetch(
-        `${storeUrl}/pos/app/product/search?query=${encodeURIComponent(barcodeValue)}`,
-        {
-          method: 'GET',
-          headers: {
-            accept: 'application/json',
-            access_token: token,
-          },
-        }
-      );
+  if (!barcodeValue) {
+    Alert.alert('Error', 'Please enter a valid barcode to search.');
+    return;
+  }
 
-      if (!res.ok) {
-        const text = await res.text().catch(() => '');
-        throw new Error(`Failed to fetch product (${res.status}): ${text || 'No details'}`);
-      }
+  if (!storeUrl || !token) {
+    Alert.alert('Error', 'Missing store URL or access token.');
+    return;
+  }
 
-      const json = await res.json();
-      const list = Array.isArray(json?.products) ? json.products : [];
-      const item = list[0];
-
-      if (!item) {
-        Alert.alert('Not found', 'No product matched this barcode.');
-        return;
-      }
-
-      setBoxData((prev) => ({
-        ...prev,
-        [boxKey]: {
-          ...prev[boxKey],
-          title_1: item.productName || item.name || 'No Name',
-          price: String(item.price ?? item.salePrice ?? item.list_price ?? ''),
-          quantity: item.productSize || item.size || '',
-          barcode: item.barcode || barcodeValue,
+  const searchProduct = async (query) => {
+    const res = await fetch(
+      `${storeUrl}/pos/app/product/search?query=${encodeURIComponent(query)}`,
+      {
+        method: 'GET',
+        headers: {
+          accept: 'application/json',
+          access_token: token,
         },
-      }));
-    } catch (error) {
-      console.error('Barcode search error:', error?.message);
-      Alert.alert('Error', 'Failed to fetch barcode data. Please try again.');
-    } finally {
-      setLoadingBarcode(false);
+      }
+    );
+
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`Failed to fetch product (${res.status}): ${text || 'No details'}`);
     }
+
+    const json = await res.json();
+    return Array.isArray(json?.products) ? json.products : [];
   };
+
+  setLoadingBarcode(true);
+
+  try {
+    const attempts = [];
+    const tried = new Set();
+
+    // 1. original barcode
+    attempts.push(barcodeValue);
+
+    // 2. if starts with 0, remove first zero
+    if (barcodeValue.startsWith('0') && barcodeValue.length > 1) {
+      attempts.push(barcodeValue.slice(1));
+    }
+
+    // 3. remove last digit
+    if (barcodeValue.length > 1) {
+      attempts.push(barcodeValue.slice(0, -1));
+    }
+
+    // 4. remove first and last digit
+    if (barcodeValue.length > 2) {
+      attempts.push(barcodeValue.slice(1, -1));
+    }
+
+    let item = null;
+    let matchedBarcode = barcodeValue;
+
+    for (const attempt of attempts) {
+      const cleaned = String(attempt || '').trim();
+      if (!cleaned || tried.has(cleaned)) continue;
+
+      tried.add(cleaned);
+
+      const list = await searchProduct(cleaned);
+      if (list.length > 0) {
+        item = list[0];
+        matchedBarcode = cleaned;
+        break;
+      }
+    }
+
+    if (!item) {
+      Alert.alert('Not found', 'No product matched this barcode.');
+      return;
+    }
+
+    setBoxData((prev) => ({
+      ...prev,
+      [boxKey]: {
+        ...prev[boxKey],
+        title_1: item.productName || item.name || 'No Name',
+        price: String(item.price ?? item.salePrice ?? item.list_price ?? ''),
+        quantity: item.productSize || item.size || '',
+        barcode: item.barcode || matchedBarcode,
+      },
+    }));
+  } catch (error) {
+    console.error('Barcode search error:', error?.message);
+    Alert.alert('Error', 'Failed to fetch barcode data. Please try again.');
+  } finally {
+    setLoadingBarcode(false);
+  }
+};
 
   const payload = useMemo(() => {
     return {

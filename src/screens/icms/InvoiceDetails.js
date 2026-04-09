@@ -5,6 +5,7 @@ import {
   Text,
   FlatList,
   TouchableOpacity,
+  Alert,
   Modal,
   LayoutAnimation,
   Platform,
@@ -12,9 +13,9 @@ import {
   ActivityIndicator,
   StyleSheet,
   TextInput,
-  
   ImageBackground
 } from 'react-native';
+import Icon from 'react-native-vector-icons/MaterialIcons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import AppHeader from '../../components/AppHeader.js';
 import EditProduct from '../../components/icms/EditProduct.js';
@@ -23,6 +24,7 @@ import InvoiceRow from '../../components/icms/InvoiceRow.js';
 import { useRoute } from '@react-navigation/native';
 import LinkProductModal from '../../components/icms/LinkProduct.js';
 import API_ENDPOINTS, { initICMSBase } from '../../../icms_config/api';
+
 if (
   Platform.OS === 'android' &&
   UIManager.setLayoutAnimationEnabledExperimental
@@ -74,6 +76,10 @@ export default function InvoiceDetails() {
   const [storedVendor, setStoredVendor] = useState(null);
   const [detailsModalVisible, setDetailsModalVisible] = useState(false);
   const [categories, setCategories] = useState([]);
+  const [posUpdateLoading, setPosUpdateLoading] = useState(false);
+  const [loadingConfirmAiId, setLoadingConfirmAiId] = useState(null);
+  const [loadingUnlinkId, setLoadingUnlinkId] = useState(null);
+  const [isicmsstore, setIsICMSStore] = useState(null);
   const route = useRoute();
   const params = route?.params ?? {};
   const fallbackInvoice = params?.Invoice ?? null;
@@ -95,7 +101,8 @@ export default function InvoiceDetails() {
       await initICMSBase();
       const token = await AsyncStorage.getItem('access_token');
       const icms_store = await AsyncStorage.getItem('icms_store');
-
+       const storeurl = await AsyncStorage.getItem('storeurl');
+       setIsICMSStore(icms_store);
       const bodyPayload = {
         invoiceNo: invoiceNoParam,
         invoiceName: invoiceNameParam,
@@ -106,8 +113,9 @@ export default function InvoiceDetails() {
         method: 'POST',
         body: JSON.stringify(bodyPayload),
         headers: {
-          'Content-Type': 'application/json',
+         'Content-Type': 'application/json',
           store: icms_store ?? '',
+          app_url: storeurl,
           access_token: token ?? '',
           mode: 'MOBILE',
         },
@@ -185,6 +193,7 @@ console.log("resonse details:",json);
       map[key] = {
         margin: Number(cat?.categoryMargin ?? 0),
         markup: Number(cat?.categoryMarkup ?? 0),
+        pp: Number(cat?.categoryPP ?? cat?.categoryPp ?? cat?.categoryProfitPercentage ?? 0),
       };
     });
     return map;
@@ -230,29 +239,18 @@ console.log("resonse details:",json);
     setLinkModalVisible(true);
   };
 
-  const handleProductSelect = product => {
+  const handleProductSelect = async (product) => {
     console.log(
       `Link ${product.name} to invoice item ${linkingItem.ProductId}`,
     );
-    // TODO: Save linking to DB
+    // Refresh invoice data after successful linking
+    await fetchInvoiceData();
   };
 
   const closeModal = useCallback(() => {
     setModalVisible(false);
     setSelectedItem(null);
   }, []);
-
-  const handleLongPress = id => {
-    setSelectedIds(prev => {
-      const newSet = new Set(prev);
-      if (newSet.has(id)) {
-        newSet.delete(id);
-      } else {
-        newSet.add(id);
-      }
-      return newSet;
-    });
-  };
 
   const handleToggleSelect = id => {
     setSelectedIds(prev => {
@@ -297,12 +295,19 @@ console.log("resonse details:",json);
     const selectedItems = itemsRef.current.filter(item =>
       selectedIds.has(item.ProductId),
     );
+    const selectedBarcodes = selectedItems
+      .map(item => String(item?.barcode ?? '').trim())
+      .filter(Boolean);
     if (!vendorDatabaseName) {
       alert('Vendor database name missing.');
       return;
     }
     if (selectedItems.length === 0) {
       alert('Please select at least one row.');
+      return;
+    }
+    if (selectedBarcodes.length === 0) {
+      alert('Please select rows that have barcode.');
       return;
     }
     try {
@@ -316,41 +321,36 @@ console.log("resonse details:",json);
      
       console.log("token:",token,storeurl);
       const res = await fetch(API_ENDPOINTS.REMOVE_LINKING, {
-        method: 'PUT',
+        method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           access_token: token ?? '',
           pos_access_token: token ?? '',
           pos_api: `${storeurl}/api/v1`,
+          app_url: storeurl,
           mode: 'MOBILE',
           store: icms_store,
           // vendordetails: storedVendor ? JSON.stringify(storedVendor) : '',
         },
         body: JSON.stringify({
-          invoiceName: vendorName,
           invoice: vendorDatabaseName,
-          invoiceNo:InvNumber,
-          tableData: selectedItems,
-          email: userEmail,
-          invoiceList: [],
+          barcodes: selectedBarcodes,
         }),
       });
        const bodyres = JSON.stringify({
-           invoiceName: vendorName,
           invoice: vendorDatabaseName,
-          invoiceNo: InvNumber,
-          tableData: selectedItems,
-          email: userEmail,
-           invoiceList: [],
+          barcodes: selectedBarcodes,
         })
       const json = await res.json().catch(() => ({}));
       
        console.log("items link",bodyres);
-           console.log("resposne link",json);
+       console.log("resposne link",res);
+
       if (!res.ok) {
         const msg = json?.message || json?.error?.message || 'Failed to link items';
         throw new Error(msg);
       }
+      fetchInvoiceData();
       setTransferMessage(json?.message || '');
       setSelectedIds(new Set());
     } catch (err) {
@@ -372,7 +372,7 @@ console.log("resonse details:",json);
     }
 
     try {
-      setTransferLoading(true);
+      setLoadingUnlinkId(rowItem?.ProductId || rowItem?.itemNo);
       setTransferMessage('');
       await initICMSBase();
       const token = await AsyncStorage.getItem('access_token');
@@ -385,6 +385,7 @@ console.log("resonse details:",json);
           'Content-Type': 'application/json',
           access_token: token ?? '',
           mode: 'MOBILE',
+          app_url: storeurl,
           store: icms_store,
         },
         body: JSON.stringify({
@@ -404,9 +405,177 @@ console.log("resonse details:",json);
     } catch (err) {
       setTransferMessage(err?.message || 'Failed to remove linked item');
     } finally {
-      setTransferLoading(false);
+      setLoadingUnlinkId(null);
     }
   };
+
+  const fetchVendorDbName = useCallback(async () => {
+    try {
+      const token = await AsyncStorage.getItem('access_token');
+      const icms_store = await AsyncStorage.getItem('icms_store');
+     const storeurl = await AsyncStorage.getItem('storeurl');
+      
+      const res = await fetch(API_ENDPOINTS.SEARCHVENDOR, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          access_token: token ?? '',
+          mode: 'MOBILE',
+         app_url: storeurl,
+          store: icms_store ?? '',
+        },
+        body: JSON.stringify({ q: vendorName }),
+      });
+      const json = await res.json().catch(() => ({}));
+      const found =
+        Array.isArray(json?.results) && json.results.length
+          ? json.results.find(
+              v => String(v?.value || '').toLowerCase() === String(vendorName || '').toLowerCase(),
+            ) || json.results[0]
+          : null;
+      return found?.databaseName || vendorDatabaseName || '';
+    } catch {
+      return vendorDatabaseName || '';
+    }
+  }, [vendorDatabaseName, vendorName]);
+
+  const handleConfirmAiLinking = useCallback(async (rowItem) => {
+    if (!rowItem) {
+      Alert.alert('Row data missing.');
+      return;
+    }
+    try {
+      setLoadingConfirmAiId(rowItem?.ProductId || rowItem?.itemNo);
+      setTransferMessage('');
+      await initICMSBase();
+      const token = await AsyncStorage.getItem('access_token');
+      const icms_store = await AsyncStorage.getItem('icms_store');
+      const storeurl = await AsyncStorage.getItem('storeurl');
+      const invoiceDb = await fetchVendorDbName();
+      const payload = {
+        invoiceName: invoiceDb || vendorDatabaseName || '',
+        items: [rowItem],
+      };
+      console.log('SingleLinking payload:', payload);
+
+      const res = await fetch(API_ENDPOINTS.SingleLinking, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          access_token: token ?? '',
+          mode: 'MOBILE',
+          store: icms_store ?? '',
+          app_url: storeurl ?? '',
+        },
+        body: JSON.stringify(payload),
+      });
+
+      const raw = await res.text().catch(() => '');
+      let json = {};
+      try {
+        json = raw ? JSON.parse(raw) : {};
+      } catch {
+        json = {};
+      }
+      console.log("confirm single linked ai raw:",raw);
+      if (!res.ok) {
+        const msg = json?.message || json?.error?.message || raw || 'Failed to confirm AI linking';
+        throw new Error(msg);
+      }
+      setTransferMessage(json?.message || 'AI linking confirmed successfully.');
+      await fetchInvoiceData();
+    } catch (err) {
+      setTransferMessage(err?.message || 'Failed to confirm AI linking');
+    } finally {
+      setLoadingConfirmAiId(null);
+    }
+  }, [fetchInvoiceData, fetchVendorDbName, vendorDatabaseName]);
+
+  const runQuantitySpCostUpdate = useCallback(async () => {
+    await initICMSBase();
+    const token = await AsyncStorage.getItem('access_token');
+    const storeurl = await AsyncStorage.getItem('storeurl');
+    const icms_store = await AsyncStorage.getItem('icms_store');
+    const email = invoice?.UserDetailInfo?.InvoiceUpdatedby || (await AsyncStorage.getItem('userEmail')) || '';
+    const invoiceDb = await fetchVendorDbName();
+
+console.log('icms_store value from AsyncStorage:', icms_store);
+console.log('All items:', itemsRef.current.map(item => ({ source: item?.source, itemNo: item?.itemNo })));
+
+const tableData = itemsRef.current
+  .filter(item => {
+    const source = String(item?.source ?? '').trim().toLowerCase();
+    const storeValue = String(icms_store ?? '').trim().toLowerCase();
+    const matches = source === storeValue;
+    console.log(`Item ${item?.itemNo} - source: "${item?.source}" -> normalized: "${source}" vs store: "${storeValue}" -> matches: ${matches}`);
+    return matches;
+  })
+  .map(item => ({
+    ...item,
+    tableDataCopyElement: { ...item }
+  }));
+
+console.log('Filtered tableData count:', tableData.length);
+console.log('Filtered tableData:', tableData);
+    const body = {
+      invoiceName: vendorName,
+      invoiceSavedDate: day,
+      invoiceNo: InvNumber,
+      invoice: invoiceDb,
+      tableData: tableData || [],
+      email,
+    };
+     const app_url = await AsyncStorage.getItem('storeurl');
+    const res = await fetch(API_ENDPOINTS.QUANTITY_SP_COSTUPDATE, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        store: icms_store ?? '',
+        pos_access_token: token ?? '',
+        pos_api: `${storeurl}/api/v1` ?? '',
+        mode: 'MOBILE',
+       app_url: app_url ?? '',
+      },
+      body: JSON.stringify(body),
+      });
+
+    console.log("token",token,storeurl);
+    console.log("quantity update res",body);
+    if (!res.ok) {
+      const t = await res.text().catch(() => '');
+      throw new Error(t || `Quantity/Price update failed (${res.status})`);
+    }
+
+    console.log("pos update res",res);
+  }, [InvNumber, day, fetchVendorDbName, invoice, vendorName]);
+
+  const handlePosUpdateConfirm = useCallback(() => {
+    Alert.alert(
+      'Update POS Values',
+      'Do you want to update Quantity, Selling Price and Cost in POS for this invoice?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Confirm',
+          style: 'default',
+          onPress: async () => {
+            try {
+              setPosUpdateLoading(true);
+              await runQuantitySpCostUpdate();
+              setTransferMessage('Quantity, Selling Price and Cost updated in POS successfully.');
+              Alert.alert("POS update successfully ");
+            } catch (e) {
+              setTransferMessage(e?.message || 'Failed to update POS values');
+               Alert.alert("POS update Failed Please Contact Support");
+            } finally {
+              setPosUpdateLoading(false);
+            }
+          },
+        },
+      ],
+      { cancelable: true },
+    );
+  }, [runQuantitySpCostUpdate]);
 
   const handleSave = useCallback(
     (updatedItem, commit = true) => {
@@ -436,7 +605,7 @@ console.log("resonse details:",json);
   const renderHeader = useCallback(
     () => (
       <View style={styles.headerRow}>
-        {['', 'Barcode', 'P. Info', 'QTY', 'Case Cost'].map(
+        {['', 'S.N', 'Item No', 'QTY', 'Case Cost', 'Unit Cost'].map(
           (title, idx) => (
             <Text
               key={idx}
@@ -445,12 +614,14 @@ console.log("resonse details:",json);
                 idx === 0
                   ? { width: 28 }
                   : idx === 1
-                  ? { flex: 2 }
+                  ? { flex: 0.8 }
                   : idx === 2
-                  ? { flex: 2.5 }
+                  ? { flex: 2.8 }
                   : idx === 3
-                  ? { flex: 0.7 }
+                  ? { flex: 0.8 }
                   : idx === 4
+                  ? { flex: 0.8 }
+                  : idx === 5
                   ? { flex: 0.8 }
                   : undefined,
                 idx === 0 && { color: '#DC2626', textAlign: 'center' },
@@ -465,6 +636,15 @@ console.log("resonse details:",json);
     [],
   );
 
+  const handlePriceUpdate = useCallback((itemId, newSellingPrice) => {
+    itemsRef.current = itemsRef.current.map(it => {
+      if ((it.ProductId && it.ProductId === itemId) || (it.itemNo && it.itemNo === itemId)) {
+        return { ...it, PosSellingPrice: newSellingPrice };
+      }
+      return it;
+    });
+  }, []);
+
   const renderItem = useCallback(
     ({ item, index }) => (
       <InvoiceRow
@@ -473,15 +653,19 @@ console.log("resonse details:",json);
         categoryMetaByDept={categoryMetaByDept}
         isExpanded={expandedId === item.ProductId}
         onToggle={() => toggleExpand(item.ProductId)}
-        onLongPress={handleLongPress}
         onToggleSelect={handleToggleSelect}
         selectedIds={selectedIds}
         onEdit={openModal}
         onLinkProduct={openLinkProduct}
+        onConfirmAiLinking={handleConfirmAiLinking}
         onRemoveLinkedItem={handleRemoveLinkedItem}
+        onPriceUpdate={handlePriceUpdate}
+        loadingConfirmAiId={loadingConfirmAiId}
+        loadingUnlinkId={loadingUnlinkId}
+         isicmsstore={isicmsstore}
       />
     ),
-    [expandedId, toggleExpand, handleLongPress, handleToggleSelect, selectedIds, handleRemoveLinkedItem, categoryMetaByDept],
+    [expandedId, toggleExpand, handleToggleSelect, selectedIds, handleConfirmAiLinking, handleRemoveLinkedItem, categoryMetaByDept, handlePriceUpdate, loadingConfirmAiId, loadingUnlinkId],
   );
 
   return (
@@ -501,6 +685,18 @@ console.log("resonse details:",json);
         <View style={styles.totalWrap}>
           <Text style={styles.totalText}>Total: {totalRows}</Text>
         </View>
+         <TouchableOpacity
+            style={[styles.posUpdateBtn, posUpdateLoading && styles.transferBtnDisabled]}
+            onPress={handlePosUpdateConfirm}
+            activeOpacity={0.85}
+            disabled={posUpdateLoading}
+          >
+            {posUpdateLoading ? (
+              <ActivityIndicator size="small" color="#fff" />
+            ) : (
+              <Text style={styles.posUpdateBtnText}>Update POS</Text>
+            )}
+          </TouchableOpacity>
         <TextInput
           value={query}
           onChangeText={setQuery}
@@ -518,6 +714,7 @@ console.log("resonse details:",json);
         >
           <Text style={styles.infoBtnText}>!</Text>
         </TouchableOpacity>
+        
       </View>
       <View style={styles.legendWrap}>
         <View style={styles.legendItem}>
@@ -525,8 +722,14 @@ console.log("resonse details:",json);
           <Text style={styles.legendText}>Unlinked</Text>
         </View>
         <View style={styles.legendItem}>
-          <View style={[styles.legendBox, { backgroundColor: '#FFECEC' }]} />
-          <Text style={styles.legendText}>centralizedb</Text>
+          <View style={[styles.legendBox, styles.legendAiBox]}>
+            <Icon name="smart-toy" size={9} color="#7C2D12" />
+          </View>
+          <Text style={styles.legendText}>AI Data</Text>
+        </View>
+            <View style={styles.legendItem}>
+          <View style={[styles.legendBox, { backgroundColor: '#16A34A' }]} />
+          <Text style={styles.legendText}>isStockUpdated</Text>
         </View>
       </View>
 
@@ -559,9 +762,6 @@ console.log("resonse details:",json);
                 </Text>
               </TouchableOpacity>
             </View>
-          )}
-          {!!transferMessage && (
-            <Text style={styles.transferMessage}>{transferMessage}</Text>
           )}
           <FlatList
             data={filteredItems}
@@ -636,6 +836,7 @@ console.log("resonse details:",json);
             <Text style={styles.detailsKey}>Case Cost</Text>
             <Text style={styles.detailsVal}>${totalUnitPrice.toFixed(2)}</Text>
           </View>
+
           <TouchableOpacity
             style={styles.detailsCloseBtn}
             onPress={() => setDetailsModalVisible(false)}
@@ -821,6 +1022,28 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     lineHeight: 20,
   },
+  posUpdateBtn: {
+    minWidth: 48,
+    height: 34,
+    borderRadius: 9,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#0F766E',
+    borderWidth: 1,
+    borderColor: '#0D5E58',
+    paddingHorizontal: 10,
+  },
+  posUpdateBtnText: {
+    color: '#fff',
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 0.3,
+  },
+  detailsPosUpdateBtn: {
+    marginTop: 10,
+    alignSelf: 'stretch',
+    minWidth: 0,
+  },
   legendWrap: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -839,6 +1062,12 @@ const styles = StyleSheet.create({
     borderRadius: 3,
     borderWidth: 1,
     borderColor: '#cbd5e1',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  legendAiBox: {
+    backgroundColor: '#FEE2E2',
+    borderColor: '#FCA5A5',
   },
   legendText: {
     fontSize: 12,

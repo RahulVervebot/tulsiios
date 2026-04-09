@@ -196,7 +196,9 @@ export async function getUOMList() {
   }
 
   const json = await res.json();
-  return Array.isArray(json) ? json : [];
+  if (Array.isArray(json)) return json;
+  if (Array.isArray(json?.data)) return json.data;
+  return [];
 }
 
 export async function TaxList() {
