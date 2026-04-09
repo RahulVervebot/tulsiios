@@ -60,7 +60,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   container: { flex: 1 },
-  searchbar: { marginHorizontal: 25 },
+  searchbar: { marginHorizontal: 25, overflow: 'visible', zIndex: 9999, elevation: 9999},
   createFab: {
     position: "absolute",
     right: 16,

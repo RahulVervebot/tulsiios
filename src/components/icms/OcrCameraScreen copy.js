@@ -2,6 +2,9 @@ import React, { useRef, useState, useEffect } from 'react';
 // import API_ENDPOINTS from '../../../icms_config/api';
 import API_ENDPOINTS, { initICMSBase, setICMSBase } from '../../../icms_config/api';
 import {
+  useNavigation,
+} from '@react-navigation/native';
+import {
   View,
   TouchableOpacity,
   StyleSheet,
@@ -46,11 +49,14 @@ const GREY_LIGHT = '#eef1f4';
 const GREY_DARK = '#5b6675';
 
 const OcrScreen = () => {
+  const navigation = useNavigation();
   const insets = useSafeAreaInsets();
   const getImageSource = val => (typeof val === 'number' ? val : { uri: val });
   const wasCameraOpenRef = React.useRef(false);
   const cameraRef = useRef(null);
+  const previewTimeoutRef = useRef(null);
   const [selectedImage, setSelectedImage] = useState(null);
+  const [snapPreview, setSnapPreview] = useState(null);
   const [modalVisible, setModalVisible] = useState(false);
   const [saveInvoiceVisible, setSaveInvoiceVisible] = useState(false);
   const [invoiceList, setInvoiceList] = useState([]);
@@ -91,7 +97,10 @@ const OcrScreen = () => {
   }, [invoiceList]);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState([]);
+  const [vendorSearchLoading, setVendorSearchLoading] = useState(false);
+  const [vendorSearchTouched, setVendorSearchTouched] = useState(false);
   const [access_token, setAccessToken] = useState('');
+  const vendorSearchRequestRef = useRef(0);
   const [buttonLoading, setButtonLoading] = useState({
     selectInvoice: false,
     generate: false,
@@ -110,6 +119,16 @@ const OcrScreen = () => {
       getAllAsynce();
     })();
   }, [])
+
+  // Cleanup preview timeout when camera closes
+  useEffect(() => {
+    return () => {
+      if (previewTimeoutRef.current) {
+        clearTimeout(previewTimeoutRef.current);
+        previewTimeoutRef.current = null;
+      }
+    };
+  }, []);
 
   // detectInvoiceMismatch
 
@@ -200,22 +219,30 @@ const normalize = (s) =>
       usedConfidenceThreshold: minConf,
     };
   }
-  const handleSearchVendor = debounce(async query => {
-    if (!query.trim() || query.length < 2) {
+  const handleSearchVendor = async query => {
+    const trimmedQuery = String(query || '').trim();
+
+    if (!trimmedQuery || trimmedQuery.length < 2) {
       setSearchResults([]);
+      setVendorSearchLoading(false);
+      setVendorSearchTouched(false);
       return;
     }
 
+    const requestId = ++vendorSearchRequestRef.current;
+    setVendorSearchLoading(true);
+    setVendorSearchTouched(true);
+
     try {
-      console.log('Api callled', query);
+      console.log('Api callled', trimmedQuery);
       console.log("API_ENDPOINTS.SEARCHVENDOR", API_ENDPOINTS.SEARCHVENDOR);
 
       const token = await AsyncStorage.getItem('access_token');
       const icms_store = await AsyncStorage.getItem('icms_store');
       console.log("AsyncStorage:", token);
       const body = {
-        "q": query
-      }
+        "q": trimmedQuery
+      };
       const res = await fetch(API_ENDPOINTS.SEARCHVENDOR, {
         method: 'POST',
         headers: {
@@ -231,6 +258,8 @@ const normalize = (s) =>
       const data = await res.json().catch(() => ({}));
       console.log("vendor data:", data);;
 
+      if (requestId !== vendorSearchRequestRef.current) return;
+
       if (Array.isArray(data.results)) {
         console.log('Vendor search results:', data.results);
         setSearchResults(data.results);
@@ -239,9 +268,15 @@ const normalize = (s) =>
         setSearchResults([]);
       }
     } catch (err) {
+      if (requestId !== vendorSearchRequestRef.current) return;
       console.error('Vendor search error:', err);
+      setSearchResults([]);
+    } finally {
+      if (requestId === vendorSearchRequestRef.current) {
+        setVendorSearchLoading(false);
+      }
     }
-  },);
+  };
 
   const debouncedSearch = React.useMemo(
     () => debounce(handleSearchVendor, 300),
@@ -256,15 +291,25 @@ const normalize = (s) =>
     console.log("vendor details: ", vendor);
     setSearchQuery(vendor.value);
     setSearchResults([]);
+    setVendorSearchTouched(false);
   };
 
   const handleClearSearch = () => {
+    vendorSearchRequestRef.current += 1;
     setSearchQuery('');
     setSearchResults([]);
+    setVendorSearchLoading(false);
+    setVendorSearchTouched(false);
     setSelectedValue('');
     setSelectedDatabaseName('');
     setSelectedVendorSlug('');
     setSelectedVendor(null);
+  };
+
+  const handleCreateNewVendor = () => {
+    setSearchResults([]);
+    setVendorSearchTouched(false);
+    navigation.navigate('AddNewVendorInvoice');
   };
 
   const handleValueChange = itemValue => {
@@ -321,6 +366,20 @@ const normalize = (s) =>
       // CameraKit returns { uri: 'file://...' }
       // If you also need base64, you can read file via RNFS (optional). For now store uri.
       setSnappedImages(prev => [...prev, { uri: photo?.uri, base64: null }]);
+      
+      // Show preview for 3 seconds
+      setSnapPreview(photo?.uri);
+      
+      // Clear previous timeout if any
+      if (previewTimeoutRef.current) {
+        clearTimeout(previewTimeoutRef.current);
+      }
+      
+      // Hide preview after 3 seconds
+      previewTimeoutRef.current = setTimeout(() => {
+        setSnapPreview(null);
+        previewTimeoutRef.current = null;
+      }, 3000);
     } catch (e) {
       console.warn('Error snapping photo:', e);
     } finally {
@@ -573,6 +632,7 @@ const mismatch = detectInvoiceMismatch(queryResponsesByIndexLocal, 70);
       },
       body: JSON.stringify(bodyPayload),
     });
+    console.log("bodyPayload:",bodyPayload);
 
     if (!response.ok) {
       const t = await response.text();
@@ -660,13 +720,13 @@ const mismatch = detectInvoiceMismatch(queryResponsesByIndexLocal, 70);
     <TouchableOpacity
       style={[
         styles.btn,
-        isNarrow ? styles.btnNarrow : styles.btnWide,
         style,
         (disabled || loading) && styles.btnDisabled,
       ]}
       onPress={onPress}
       disabled={disabled || loading}
       activeOpacity={0.85}
+      hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
     >
       {loading ? (
         <ActivityIndicator size="small" color="#fff" />
@@ -711,6 +771,9 @@ const mismatch = detectInvoiceMismatch(queryResponsesByIndexLocal, 70);
 
   const activeStepTitle =
     step === 1 ? 'Step 1: Search Vendor' : step === 2 ? 'Step 2: Upload Invoice' : 'Step 3: Generate Invoice';
+  const shouldShowVendorDropdown =
+    searchQuery.trim().length >= 2 &&
+    (vendorSearchLoading || vendorSearchTouched || searchResults.length > 0);
 
   return (
     <ImageBackground
@@ -766,7 +829,6 @@ const mismatch = detectInvoiceMismatch(queryResponsesByIndexLocal, 70);
         </View>
 
         <View style={styles.controlCard}>
-          <Text style={styles.stepTitle}>{activeStepTitle}</Text>
           {step === 1 && (
             <View style={styles.searchWrap}>
               <View style={styles.searchRow}>
@@ -793,33 +855,54 @@ const mismatch = detectInvoiceMismatch(queryResponsesByIndexLocal, 70);
                 </View>
               </View>
 
-              {searchResults.length > 0 && (
+              {shouldShowVendorDropdown && (
                 <View style={styles.dropdownContainer}>
                   <ScrollView
                     style={styles.dropdown}
                     keyboardShouldPersistTaps="handled"
                     nestedScrollEnabled
                   >
-                    {searchResults.map((vendor, index) => (
-                      <TouchableOpacity
-                        key={vendor.slug || index}
-                        style={[
-                          styles.dropdownItem,
-                          index % 2 === 0
-                            ? styles.dropdownItemEven
-                            : styles.dropdownItemOdd,
-                        ]}
-                        onPress={() => handleSelectVendor(vendor)}
-                      >
-                        <Text style={styles.dropdownText}>{vendor.value}</Text>
-                      </TouchableOpacity>
-                    ))}
+                    {vendorSearchLoading ? (
+                      <View style={styles.dropdownLoader}>
+                        <ActivityIndicator size="small" color={COLORS.primary} />
+                        <Text style={styles.dropdownStatusText}>Searching vendors...</Text>
+                      </View>
+                    ) : searchResults.length > 0 ? (
+                      searchResults.map((vendor, index) => (
+                        <TouchableOpacity
+                          key={vendor.slug || index}
+                          style={[
+                            styles.dropdownItem,
+                            index % 2 === 0
+                              ? styles.dropdownItemEven
+                              : styles.dropdownItemOdd,
+                          ]}
+                          onPress={() => handleSelectVendor(vendor)}
+                        >
+                          <Text style={styles.dropdownText}>{vendor.value}</Text>
+                        </TouchableOpacity>
+                      ))
+                    ) : (
+                      <View style={styles.dropdownEmptyState}>
+                        <Text style={styles.dropdownStatusText}>No vendor found</Text>
+                        <TouchableOpacity
+                          style={styles.createVendorBtn}
+                          onPress={handleCreateNewVendor}
+                        >
+                          <Text style={styles.createVendorBtnText}>Create New Vendor</Text>
+                        </TouchableOpacity>
+                      </View>
+                    )}
                   </ScrollView>
                 </View>
               )}
 
-              <View style={styles.stepBtnRow}>
-                <TouchableOpacity style={[styles.stepBtn, styles.stepBtnPrimary]} onPress={handleStepOneNext}>
+              <View style={[styles.stepBtnRow, isNarrow && styles.stepBtnRowStack]}>
+                <TouchableOpacity
+                  style={[styles.stepBtn, isNarrow && styles.stepBtnFull, styles.stepBtnPrimary]}
+                  onPress={handleStepOneNext}
+                  hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                >
                   <Text style={styles.stepBtnText}>Next</Text>
                 </TouchableOpacity>
               </View>
@@ -828,47 +911,48 @@ const mismatch = detectInvoiceMismatch(queryResponsesByIndexLocal, 70);
 
           {step === 2 && (
             <>
-              <View style={styles.stepBtnRow}>
+              <View style={[styles.stepBtnRow, isNarrow && styles.stepBtnRowStack]}>
+                <TouchableOpacity
+                  style={[styles.stepBtn, isNarrow && styles.stepBtnFull, styles.stepBtnLight]}
+                  onPress={() => setStep(1)}
+                  hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                >
+                  <Text style={styles.stepBtnLightText}>Back</Text>
+                </TouchableOpacity>
                 <ButtonWithLoader
                   label={showCamera ? 'Camera Active' : 'Upload Invoice'}
                   onPress={handleOpenCamera}
                   loading={buttonLoading.selectInvoice}
-                  style={styles.btnLightselectInvoice}
+                  style={[styles.stepBtn, isNarrow && styles.stepBtnFull, styles.btnLightselectInvoice]}
                   textStyle={styles.btnLightText}
                 />
-                <ButtonWithLoader
-                  label="From Gallery"
-                  onPress={pickFromGallery}
-                  loading={buttonLoading.gallery}
-                  style={styles.btnLight}
-                  textStyle={styles.btnLightText}
-                />
+                <TouchableOpacity
+                  style={[styles.stepBtn, isNarrow && styles.stepBtnFull, styles.stepBtnPrimary]}
+                  onPress={handleStepTwoNext}
+                  hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                >
+                  <Text style={styles.stepBtnText}>Next</Text>
+                </TouchableOpacity>
               </View>
 
               <View style={styles.stepBtnRow}>
-                <TouchableOpacity style={[styles.stepBtn, styles.stepBtnLight]} onPress={() => setStep(1)}>
-                  <Text style={styles.stepBtnLightText}>Back</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={[styles.stepBtn, styles.stepBtnPrimary]} onPress={handleStepTwoNext}>
-                  <Text style={styles.stepBtnText}>Next</Text>
-                </TouchableOpacity>
               </View>
             </>
           )}
 
           {step === 3 && (
-            <View style={styles.stepBtnRow}>
+            <View style={[styles.stepBtnRow, isNarrow && styles.stepBtnRowStack]}>
               {(isGenerate || buttonLoading.generate) ? (
                 <View style={styles.loadingWrap}>
                   <ActivityIndicator size="small" color="#319241" />
                   <Text style={styles.loadingText}>Generating invoice data...</Text>
                 </View>
               ) : (
-                <>
+                <View style={{ flexDirection: 'row' }}>
                   <ButtonWithLoader
                     label="Save"
                     onPress={() => setSaveInvoiceVisible(s => !s)}
-                    style={styles.btnPrimary}
+                    style={[styles.stepBtn, isNarrow && styles.stepBtnFull, styles.btnPrimary]}
                     loading={false}
                     disabled={!hasTableData}
                   />
@@ -876,9 +960,9 @@ const mismatch = detectInvoiceMismatch(queryResponsesByIndexLocal, 70);
                     label="Clear"
                     onPress={handleClearAll}
                     loading={buttonLoading.clear}
-                    style={styles.btnDanger}
+                    style={[styles.stepBtn, isNarrow && styles.stepBtnFull, styles.btnDanger]}
                   />
-                </>
+                </View>
               )}
             </View>
           )}
@@ -889,7 +973,6 @@ const mismatch = detectInvoiceMismatch(queryResponsesByIndexLocal, 70);
 
         {step >= 2 && hasTableData && uploadedFilenames.length > 0 && uploadedImageURLs.length > 0 ? (
           <View style={styles.previewCard}>
-            <Text style={styles.previewTitle}>Uploaded Invoice Preview</Text>
             <ScrollView
               horizontal
               style={styles.imageRow}
@@ -915,15 +998,17 @@ const mismatch = detectInvoiceMismatch(queryResponsesByIndexLocal, 70);
             >
               {snappedImages.map((item, index) => (
                 <View key={`${item.uri}-${index}`} style={styles.thumbWrap}>
-                  <View style={styles.thumbActions}>
-                    <TouchableOpacity
-                      style={styles.thumbClose}
-                      onPress={() => removeSnappedImage(index)}
-                      hitSlop={{ top: 8, right: 8, bottom: 8, left: 8 }}
-                    >
-                      <Text style={styles.thumbCloseText}>x</Text>
-                    </TouchableOpacity>
-                  </View>
+                  {step !== 3 && (
+                    <View style={styles.thumbActions}>
+                      <TouchableOpacity
+                        style={styles.thumbClose}
+                        onPress={() => removeSnappedImage(index)}
+                        hitSlop={{ top: 8, right: 8, bottom: 8, left: 8 }}
+                      >
+                        <Text style={styles.thumbCloseText}>x</Text>
+                      </TouchableOpacity>
+                    </View>
+                  )}
                   <TouchableOpacity onPress={() => openModal(item.uri)}>
                     <Image source={{ uri: item.uri }} style={styles.thumb} />
                   </TouchableOpacity>
@@ -986,27 +1071,39 @@ const mismatch = detectInvoiceMismatch(queryResponsesByIndexLocal, 70);
               label="Snap Photo"
               onPress={snapPhoto}
               loading={buttonLoading.snap}
-              style={styles.btnGrey}
+              style={[styles.cameraActionBtn, styles.btnGrey]}
               textStyle={styles.btnGreyText}
             />
             <ButtonWithLoader
               label="From Gallery"
               onPress={pickFromGallery}
               loading={buttonLoading.gallery}
-              style={styles.btnLight}
+              style={[styles.cameraActionBtn, styles.btnLight]}
               textStyle={styles.btnLightText}
             />
             <TouchableOpacity
               style={[
                 styles.btn,
-                isNarrow ? styles.btnNarrow : styles.btnWide,
+                styles.cameraActionBtn,
                 styles.btnDanger,
               ]}
               onPress={handleCloseCamera}
+              hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
             >
               <Text style={styles.btnText}>Close</Text>
             </TouchableOpacity>
           </View>
+          
+          {/* Snap Preview - shows for 3 seconds after capture */}
+          {snapPreview && (
+            <View style={styles.snapPreviewContainer}>
+              <Image
+                source={{ uri: snapPreview }}
+                style={styles.snapPreviewImage}
+              />
+              <Text style={styles.snapPreviewText}>✓ Picture captured</Text>
+            </View>
+          )}
         </View>
       )}
 
@@ -1146,17 +1243,30 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingBottom: 8,
     marginTop: 6,
+    alignItems: 'stretch',
+  },
+  stepBtnRowStack: {
+    flexDirection: 'column',
   },
   stepBtn: {
     flex: 1,
     minWidth: 120,
+    minHeight: 48,
     paddingVertical: 12,
+    paddingHorizontal: 14,
     borderRadius: 10,
     alignItems: 'center',
     justifyContent: 'center',
   },
+  stepBtnFull: {
+    width: '100%',
+    minWidth: '100%',
+    flexBasis: '100%',
+    flexGrow: 0,
+  },
   stepBtnPrimary: {
     backgroundColor: '#2f8f43',
+    width: '40%',
   },
   stepBtnLight: {
     backgroundColor: GREEN_LIGHT,
@@ -1191,9 +1301,12 @@ const styles = StyleSheet.create({
   },
   btn: {
     flexGrow: 1,
+    minHeight: 48,
     paddingVertical: 13,
+    paddingHorizontal: 14,
     borderRadius: 12,
     alignItems: "center",
+    justifyContent: 'center',
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.08,
@@ -1349,6 +1462,37 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     gap: 10,
     justifyContent: 'space-between',
+  },
+  cameraActionBtn: {
+    flexBasis: 0,
+    minWidth: 110,
+  },
+  snapPreviewContainer: {
+    position: 'absolute',
+    bottom: 90,
+    left: 12,
+    backgroundColor: '#000000DD',
+    borderRadius: 12,
+    overflow: 'hidden',
+    padding: 8,
+    alignItems: 'center',
+    gap: 6,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 6,
+    elevation: 8,
+  },
+  snapPreviewImage: {
+    width: 100,
+    height: 120,
+    borderRadius: 8,
+  },
+  snapPreviewText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '600',
+    letterSpacing: 0.3,
   },
   screen: {
     flex: 1,
@@ -1582,6 +1726,37 @@ const styles = StyleSheet.create({
   dropdownText: {
     fontSize: 15,
     color: '#333',
+  },
+  dropdownLoader: {
+    paddingVertical: 18,
+    paddingHorizontal: 15,
+    alignItems: 'center',
+    gap: 10,
+  },
+  dropdownEmptyState: {
+    paddingVertical: 16,
+    paddingHorizontal: 15,
+    gap: 10,
+  },
+  dropdownStatusText: {
+    fontSize: 14,
+    color: '#52606d',
+    textAlign: 'center',
+    fontWeight: '600',
+  },
+  createVendorBtn: {
+    backgroundColor: COLORS.primary,
+    borderRadius: 10,
+    minHeight: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+  },
+  createVendorBtnText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '700',
   },
 
 });

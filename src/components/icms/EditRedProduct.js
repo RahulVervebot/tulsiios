@@ -359,9 +359,9 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     alignItems: 'center',
   },
-  primaryButtonDisabled: {
-    backgroundColor: '#9e9e9e',
-  },
+  // primaryButtonDisabled: {
+  //   backgroundColor: '#9e9e9e',
+  // },
   primaryButtonText: {
     color: '#fff',
     fontWeight: '600',

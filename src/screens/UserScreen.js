@@ -4,6 +4,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { GoogleSignin } from '@react-native-google-signin/google-signin';
 import AppHeader from "../components/AppHeader";
 import reportbg from '../assets/images/report-bg.png';
+import { removeOneSignalTagsOnLogout } from '../config/OneSignalConfig';
 const LIGHT_GREEN = '#e6f6ec';
 
 export default function UserScreen({ navigation }) {
@@ -14,8 +15,9 @@ export default function UserScreen({ navigation }) {
 
   const handleLogout = async () => {
     try { await GoogleSignin.signOut(); } catch (e) { console.log('Google signout error:', e); }
-    await AsyncStorage.multiRemove(['access_token', 'userRole', 'userEmail', 'userName']);
-    navigation.reset({ index: 0, routes: [{ name: 'Login' }] });
+    await AsyncStorage.multiRemove(['access_token', 'userRole', 'userEmail', 'userName','onesignalid','onesignalkey','tulsi_ai_backend','tulsifrontendurl','tulsi_websocket','icms_url']);
+       navigation.reset({ index: 0, routes: [{ name: 'Login' }] });
+               await removeOneSignalTagsOnLogout();
   };
 
   useEffect(() => {

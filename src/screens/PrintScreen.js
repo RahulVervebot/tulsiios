@@ -1,6 +1,6 @@
 // src/screens/printScreen.js
 import React, { useContext } from 'react';
-import { View, Text, FlatList, TouchableOpacity, StyleSheet, ImageBackground } from 'react-native';
+import { View, Text, FlatList, TouchableOpacity, StyleSheet, ImageBackground, Alert } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { PrintContext } from '../context/PrintContext';
 import AppHeader from '../components/AppHeader';
@@ -37,15 +37,38 @@ export default function PrintScreen() {
       <View style={styles.container}>
         <FlatList
           data={print}
-          keyExtractor={(item) => String(item._id)}
+          keyExtractor={(item, index) => `${item.product_id || item._id || 'item'}_${index}`}
           renderItem={renderItem}
+          extraData={print}
+          removeClippedSubviews={false}
           ListEmptyComponent={<Text style={styles.empty}>Your print list is empty</Text>}
           contentContainerStyle={{ paddingBottom: 140 }}
         />
 
         {print.length > 0 && (
           <View style={styles.footer}>
-            {/* New: Print options (USB / Bluetooth) */}
+            {/* Clear All Button */}
+            <TouchableOpacity 
+              style={styles.clearAllBtn} 
+              onPress={() => {
+                Alert.alert(
+                  'Clear All',
+                  'Are you sure you want to clear all items from the print list?',
+                  [
+                    { text: 'Cancel', style: 'cancel' },
+                    { 
+                      text: 'Clear All', 
+                      style: 'destructive',
+                      onPress: () => clearPrint()
+                    },
+                  ]
+                );
+              }}
+            >
+              <Text style={styles.clearAllBtnText}>CLEAR ALL</Text>
+            </TouchableOpacity>
+
+            {/* Print options (USB / Bluetooth) */}
             <PrintOptions
               items={print}
               onClear={clearPrint}
@@ -85,4 +108,17 @@ const styles = StyleSheet.create({
   removeBtnText: { color: '#fff', fontWeight: '600' },
   empty: { textAlign: 'center', marginTop: 50, fontSize: 16, color: '#888' },
   footer: { position: 'absolute', bottom: 0, left: 0, right: 0 },
+  clearAllBtn: {
+    backgroundColor: '#dc3545',
+    paddingVertical: 14,
+    alignItems: 'center',
+    borderTopWidth: 1,
+    borderTopColor: '#b02a37',
+  },
+  clearAllBtnText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '700',
+    letterSpacing: 0.5,
+  },
 });

@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useEffect } from 'react';
-import { Modal, View, Text, TextInput, TouchableOpacity, StyleSheet, Alert, Platform, ActivityIndicator } from 'react-native';
+import { Modal, View, Text, TextInput, TouchableOpacity, StyleSheet, Platform, ActivityIndicator,Alert } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import API_ENDPOINTS, { initICMSBase } from '../../../icms_config/api';
@@ -91,7 +91,7 @@ const SaveInvoiceModal = ({ isVisible, onClose,ImageURL, vendorName, defaultInvo
         console.log("bodyPayload",bodyPayload);
         const token = await   AsyncStorage.getItem('access_token');
           const icms_store = await   AsyncStorage.getItem('icms_store');
-        
+         const storeurl = await AsyncStorage.getItem('storeurl');
         const vendordetails = selectedVendor;
         console.log("vendordetails",vendordetails);
         // const vendordetails = '{"value":"Chetak","slug":"chetak","jsonName":"chetak-products.json","emptyColumn":true,"databaseName":"chetakproducts"}'
@@ -102,12 +102,16 @@ const SaveInvoiceModal = ({ isVisible, onClose,ImageURL, vendorName, defaultInvo
           'store': icms_store,
          'access_token': token,
           'mode': 'MOBILE',
+            'app_url': storeurl ?? '',
           vendordetails : JSON.stringify(vendordetails),
         },
         body: JSON.stringify(bodyPayload),
         });
 
       const data = await response.json();
+      if(data.message){
+        Alert.alert(data.message || 'Invoice saved successfully.');
+      }
       console.log('saved response', data);
       // await handleCreateInvoice();
       cleardata?.();
@@ -164,7 +168,7 @@ const handleCreateInvoice = async () => {
     console.log('Create_bodyPayload', bodyPayload);
     const token = await AsyncStorage.getItem('access_token');
   const icms_store = await AsyncStorage.getItem('icms_store');
-    
+  const storeurl = await AsyncStorage.getItem('storeurl');
     const vendorlist =  JSON.stringify(vendordetails)
     const response = await fetch(API_ENDPOINTS.CREATE_INVOICE, {
       method: 'PUT',
@@ -173,6 +177,7 @@ const handleCreateInvoice = async () => {
         'store': icms_store,
         'access_token': token ?? '',
         'mode': 'MOBILE',
+          'app_url': storeurl ?? '',
        vendordetails: JSON.stringify(vendordetails),
       },
       body: JSON.stringify(bodyPayload),
@@ -256,21 +261,45 @@ const handleCreateInvoice = async () => {
           <Text style={styles.label}>Invoice Date</Text>
           <TouchableOpacity
             style={styles.input}
-            onPress={() => setShowInvoiceDatePicker((prev) => !prev)}
+            onPress={() => setShowInvoiceDatePicker(true)}
             activeOpacity={0.8}
           >
             <Text style={styles.dateText}>{invoiceDate.toISOString().split('T')[0]}</Text>
           </TouchableOpacity>
-          {Platform.OS === 'ios' && showInvoiceDatePicker && (
-            <DateTimePicker
-              value={invoiceDate}
-              mode="date"
-              display="spinner"
-              onChange={(_e, d) => d && setInvoiceDate(d)}
-            />
+
+          {Platform.OS === 'ios' && (
+            <Modal
+              visible={showInvoiceDatePicker}
+              transparent
+              animationType="fade"
+              onRequestClose={() => setShowInvoiceDatePicker(false)}
+            >
+              <TouchableOpacity
+                style={styles.datePickerOverlay}
+                activeOpacity={1}
+                onPress={() => setShowInvoiceDatePicker(false)}
+              />
+              <View style={styles.datePickerCard}>
+                <DateTimePicker
+                  value={invoiceDate}
+                  mode="date"
+                  display="inline"
+                  themeVariant="light"
+                  accentColor="#2f8f43"
+                  textColor="#111111"
+                  onChange={(_e, d) => { if (d) setInvoiceDate(d); }}
+                />
+                <TouchableOpacity
+                  style={[styles.button, { backgroundColor: '#2f8f43', marginHorizontal: 16, marginBottom: 14, flex: 0 }]}
+                  onPress={() => setShowInvoiceDatePicker(false)}
+                >
+                  <Text style={styles.buttonText}>Done</Text>
+                </TouchableOpacity>
+              </View>
+            </Modal>
           )}
           <View style={styles.buttonContainer}>
-            <TouchableOpacity style={[styles.button, isSubmitting && styles.disabledButton]} onPress={handleSubmit} disabled={isSubmitting}>
+            <TouchableOpacity style={[styles.button,{backgroundColor: '#2f8f43'}, isSubmitting && styles.disabledButton]} onPress={handleSubmit} disabled={isSubmitting}>
               {isSubmitting ? (
                 <ActivityIndicator size="small" color="#fff" />
               ) : (
@@ -397,5 +426,24 @@ const styles = StyleSheet.create({
   },
   disabledButton: {
     opacity: 0.7,
+  },
+  datePickerOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+  },
+  datePickerCard: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 18,
+    borderTopRightRadius: 18,
+    paddingTop: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -3 },
+    shadowOpacity: 0.12,
+    shadowRadius: 8,
+    elevation: 10,
   },
 });

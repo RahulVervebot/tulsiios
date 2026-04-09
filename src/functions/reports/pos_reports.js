@@ -422,7 +422,7 @@ export async function TopSellingCustomersReport(startdate, enddate, numberOfCust
 export async function getTodaySessions(page = 1, limit = 10) {
   const { apiBase, token } = await getReportAuth();
   const qs = new URLSearchParams({ page: String(page), limit: String(limit) }).toString();
-  const res = await fetch(`${apiBase}/api/pos/app/get-today-sessions?${qs}`, {
+  const res = await fetch(`${apiBase}/pos/app/session/report/today`, {
     method: 'GET',
     headers: { accept: 'application/json', access_token: token },
   });
@@ -437,7 +437,7 @@ export async function getTodaySessions(page = 1, limit = 10) {
 export async function getYesterdaySessions(page = 1, limit = 10) {
   const { apiBase, token } = await getReportAuth();
   const qs = new URLSearchParams({ page: String(page), limit: String(limit) }).toString();
-  const res = await fetch(`${apiBase}/api/pos/app/get-yesterday-sessions?${qs}`, {
+  const res = await fetch(`${apiBase}/pos/app/session/report/yesterday`, {
     method: 'GET',
     headers: { accept: 'application/json', access_token: token },
   });
@@ -459,7 +459,7 @@ export async function getCustomDateSessions(fromDate, toDate, page = 1, limit = 
     limit: String(limit),
   }).toString();
   const res = await fetch(`${apiBase}/api/pos/app/custom-date-sessions?${qs}`, {
-    method: 'GET',
+    method: 'POST',
     headers: { accept: 'application/json', access_token: token },
   });
   if (!res.ok) {

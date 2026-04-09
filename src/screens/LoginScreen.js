@@ -13,15 +13,18 @@ import {
   ScrollView,
   Modal,
   Image,
+  ImageBackground,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect } from '@react-navigation/native';
-import LoginBackground from '../assets/images/Loginscreen.svg';
+import LoginBackground from '../assets/images/Login_screen_white.png';
 import LinearGradient from 'react-native-linear-gradient';
 import { dbPromise } from '../firebaseConfig';
+ import { registerDeviceWithStoreUrl, tagDeviceWithStoreUrl,tagDeviceWithUserRole } from '../config/OneSignalConfig';
 
 export default function LoginScreen({ navigation }) {
+  const insets = useSafeAreaInsets();
   const [signingIn, setSigningIn] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -58,6 +61,8 @@ export default function LoginScreen({ navigation }) {
           await AsyncStorage.setItem('tulsi_websocket', data.tulsi_websocket);
           await AsyncStorage.setItem('tulsi_ai_backend', data.tulsi_ai_backend);
           await AsyncStorage.setItem('tulsifrontendurl', data.tulsifrontendurl);
+           await AsyncStorage.setItem('onesignalid', data.onesignalid);
+          await AsyncStorage.setItem('onesignalkey', data.onesignalkey);
       }
       } else {
         console.warn('Firestore: tulsi/storelist does not exist');
@@ -71,27 +76,79 @@ export default function LoginScreen({ navigation }) {
 
   const chatailogin = useCallback(async (baseUrl) => {
     if (chatAuthInFlightRef.current) return;
-    if (!email || !password || !baseUrl) return;
+    if (!email || !password || !baseUrl) {
+      console.warn('[ChatLogin] skipped - missing input:', {
+        hasEmail: !!email,
+        hasPassword: !!password,
+        hasBaseUrl: !!baseUrl,
+      });
+      return;
+    }
     chatAuthInFlightRef.current = true;
     try {
-      console.log("chat ai base url",baseUrl);
-      const url = baseUrl.endsWith('/')
-        ? `${baseUrl}auth/widget/login/`
-        : `${baseUrl}/auth/widget/login/`;
-      const res = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password }),
-      });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        console.warn('Chat AI login failed:', json?.message || json?.error || res.status);
-        return;
+      // Use joinUrl helper for consistent URL building (same as login)
+      const url = joinUrl(baseUrl, '/auth/widget/login/');
+      console.log('[ChatLogin] 🤖 Attempting auth to:', url);
+      
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 15000); // 15s timeout
+      
+      let res;
+      try {
+        res = await fetch(url, {
+          method: 'POST',
+          headers: { 
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+            'User-Agent': 'TulsiApp/1.0 (ChatAI)',
+          },
+          body: JSON.stringify({ email, password }),
+          signal: controller.signal,
+        });
+      } finally {
+        clearTimeout(timeoutId);
       }
-      console.log('Chat AI login success');
-      console.log("chat ai response:",res);
+
+      // Get response text first (safer than assuming JSON)
+      const responseText = await res.text();
+      const contentType = res.headers.get('content-type');
+      
+      console.log('[ChatLogin] 📨 Response:', {
+        status: res.status,
+        ok: res.ok,
+        contentType,
+        isJson: contentType?.includes('application/json'),
+      });
+
+      let json = {};
+      if (responseText && contentType?.includes('application/json')) {
+        try {
+          json = JSON.parse(responseText);
+        } catch (parseErr) {
+          console.warn('[ChatLogin] ⚠️ Failed to parse JSON:', parseErr.message);
+          console.warn('[ChatLogin] Response text (first 200 chars):', responseText.substring(0, 200));
+          json = {};
+        }
+      } else if (responseText) {
+        console.warn('[ChatLogin] ⚠️ Response is not JSON:', {
+          contentType,
+          length: responseText.length,
+          preview: responseText.substring(0, 100),
+        });
+      }
+
+      if (!res.ok) {
+        console.warn('[ChatLogin] ❌ Request failed:', {
+          status: res.status,
+          message: json?.message || json?.error || 'unknown error',
+        });
+        return; // Non-blocking - continue anyway
+      }
+
+      console.log('[ChatLogin] ✅ Success:', { status: res.status });
       const user = json?.user || {};
       const tokens = json?.tokens || {};
+      
       const entries = [];
       Object.keys(user).forEach((key) => {
         if (key === 'last_login' || key === 'date_joined') return;
@@ -100,11 +157,24 @@ export default function LoginScreen({ navigation }) {
       Object.keys(tokens).forEach((key) => {
         entries.push([`chatai_${key}`, String(tokens[key] ?? '')]);
       });
+      
       if (entries.length) {
         await AsyncStorage.multiSet(entries);
+        console.log('[ChatLogin] 💾 Saved', entries.length, 'keys to AsyncStorage');
+      } else {
+        console.warn('[ChatLogin] ⚠️ No user/token data returned');
       }
     } catch (error) {
-      console.warn('Chat AI login error:', error);
+      // Network errors on some devices - log but don't block login
+      if (error?.name === 'AbortError') {
+        console.warn('[ChatLogin] ⏱️ Request timeout (15s exceeded)');
+      } else if (error instanceof TypeError) {
+        console.warn('[ChatLogin] 🌐 Network error:', error.message);
+        console.warn('[ChatLogin] 💡 Possible causes: invalid URL, no internet, DNS failure, or device on restricted network');
+      } else {
+        console.warn('[ChatLogin] ❌ Unexpected error:', error);
+      }
+      // Don't throw - chat auth is not critical for app function
     } finally {
       chatAuthInFlightRef.current = false;
     }
@@ -135,16 +205,24 @@ export default function LoginScreen({ navigation }) {
             .map((o) => {
               const name = o && typeof o === 'object' ? Object.keys(o)[0] : null;
               if (!name) return null;
-              const { storeurl, dbname, icms_store, chat_ai_api, chat_ai_baseurl } = o[name] || {};
+              const { storeurl, dbname, icms_store, icmsurl, storepin, chat_ai_api, chat_ai_baseurl } = o[name] || {};
               if (!storeurl || !dbname) return null;
-              return { name, storeurl, dbname, icms_store, chat_ai_api, chat_ai_baseurl };
+              return {
+                name,
+                storeurl,
+                dbname,
+                icms_store: icms_store ?? icmsurl ?? '',
+                storepin: storepin ?? '',
+                chat_ai_api,
+                chat_ai_baseurl,
+              };
             })
             .filter(Boolean);
         }
       }
       setStoreMap(map);
     } catch (e) {
-      console.error('Failed to fetch storelist.json:', e);
+      console.error('Failed to fetch firebase:', e);
     }
   }, []);
 
@@ -152,9 +230,7 @@ export default function LoginScreen({ navigation }) {
     if (firebaseeurl) fetchStoreListFromFirebaseUrl(firebaseeurl);
   }, [firebaseeurl, fetchStoreListFromFirebaseUrl]);
 
-  // -----------------------------
-  // 3) Filter options by email domain as user types
-  // -----------------------------
+
   useEffect(() => {
     if (!storeMap) return;
     const domain = email.includes('@') ? email.split('@')[1].toLowerCase().trim() : '';
@@ -170,9 +246,11 @@ export default function LoginScreen({ navigation }) {
       setSelectedStore(store);
       await AsyncStorage.setItem('storeurl', store.storeurl);
       await AsyncStorage.setItem('dbname', store.dbname);
-      await AsyncStorage.setItem('icms_store', store.icms_store);
-      await AsyncStorage.setItem('chat_ai_api', store.chat_ai_api);
-      await AsyncStorage.setItem('chat_ai_baseurl', store.chat_ai_baseurl);
+      await AsyncStorage.setItem('icms_store', store.icms_store ?? '');
+      await AsyncStorage.setItem('storepin', String(store.storepin ?? ''));
+      await AsyncStorage.setItem('chat_ai_api', store.chat_ai_api ?? '');
+      await AsyncStorage.setItem('chat_ai_baseurl', store.chat_ai_baseurl ?? '');
+      
     } catch (e) {
       console.error('AsyncStorage set error:', e);
     } finally {
@@ -182,15 +260,24 @@ export default function LoginScreen({ navigation }) {
 
   // small util to join base + path safely
   const joinUrl = (base, path) => {
-    if (!base) return path;
-    if (base.endsWith('/') && path.startsWith('/')) return base + path.slice(1);
-    if (!base.endsWith('/') && !path.startsWith('/')) return base + '/' + path;
-    return base + path;
+    const normalizedBase = String(base || '').trim();
+    const normalizedPath = String(path || '').trim();
+    if (!normalizedBase) return normalizedPath;
+
+    const withScheme = /^https?:\/\//i.test(normalizedBase)
+      ? normalizedBase
+      : `http://${normalizedBase}`;
+
+    if (withScheme.endsWith('/') && normalizedPath.startsWith('/')) {
+      return withScheme + normalizedPath.slice(1);
+    }
+    if (!withScheme.endsWith('/') && !normalizedPath.startsWith('/')) {
+      return withScheme + '/' + normalizedPath;
+    }
+    return withScheme + normalizedPath;
   };
 
-  // -----------------------------
-  // 4) One-click Odoo login using selected store
-  // -----------------------------
+
   const handleManualLogin = async () => {
     if (!email || !password) {
       Alert.alert('Missing info', 'Please enter email and password.');
@@ -213,6 +300,7 @@ export default function LoginScreen({ navigation }) {
         login: email,
         password,
       };
+      console.log('Login request URL:', url);
       const res = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -221,11 +309,18 @@ export default function LoginScreen({ navigation }) {
       console.log("body & url",body,url);
       const data = await res.json().catch(() => ({}));
       console.log("login response:", data);
-      if (!res.ok || !data?.result) {
-        const msg = (data && data.error && (data.error.data?.message || data.error.message)) || 'Invalid credentials or server error';
+      
+      // Check if login was successful
+      if (!data?.result || data?.error || data?.result?.status === "error") {
+        const msg = data?.result?.message || 
+                    data?.error?.data?.message || 
+                    data?.error?.message || 
+                    data?.message ||
+                    'Invalid credentials or server error';
         Alert.alert('Login Failed', msg);
         return;
       }
+      
       const { pos_role, access_token, expiry, user_full_name, user_context } = data.result || {};
       await AsyncStorage.multiSet([
         ['userRole', String(pos_role || '')],
@@ -233,38 +328,64 @@ export default function LoginScreen({ navigation }) {
         ['expiry', String(expiry || '')],
         ['userName', String(user_full_name || '')],
         ['userEmail', String(email || '')],
-        ['userTimeZone', String(user_context.tz || '')],
-        ['userLang', String(user_context.lang || '')],
-
-
+        ['password', String(password || '')],
+        ['userTimeZone', String(user_context?.tz || '')],
+        ['userLang', String(user_context?.lang || '')],
+        ['storepin', String(selectedStore?.storepin || '')],
+        ['storeurl', String(selectedStore?.storeurl || '')],
       ]);
+      
+      // Register device with OneSignal using the selected store's URL
+      const storeUrlForRegistration = selectedStore?.storeurl || '';
+      console.log('📱 Registering device with store URL:', storeUrlForRegistration,pos_role);
+      console.log('📝 Store details:', {
+        name: selectedStore?.name,
+        storeurl: storeUrlForRegistration,
+        normalized: storeUrlForRegistration.trim().toLowerCase(),
+      });
+      // await registerDeviceWithStoreUrl(storeUrlForRegistration);
+    const notification_tag = await tagDeviceWithStoreUrl(storeUrlForRegistration, pos_role);
+      // await tagDeviceWithUserRole(pos_role);
       const chatBaseUrl = await AsyncStorage.getItem('tulsi_ai_backend');
+      console.log('[Login] chat base url from storage:', chatBaseUrl);
       if (chatBaseUrl) {
         await chatailogin(chatBaseUrl);
+      } else {
+        console.warn('[Login] tulsi_ai_backend missing in AsyncStorage');
       }
       // navigate forward
       navigation.navigate('MainDrawer');
     } catch (error) {
-      console.error(error);
-      Alert.alert('Error', 'Something went wrong during login.');
+      console.error('Login request failed', {
+        storeurl: selectedStore?.storeurl,
+        normalizedUrl: joinUrl(selectedStore?.storeurl, '/pos/app/login'),
+        message: error?.message,
+      });
+      Alert.alert('Error', `Login request failed: ${error?.message || 'Unknown network error'}`);
     } finally {
       setSigningIn(false);
     }
   };
-  // -----------------------------
-  // UI
-  // -----------------------------
+
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <SafeAreaView style={styles.safeArea} edges={['bottom', 'left', 'right']}>
       <StatusBar barStyle="light-content" backgroundColor="#319241" />
-      <View style={styles.screen}>
-        <LoginBackground style={styles.backgroundSvg} preserveAspectRatio="xMidYMid slice" />
+      <ImageBackground source={LoginBackground} style={styles.screen} resizeMode="cover">
 
         <KeyboardAvoidingView style={styles.keyboardRoot} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-          <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.contentWrap}>
-            <View style={styles.brandWrap}>
+          <ScrollView
+            keyboardShouldPersistTaps="handled"
+            contentContainerStyle={[
+              styles.contentWrap,
+              {
+                paddingTop: Math.max(insets.top, 16) + 8,
+                paddingBottom: Math.max(insets.bottom, 16) + 20,
+              },
+            ]}
+          >
+            <View style={[styles.brandWrap, { marginTop: 16 }]}>
               <Image
-                source={require('../assets/images/Tulsi_Logo_white.png')}
+                source={require('../assets/images/tulsi_black_logo.webp')}
                 style={styles.logoImage}
                 resizeMode="contain"
               />
@@ -338,7 +459,7 @@ export default function LoginScreen({ navigation }) {
             <Text style={styles.helpText}></Text>
           </ScrollView>
         </KeyboardAvoidingView>
-      </View>
+      </ImageBackground>
       {/* Store chooser modal */}
       <Modal visible={storeModalVisible} animationType="slide" transparent onRequestClose={() => setStoreModalVisible(false)}>
         <View style={styles.modalBackdrop}>
@@ -358,14 +479,12 @@ export default function LoginScreen({ navigation }) {
       </Modal>
     </SafeAreaView>
   );
+
 }
 
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: '#FFFFFF' },
   screen: { flex: 1, backgroundColor: '#FFFFFF' },
-  backgroundSvg: {
-    ...StyleSheet.absoluteFillObject,
-  },
   keyboardRoot: { flex: 1 },
   contentWrap: {
     flexGrow: 1,
@@ -455,10 +574,19 @@ const styles = StyleSheet.create({
 
   // modal
   modalBackdrop: {
-    flex: 1, backgroundColor: 'rgba(0,0,0,0.25)', justifyContent: 'flex-end',
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.25)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 16,
   },
   modalCard: {
-    backgroundColor: '#fff', padding: 16, borderTopLeftRadius: 16, borderTopRightRadius: 16, maxHeight: '60%',
+    width: '100%',
+    maxWidth: 460,
+    maxHeight: '70%',
+    backgroundColor: '#fff',
+    padding: 16,
+    borderRadius: 16,
   },
   modalTitle: { fontSize: 16, fontWeight: '700', marginBottom: 8, color: '#1F2937' },
   modalItem: {

@@ -6,7 +6,6 @@ import {
   TouchableOpacity,
   StyleSheet,
   StatusBar,
-  SafeAreaView,
   ScrollView,
   Image,
   RefreshControl,
@@ -16,7 +15,7 @@ import ProductSearch from "../components/ProductSearch";
 import ProductList from "../components/ProductList";
 import { getTopCategories, looksLikeSvg, capitalizeWords } from "../functions/product-function";
 import CategoriesRow from "../components/CategoriesRow";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { CartContext } from "../context/CartContext";
 import { PrintContext } from "../context/PrintContext";
 import { SvgUri } from "react-native-svg";
@@ -54,6 +53,7 @@ export default function HomeScreen() {
   const [showdefaulttopbanner, setShowDefaultTopBanner] = useState('');
     const [showdefaultbottombanner, setShowDefaultBottomBanner] = useState('');
   const insets = useSafeAreaInsets();
+  const tabBarOffset = 84 + insets.bottom;
   const { cart } = useContext(CartContext);
   const { print } = useContext(PrintContext);
   
@@ -160,6 +160,7 @@ const currentBackground = useMemo(() => {
 
   return (
     <SafeAreaView
+      edges={["left", "right"]}
       style={{
         flex: 1,
         backgroundColor: currentBackground.type === "color" ? currentBackground.value : "#fff",
@@ -172,7 +173,9 @@ const currentBackground = useMemo(() => {
       />
 
       <CustomHeader backgroundType={currentBackground.type} backgroundValue={currentBackground.value}>
-        <ProductSearch />
+       <View style={{ overflow: 'visible', zIndex: 9999, elevation: 9999 }}>
+  <ProductSearch />
+</View>
         {/* Dynamic tabs from API (All first, others next) */}
         <View style={[styles.tabRow, { backgroundColor: "transparent" }]}>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 10 }}>
@@ -198,7 +201,7 @@ const currentBackground = useMemo(() => {
           refreshControl={<RefreshControl refreshing={homeRefreshing} onRefresh={onHomeRefresh} />}
           contentContainerStyle={{
             flexGrow: 1,
-            paddingBottom: 16 + insets.bottom,
+            paddingBottom: tabBarOffset + 16,
           }}
         >
           {activeTabID ? (
@@ -236,7 +239,7 @@ const currentBackground = useMemo(() => {
               style={{
                 alignSelf: "flex-end",
                 marginRight: 16,
-                marginBottom: 12 + insets.bottom,
+                marginBottom: tabBarOffset,
                 backgroundColor: "#2c1e70",
                 paddingVertical: 12,
                 paddingHorizontal: 16,
@@ -271,7 +274,7 @@ const currentBackground = useMemo(() => {
               style={{
                 alignSelf: "flex-start",
                 marginLeft: 16,
-                marginBottom: 12 + insets.bottom,
+                marginBottom: tabBarOffset,
                 backgroundColor: "#16A34A",
                 paddingVertical: 12,
                 paddingHorizontal: 16,

@@ -68,16 +68,7 @@ export default function PendingInvoices() {
       await initICMSBase();
       const token = await AsyncStorage.getItem('access_token');
       const icms_store = await AsyncStorage.getItem('icms_store');
-      // const res = await fetch('http://192.168.1.53:5055/api/get_storeRawInvoice', {
-      //   method: 'POST',
-      //   headers: {
-      //     'Content-Type': 'application/json',
-      //     'access_token': token ?? '',
-      //     'mode': 'MOBILE',
-      //     'store': icms_store,
-      //   },
-      //   body: JSON.stringify({}),
-      // });
+
        const res = await fetch(API_ENDPOINTS.GET_ROWINOVICE, {
         method: 'POST',
         headers: {
@@ -95,6 +86,7 @@ export default function PendingInvoices() {
       }
 
       const data = await res.json().catch(() => ({}));
+      console.log('GET_ROWINOVICE response:', data);
       const list = Array.isArray(data?.data) ? data.data : [];
       setInvoices(list);
     } catch (err) {

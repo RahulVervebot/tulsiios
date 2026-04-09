@@ -1,13 +1,11 @@
 // components/ReportHeader.js
-import React,{useEffect,useState} from 'react';
-import { View, StyleSheet, ImageBackground, TouchableOpacity,Image,Text  } from 'react-native';
-import Profile from "../assets/icons/Profile.svg";
+import React from 'react';
+import { View, StyleSheet, ImageBackground, TouchableOpacity, Text } from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import { useNavigation } from '@react-navigation/native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 const getImageSource = (val) => (typeof val === 'number' ? val : { uri: val });
 
-const AppHeader = ({ 
+const AppHeader = ({
   Title, 
   backgroundType = "color", 
   backgroundValue = "#fff", 
@@ -23,14 +21,18 @@ const AppHeader = ({
           style={styles.headerContainer}
           resizeMode="cover"
         >
-          {renderContent()}
+          <View style={styles.headerBar}>
+            {renderContent()}
+          </View>
           {children}
         </ImageBackground>
       );
     } 
     return (
       <View style={[styles.headerContainer, { backgroundColor: backgroundValue }]}>
-        {renderContent()}
+        <View style={styles.headerBar}>
+          {renderContent()}
+        </View>
         {children}
       </View>
     );
@@ -38,27 +40,35 @@ const AppHeader = ({
 
 const renderContent = () => (
   <View style={styles.content}>
+    <TouchableOpacity
+      style={styles.leftWrapper}
+      activeOpacity={0.7}
+      hitSlop={{ top: 12, bottom: 12, left: 12, right: 24 }}
+      onPress={() => {
+        if (navigation.canGoBack()) {
+          navigation.goBack();
+        } else {
+          navigation.navigate('Tabs');
+        }
+      }}
+    >
+      <View style={styles.leftIcon}>
+        <Ionicons name="arrow-back-outline" size={24} color="#fff" />
+      </View>
+    </TouchableOpacity>
 
-      <TouchableOpacity  onPress={() => {
-       if (navigation.canGoBack()) {
-         navigation.goBack();
-       } else {
-         navigation.navigate('Tabs'); // fallback screen
-       }
-     }} style={styles.leftIcon}>
-      <Ionicons name="arrow-back-outline" size={24} color="#fff" />
-         </TouchableOpacity>
-    {/* Center (absolute) */}
-    <View style={styles.titleOverlay} pointerEvents="none">
+    <View style={styles.titleWrap}>
       <Text
         style={styles.headerTitle}
-        numberOfLines={1}
-        ellipsizeMode="tail"
+        numberOfLines={2}
+        adjustsFontSizeToFit
+        minimumFontScale={0.75}
       >
         {Title}
       </Text>
     </View>
 
+    <View style={styles.rightSpacer} />
   </View>
 );
 
@@ -69,38 +79,51 @@ const renderContent = () => (
 const styles = StyleSheet.create({
   logo: { flexDirection: 'row' },
   headerContainer: {
-    paddingHorizontal: 25,
-    paddingVertical: 10,
+    paddingHorizontal: 14,
+    paddingTop: 32,
+    paddingBottom: 8,
+  },
+  headerBar: {
+    minHeight: 64,
+    justifyContent: 'center',
   },
   content: {
-    position: 'relative',
-    minHeight: 48,                 // give the row some height to center against
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-     paddingTop: 30
   },
   rowIcon: { width: 36, height: 36 },
-
-  // ⬇️ Absolute centered title
-  titleOverlay: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
+  leftWrapper: {
+    width: 64,
+    height: 48,
+    justifyContent: 'center',
+    alignItems: 'flex-start',
+  },
+  leftIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     alignItems: 'center',
-    paddingTop: 30
+    justifyContent: 'center',
+  },
+  rightSpacer: { width: 64, height: 48 },
+  titleWrap: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 10,
   },
   headerTitle: {
-    fontSize: 20,
+    fontSize: 17,
     fontWeight: '700',
     color: '#fff',
-    paddingHorizontal: 80,         // reserves space so it won’t overlap icons
     textAlign: 'center',
+    lineHeight: 22,
+    textTransform: 'uppercase',
   },
 
   headerUser: { fontSize: 12, fontWeight: '400', color: '#000', paddingHorizontal: 10 },
   headerName: { fontSize: 16, fontWeight: '700', color: '#000', paddingHorizontal: 10 },
-  profileBtn: { },
 });
 
 

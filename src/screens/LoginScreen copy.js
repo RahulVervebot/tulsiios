@@ -12,14 +12,19 @@ import {
   StatusBar,
   ScrollView,
   Modal,
+  Image,
+  ImageBackground,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect } from '@react-navigation/native';
-import TulsiLogo from '../assets/icons/Tulsi_Icon_white.svg';
+import LoginBackground from '../assets/images/Login_screen_white.png';
+import LinearGradient from 'react-native-linear-gradient';
 import { dbPromise } from '../firebaseConfig';
+ import { registerDeviceWithStoreUrl, tagDeviceWithStoreUrl,tagDeviceWithUserRole } from '../config/OneSignalConfig';
 
 export default function LoginScreen({ navigation }) {
+  const insets = useSafeAreaInsets();
   const [signingIn, setSigningIn] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -56,6 +61,8 @@ export default function LoginScreen({ navigation }) {
           await AsyncStorage.setItem('tulsi_websocket', data.tulsi_websocket);
           await AsyncStorage.setItem('tulsi_ai_backend', data.tulsi_ai_backend);
           await AsyncStorage.setItem('tulsifrontendurl', data.tulsifrontendurl);
+           await AsyncStorage.setItem('onesignalid', data.onesignalid);
+          await AsyncStorage.setItem('onesignalkey', data.onesignalkey);
       }
       } else {
         console.warn('Firestore: tulsi/storelist does not exist');
@@ -69,27 +76,79 @@ export default function LoginScreen({ navigation }) {
 
   const chatailogin = useCallback(async (baseUrl) => {
     if (chatAuthInFlightRef.current) return;
-    if (!email || !password || !baseUrl) return;
+    if (!email || !password || !baseUrl) {
+      console.warn('[ChatLogin] skipped - missing input:', {
+        hasEmail: !!email,
+        hasPassword: !!password,
+        hasBaseUrl: !!baseUrl,
+      });
+      return;
+    }
     chatAuthInFlightRef.current = true;
     try {
-      console.log("chat ai base url",baseUrl);
-      const url = baseUrl.endsWith('/')
-        ? `${baseUrl}auth/widget/login/`
-        : `${baseUrl}/auth/widget/login/`;
-      const res = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password }),
-      });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        console.warn('Chat AI login failed:', json?.message || json?.error || res.status);
-        return;
+      // Use joinUrl helper for consistent URL building (same as login)
+      const url = joinUrl(baseUrl, '/auth/widget/login/');
+      console.log('[ChatLogin] 🤖 Attempting auth to:', url);
+      
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 15000); // 15s timeout
+      
+      let res;
+      try {
+        res = await fetch(url, {
+          method: 'POST',
+          headers: { 
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+            'User-Agent': 'TulsiApp/1.0 (ChatAI)',
+          },
+          body: JSON.stringify({ email, password }),
+          signal: controller.signal,
+        });
+      } finally {
+        clearTimeout(timeoutId);
       }
-      console.log('Chat AI login success');
-      console.log("chat ai response:",res);
+
+      // Get response text first (safer than assuming JSON)
+      const responseText = await res.text();
+      const contentType = res.headers.get('content-type');
+      
+      console.log('[ChatLogin] 📨 Response:', {
+        status: res.status,
+        ok: res.ok,
+        contentType,
+        isJson: contentType?.includes('application/json'),
+      });
+
+      let json = {};
+      if (responseText && contentType?.includes('application/json')) {
+        try {
+          json = JSON.parse(responseText);
+        } catch (parseErr) {
+          console.warn('[ChatLogin] ⚠️ Failed to parse JSON:', parseErr.message);
+          console.warn('[ChatLogin] Response text (first 200 chars):', responseText.substring(0, 200));
+          json = {};
+        }
+      } else if (responseText) {
+        console.warn('[ChatLogin] ⚠️ Response is not JSON:', {
+          contentType,
+          length: responseText.length,
+          preview: responseText.substring(0, 100),
+        });
+      }
+
+      if (!res.ok) {
+        console.warn('[ChatLogin] ❌ Request failed:', {
+          status: res.status,
+          message: json?.message || json?.error || 'unknown error',
+        });
+        return; // Non-blocking - continue anyway
+      }
+
+      console.log('[ChatLogin] ✅ Success:', { status: res.status });
       const user = json?.user || {};
       const tokens = json?.tokens || {};
+      
       const entries = [];
       Object.keys(user).forEach((key) => {
         if (key === 'last_login' || key === 'date_joined') return;
@@ -98,11 +157,24 @@ export default function LoginScreen({ navigation }) {
       Object.keys(tokens).forEach((key) => {
         entries.push([`chatai_${key}`, String(tokens[key] ?? '')]);
       });
+      
       if (entries.length) {
         await AsyncStorage.multiSet(entries);
+        console.log('[ChatLogin] 💾 Saved', entries.length, 'keys to AsyncStorage');
+      } else {
+        console.warn('[ChatLogin] ⚠️ No user/token data returned');
       }
     } catch (error) {
-      console.warn('Chat AI login error:', error);
+      // Network errors on some devices - log but don't block login
+      if (error?.name === 'AbortError') {
+        console.warn('[ChatLogin] ⏱️ Request timeout (15s exceeded)');
+      } else if (error instanceof TypeError) {
+        console.warn('[ChatLogin] 🌐 Network error:', error.message);
+        console.warn('[ChatLogin] 💡 Possible causes: invalid URL, no internet, DNS failure, or device on restricted network');
+      } else {
+        console.warn('[ChatLogin] ❌ Unexpected error:', error);
+      }
+      // Don't throw - chat auth is not critical for app function
     } finally {
       chatAuthInFlightRef.current = false;
     }
@@ -133,16 +205,24 @@ export default function LoginScreen({ navigation }) {
             .map((o) => {
               const name = o && typeof o === 'object' ? Object.keys(o)[0] : null;
               if (!name) return null;
-              const { storeurl, dbname, icms_store, chat_ai_api, chat_ai_baseurl } = o[name] || {};
+              const { storeurl, dbname, icms_store, icmsurl, storepin, chat_ai_api, chat_ai_baseurl } = o[name] || {};
               if (!storeurl || !dbname) return null;
-              return { name, storeurl, dbname, icms_store, chat_ai_api, chat_ai_baseurl };
+              return {
+                name,
+                storeurl,
+                dbname,
+                icms_store: icms_store ?? icmsurl ?? '',
+                storepin: storepin ?? '',
+                chat_ai_api,
+                chat_ai_baseurl,
+              };
             })
             .filter(Boolean);
         }
       }
       setStoreMap(map);
     } catch (e) {
-      console.error('Failed to fetch storelist.json:', e);
+      console.error('Failed to fetch firebase:', e);
     }
   }, []);
 
@@ -150,9 +230,7 @@ export default function LoginScreen({ navigation }) {
     if (firebaseeurl) fetchStoreListFromFirebaseUrl(firebaseeurl);
   }, [firebaseeurl, fetchStoreListFromFirebaseUrl]);
 
-  // -----------------------------
-  // 3) Filter options by email domain as user types
-  // -----------------------------
+
   useEffect(() => {
     if (!storeMap) return;
     const domain = email.includes('@') ? email.split('@')[1].toLowerCase().trim() : '';
@@ -168,9 +246,11 @@ export default function LoginScreen({ navigation }) {
       setSelectedStore(store);
       await AsyncStorage.setItem('storeurl', store.storeurl);
       await AsyncStorage.setItem('dbname', store.dbname);
-      await AsyncStorage.setItem('icms_store', store.icms_store);
-      await AsyncStorage.setItem('chat_ai_api', store.chat_ai_api);
-      await AsyncStorage.setItem('chat_ai_baseurl', store.chat_ai_baseurl);
+      await AsyncStorage.setItem('icms_store', store.icms_store ?? '');
+      await AsyncStorage.setItem('storepin', String(store.storepin ?? ''));
+      await AsyncStorage.setItem('chat_ai_api', store.chat_ai_api ?? '');
+      await AsyncStorage.setItem('chat_ai_baseurl', store.chat_ai_baseurl ?? '');
+      
     } catch (e) {
       console.error('AsyncStorage set error:', e);
     } finally {
@@ -180,15 +260,24 @@ export default function LoginScreen({ navigation }) {
 
   // small util to join base + path safely
   const joinUrl = (base, path) => {
-    if (!base) return path;
-    if (base.endsWith('/') && path.startsWith('/')) return base + path.slice(1);
-    if (!base.endsWith('/') && !path.startsWith('/')) return base + '/' + path;
-    return base + path;
+    const normalizedBase = String(base || '').trim();
+    const normalizedPath = String(path || '').trim();
+    if (!normalizedBase) return normalizedPath;
+
+    const withScheme = /^https?:\/\//i.test(normalizedBase)
+      ? normalizedBase
+      : `http://${normalizedBase}`;
+
+    if (withScheme.endsWith('/') && normalizedPath.startsWith('/')) {
+      return withScheme + normalizedPath.slice(1);
+    }
+    if (!withScheme.endsWith('/') && !normalizedPath.startsWith('/')) {
+      return withScheme + '/' + normalizedPath;
+    }
+    return withScheme + normalizedPath;
   };
 
-  // -----------------------------
-  // 4) One-click Odoo login using selected store
-  // -----------------------------
+
   const handleManualLogin = async () => {
     if (!email || !password) {
       Alert.alert('Missing info', 'Please enter email and password.');
@@ -211,6 +300,7 @@ export default function LoginScreen({ navigation }) {
         login: email,
         password,
       };
+      console.log('Login request URL:', url);
       const res = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -231,96 +321,138 @@ export default function LoginScreen({ navigation }) {
         ['expiry', String(expiry || '')],
         ['userName', String(user_full_name || '')],
         ['userEmail', String(email || '')],
-        ['userTimeZone', String(user_context.tz || '')],
-        ['userLang', String(user_context.lang || '')],
-
-
+        ['password', String(password || '')],
+        ['userTimeZone', String(user_context?.tz || '')],
+        ['userLang', String(user_context?.lang || '')],
+        ['storepin', String(selectedStore?.storepin || '')],
+        ['storeurl', String(selectedStore?.storeurl || '')],
       ]);
+      
+      // Register device with OneSignal using the selected store's URL
+      const storeUrlForRegistration = selectedStore?.storeurl || '';
+      console.log('📱 Registering device with store URL:', storeUrlForRegistration,pos_role);
+      console.log('📝 Store details:', {
+        name: selectedStore?.name,
+        storeurl: storeUrlForRegistration,
+        normalized: storeUrlForRegistration.trim().toLowerCase(),
+      });
+      // await registerDeviceWithStoreUrl(storeUrlForRegistration);
+    const notification_tag = await tagDeviceWithStoreUrl(storeUrlForRegistration, pos_role);
+      // await tagDeviceWithUserRole(pos_role);
       const chatBaseUrl = await AsyncStorage.getItem('tulsi_ai_backend');
+      console.log('[Login] chat base url from storage:', chatBaseUrl);
       if (chatBaseUrl) {
         await chatailogin(chatBaseUrl);
+      } else {
+        console.warn('[Login] tulsi_ai_backend missing in AsyncStorage');
       }
       // navigate forward
       navigation.navigate('MainDrawer');
     } catch (error) {
-      console.error(error);
-      Alert.alert('Error', 'Something went wrong during login.');
+      console.error('Login request failed', {
+        storeurl: selectedStore?.storeurl,
+        normalizedUrl: joinUrl(selectedStore?.storeurl, '/pos/app/login'),
+        message: error?.message,
+      });
+      Alert.alert('Error', `Login request failed: ${error?.message || 'Unknown network error'}`);
     } finally {
       setSigningIn(false);
     }
   };
-  // -----------------------------
-  // UI
-  // -----------------------------
-  return (
-    <SafeAreaView style={styles.safeArea}>
-      <StatusBar barStyle="dark-content" backgroundColor={GREEN} />
 
-      <View style={styles.headerArea}>
-        <View style={styles.logoCircle}>
-          <TulsiLogo />
-        </View>
-        <Text style={styles.appTitle}>Welcome to TULSI</Text>
-        <Text style={styles.subtitle}>Sign in to continue</Text>
-      </View>
-      <View style={styles.panel}>
-        <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-          <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.panelContent}>
-            <Text style={styles.heading}>Login</Text>
-            <Text style={styles.subtext}>Enter your credentials below.</Text>
-            <View style={styles.field}>
-              <Text style={styles.label}>Email</Text>
-              <TextInput
-                style={styles.input}
-                placeholder="you@example.com"
-                placeholderTextColor="#9AA3AF"
-                value={email}
-                onChangeText={setEmail}
-                autoCapitalize="none"
-                keyboardType="email-address"
-                autoCorrect={false}
+  return (
+    <SafeAreaView style={styles.safeArea} edges={['bottom', 'left', 'right']}>
+      <StatusBar barStyle="light-content" backgroundColor="#319241" />
+      <ImageBackground source={LoginBackground} style={styles.screen} resizeMode="cover">
+
+        <KeyboardAvoidingView style={styles.keyboardRoot} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+          <ScrollView
+            keyboardShouldPersistTaps="handled"
+            contentContainerStyle={[
+              styles.contentWrap,
+              {
+                paddingTop: Math.max(insets.top, 16) + 8,
+                paddingBottom: Math.max(insets.bottom, 16) + 20,
+              },
+            ]}
+          >
+            <View style={[styles.brandWrap, { marginTop: 16 }]}>
+              <Image
+                source={require('../assets/images/tulsi_black_logo.webp')}
+                style={styles.logoImage}
+                resizeMode="contain"
               />
             </View>
-            {/* NEW: Select Store field (below Email) */}
-            <View style={styles.field}>
-              <Text style={styles.label}>Select Store</Text>
-              <TouchableOpacity
-                style={[styles.input, styles.selectInput, !storeOptions.length && { opacity: 0.6 }]}
-                onPress={() => storeOptions.length && setStoreModalVisible(true)}
-                activeOpacity={0.8}
-              >
-                <Text style={{ color: selectedStore ? TEXT : '#9AA3AF' }}>
-                  {selectedStore?.name ||
-                    (email
-                      ? storeOptions.length
-                        ? 'Tap to choose store'
-                        : 'No stores for this email domain'
-                      : 'Enter email to see stores')}
-                </Text>
-              </TouchableOpacity>
-            </View>
-            <View style={styles.field}>
-              <Text style={styles.label}>Password</Text>
-              <TextInput
-                style={styles.input}
-                placeholder="••••••••"
-                placeholderTextColor="#9AA3AF"
-                secureTextEntry
-                value={password}
-                onChangeText={setPassword}
-              />
-            </View>
-            <TouchableOpacity style={styles.primaryBtn} onPress={handleManualLogin} activeOpacity={0.85}>
-              <Text style={styles.primaryBtnText}>Login</Text>
-            </TouchableOpacity>
-            {signingIn && (
-              <View style={styles.loadingOverlay}>
-                <ActivityIndicator size="large" />
+
+            <View style={styles.card}>
+              <Text style={styles.heading}>Sign In to Continue</Text>
+              <Text style={styles.subtext}></Text>
+
+              <View style={styles.field}>
+                <TextInput
+                  style={styles.input}
+                  placeholder="Email"
+                  placeholderTextColor="#9CA3AF"
+                  value={email}
+                  onChangeText={setEmail}
+                  autoCapitalize="none"
+                  keyboardType="email-address"
+                  autoCorrect={false}
+                />
               </View>
-            )}
+
+              <View style={styles.field}>
+                <TouchableOpacity
+                  style={[styles.input, styles.selectInput, !storeOptions.length && { opacity: 0.7 }]}
+                  onPress={() => storeOptions.length && setStoreModalVisible(true)}
+                  activeOpacity={0.8}
+                >
+                  <Text style={{ color: selectedStore ? '#111827' : '#9CA3AF' }}>
+                    {selectedStore?.name ||
+                      (email
+                        ? storeOptions.length
+                          ? 'Tap to choose store'
+                          : 'No stores for this email domain'
+                        : 'Select Store')}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+
+              <View style={styles.field}>
+                <TextInput
+                  style={styles.input}
+                  placeholder="Password"
+                  placeholderTextColor="#9CA3AF"
+                  secureTextEntry
+                  value={password}
+                  onChangeText={setPassword}
+                />
+              </View>
+
+              <Text style={styles.termsText}></Text>
+
+              <TouchableOpacity style={styles.primaryBtnWrap} onPress={handleManualLogin} activeOpacity={0.9}>
+                <LinearGradient
+                  colors={['#C8FF71', '#45D83A', '#33CC33']}
+                  start={{ x: 0, y: 0.5 }}
+                  end={{ x: 1, y: 0.5 }}
+                  style={styles.primaryBtn}
+                >
+                  <Text style={styles.primaryBtnText}>Login</Text>
+                </LinearGradient>
+              </TouchableOpacity>
+
+              {signingIn && (
+                <View style={styles.loadingOverlay}>
+                  <ActivityIndicator size="large" />
+                </View>
+              )}
+            </View>
+
+            <Text style={styles.helpText}></Text>
           </ScrollView>
         </KeyboardAvoidingView>
-      </View>
+      </ImageBackground>
       {/* Store chooser modal */}
       <Modal visible={storeModalVisible} animationType="slide" transparent onRequestClose={() => setStoreModalVisible(false)}>
         <View style={styles.modalBackdrop}>
@@ -340,61 +472,119 @@ export default function LoginScreen({ navigation }) {
       </Modal>
     </SafeAreaView>
   );
-}
-// ---- your existing colors / styles ----
-const GREEN = '#E6FAE6';
-const PANEL_RADIUS = 28;
-const PRIMARY = '#2ECC71';
-const TEXT = '#1C2833';
-const MUTED = '#5D6D7E';
-const styles = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: GREEN },
-  headerArea: { height: '30%', alignItems: 'center', justifyContent: 'center', paddingTop: 8 },
-  logoCircle: {
-    width: 120, height: 120, borderRadius: 44, backgroundColor: '#F5FFF5', alignItems: 'center', justifyContent: 'center',
-    marginBottom: 8, borderWidth: 2, borderColor: '#BDE6BD', shadowColor: '#000', shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.08, shadowRadius: 10, elevation: 3,
-  },
-  appTitle: { fontSize: 20, fontWeight: '700', color: TEXT },
-  subtitle: { fontSize: 14, color: MUTED, marginTop: 2 },
-  panel: {
-    flex: 1, backgroundColor: '#FFFFFF', borderTopLeftRadius: PANEL_RADIUS, borderTopRightRadius: PANEL_RADIUS,
-    paddingTop: 18, shadowColor: '#000', shadowOpacity: 0.06, shadowRadius: 12, shadowOffset: { width: 0, height: -2 }, elevation: 8,
-  },
-  panelContent: { paddingHorizontal: 22, paddingBottom: 30 },
-  heading: { fontSize: 24, fontWeight: '700', color: TEXT, marginTop: 6 },
-  subtext: { color: MUTED, marginTop: 6, marginBottom: 18 },
 
+}
+
+const styles = StyleSheet.create({
+  safeArea: { flex: 1, backgroundColor: '#FFFFFF' },
+  screen: { flex: 1, backgroundColor: '#FFFFFF' },
+  keyboardRoot: { flex: 1 },
+  contentWrap: {
+    flexGrow: 1,
+    paddingHorizontal: 18,
+    paddingTop: 52,
+    paddingBottom: 28,
+    justifyContent: 'space-between',
+  },
+  brandWrap: {
+    alignItems: 'center',
+    marginTop: 42,
+  },
+  logoImage: {
+    width: 230,
+    height: 130,
+  },
+  card: {
+    backgroundColor: '#ECECEC',
+    borderRadius: 34,
+    paddingHorizontal: 18,
+    paddingVertical: 24,
+    shadowColor: '#000',
+    shadowOpacity: 0.2,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 8,
+    marginTop: 12,
+  },
+  heading: {
+    fontSize: 22,
+    fontWeight: '600',
+    color: '#111827',
+    textAlign: 'center',
+  },
+  subtext: {
+    fontSize: 16,
+    color: '#111827',
+    textAlign: 'center',
+    marginTop: 4,
+    marginBottom: 20,
+    fontStyle: 'italic',
+  },
   field: { marginBottom: 14 },
-  label: { fontSize: 13, fontWeight: '600', color: TEXT, marginBottom: 6 },
   input: {
-    width: '100%', paddingVertical: 12, paddingHorizontal: 12, borderWidth: 1, borderColor: '#D5DBDB', backgroundColor: '#FBFBFB',
-    borderRadius: 12, color: TEXT,
+    width: '100%',
+    paddingVertical: 14,
+    paddingHorizontal: 14,
+    backgroundColor: '#DCDCDC',
+    borderRadius: 16,
+    color: '#111827',
+    fontSize: 15,
   },
   selectInput: { justifyContent: 'center' },
-
-  primaryBtn: {
-    marginTop: 10, backgroundColor: PRIMARY, paddingVertical: 14, borderRadius: 14, alignItems: 'center',
-    shadowColor: PRIMARY, shadowOpacity: 0.35, shadowRadius: 12, shadowOffset: { width: 0, height: 6 }, elevation: 3,
+  termsText: {
+    marginTop: 10,
+    textAlign: 'center',
+    color: '#1F2937',
+    fontSize: 15,
   },
-  primaryBtnText: { color: '#fff', fontSize: 16, fontWeight: '700', letterSpacing: 0.3 },
-
+  primaryBtnWrap: {
+    marginTop: 18,
+    borderRadius: 999,
+    overflow: 'hidden',
+  },
+  primaryBtn: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 58,
+    borderRadius: 999,
+  },
+  primaryBtnText: { color: '#fff', fontSize: 24, fontWeight: '700', letterSpacing: 0.2 },
+  helpText: {
+    textAlign: 'center',
+    marginTop: 20,
+    color: '#9CA3AF',
+    fontSize: 18,
+    fontWeight: '500',
+  },
   loadingOverlay: {
-    ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(255,255,255,0.6)', alignItems: 'center', justifyContent: 'center',
-    borderTopLeftRadius: PANEL_RADIUS, borderTopRightRadius: PANEL_RADIUS, zIndex: 2,
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(255,255,255,0.6)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 34,
+    zIndex: 2,
   },
 
   // modal
   modalBackdrop: {
-    flex: 1, backgroundColor: 'rgba(0,0,0,0.25)', justifyContent: 'flex-end',
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.25)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 16,
   },
   modalCard: {
-    backgroundColor: '#fff', padding: 16, borderTopLeftRadius: 16, borderTopRightRadius: 16, maxHeight: '60%',
+    width: '100%',
+    maxWidth: 460,
+    maxHeight: '70%',
+    backgroundColor: '#fff',
+    padding: 16,
+    borderRadius: 16,
   },
-  modalTitle: { fontSize: 16, fontWeight: '700', marginBottom: 8, color: TEXT },
+  modalTitle: { fontSize: 16, fontWeight: '700', marginBottom: 8, color: '#1F2937' },
   modalItem: {
     paddingVertical: 12, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: '#E5E7EB',
   },
-  modalItemText: { fontSize: 15, fontWeight: '600', color: TEXT },
-  modalItemSub: { fontSize: 12, color: MUTED },
+  modalItemText: { fontSize: 15, fontWeight: '600', color: '#1F2937' },
+  modalItemSub: { fontSize: 12, color: '#6B7280' },
 });

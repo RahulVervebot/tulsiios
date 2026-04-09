@@ -39,6 +39,7 @@ export default function CategoryListScreen() {
 
   const [modalVisible, setModalVisible] = useState(false);
   const [editCat, setEditCat] = useState(null);
+  const [originalCat, setOriginalCat] = useState(null);
 
   const getImageSource = (val) => (typeof val === 'number' ? val : { uri: val });
 
@@ -140,37 +141,107 @@ export default function CategoryListScreen() {
   };
 
   const openModal = (item) => {
-    setEditCat({
+    const normalized = {
       id: item.id,
       categoryName: item.categoryName ?? '',
       categoryMargin: String(item.categoryMargin ?? 0),
       categoryMarkup: String(item.categoryMarkup ?? 0),
+      categoryPP: String(item.categoryPP ?? item.categoryPp ?? item.categoryProfitPercentage ?? 0),
       topList: !!item.topList,
       image: item.image ?? null,
       topIcon: item.topIcon ?? null,
       topBanner: item.topBanner ?? null,
       topBannerBottom: item.topBannerBottom ?? null,
-    });
+    };
+    setEditCat(normalized);
+    setOriginalCat(normalized);
     setModalVisible(true);
+      console.log("categ iutem:",item);
   };
+
+  const isPositive = (v) => Number(v || 0) > 0;
+  const handlePricingInput = (field, value) => {
+    const nextValue = value ?? '0';
+    setEditCat((prev) => {
+      if (!prev) return prev;
+      if (field === 'categoryMargin') {
+        return {
+          ...prev,
+          categoryMargin: nextValue,
+          ...(isPositive(nextValue) ? { categoryMarkup: '0', categoryPP: '0' } : {}),
+        };
+      }
+      if (field === 'categoryMarkup') {
+        return {
+          ...prev,
+          categoryMarkup: nextValue,
+          ...(isPositive(nextValue) ? { categoryMargin: '0', categoryPP: '0' } : {}),
+        };
+      }
+      return {
+        ...prev,
+        categoryPP: nextValue,
+        ...(isPositive(nextValue) ? { categoryMargin: '0', categoryMarkup: '0' } : {}),
+      };
+    });
+  };
+
+
   const closeModal = () => {
     setModalVisible(false);
     setEditCat(null);
+    setOriginalCat(null);
   };
 
-  const updateField = async (fieldKey) => {
+  const handleUpdateChanges = async () => {
     if (!editCat?.id) return;
     try {
       const url = `${storeUrl}/pos/app/category/update/${editCat.id}`;
       const body = {};
-      if (fieldKey === 'categoryName') body.categoryName = editCat.categoryName;
-      if (fieldKey === 'categoryMargin') body.categoryMargin = Number(editCat.categoryMargin || 0);
-      if (fieldKey === 'categoryMarkup') body.categoryMarkup = Number(editCat.categoryMarkup || 0);
-      if (fieldKey === 'topList') body.topList = !!editCat.topList;
-      if (fieldKey === 'image') body.image = editCat.image || null;
-      if (fieldKey === 'topIcon') body.topIcon = editCat.topIcon || null;
-      if (fieldKey === 'topBanner') body.topBanner = editCat.topBanner || null;
-      if (fieldKey === 'topBannerBottom') body.topBannerBottom = editCat.topBannerBottom || null;
+
+      const toNum = (v) => Number(v || 0);
+      if ((editCat.categoryName ?? '') !== (originalCat?.categoryName ?? '')) {
+        body.categoryName = editCat.categoryName;
+      }
+      if (toNum(editCat.categoryMargin) !== toNum(originalCat?.categoryMargin)) {
+        body.categoryMargin = toNum(editCat.categoryMargin);
+      }
+      if (toNum(editCat.categoryMarkup) !== toNum(originalCat?.categoryMarkup)) {
+        body.categoryMarkup = toNum(editCat.categoryMarkup);
+      }
+      if (toNum(editCat.categoryPP) !== toNum(originalCat?.categoryPP)) {
+        body.categoryPP = toNum(editCat.categoryPP);
+      }
+      if (toNum(editCat.categoryMargin) > 0) {
+        body.categoryMarkup = 0;
+        body.categoryPP = 0;
+      } else if (toNum(editCat.categoryMarkup) > 0) {
+        body.categoryMargin = 0;
+        body.categoryPP = 0;
+      } else if (toNum(editCat.categoryPP) > 0) {
+        body.categoryMargin = 0;
+        body.categoryMarkup = 0;
+      }
+      if (!!editCat.topList !== !!originalCat?.topList) {
+        body.topList = !!editCat.topList;
+      }
+      if ((editCat.image || null) !== (originalCat?.image || null)) {
+        body.image = editCat.image || null;
+      }
+      if ((editCat.topIcon || null) !== (originalCat?.topIcon || null)) {
+        body.topIcon = editCat.topIcon || null;
+      }
+      if ((editCat.topBanner || null) !== (originalCat?.topBanner || null)) {
+        body.topBanner = editCat.topBanner || null;
+      }
+      if ((editCat.topBannerBottom || null) !== (originalCat?.topBannerBottom || null)) {
+        body.topBannerBottom = editCat.topBannerBottom || null;
+      }
+
+      if (!Object.keys(body).length) {
+        Alert.alert('No changes', 'There is nothing to update.');
+        return;
+      }
 
       const res = await fetch(url, {
         method: 'PUT',
@@ -178,8 +249,9 @@ export default function CategoryListScreen() {
         body: JSON.stringify(body),
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}: ${await res.text()}`);
-      Alert.alert('Success', `${fieldKey} updated.`);
+      Alert.alert('Success', 'Category updated successfully.');
       fetchCategories();
+      closeModal();
     } catch (err) {
       Alert.alert('Update error', String(err?.message || err));
     }
@@ -305,9 +377,6 @@ export default function CategoryListScreen() {
                   style={styles.input}
                   returnKeyType="done"
                 />
-                <TouchableOpacity style={styles.btnPrimary} onPress={() => updateField('categoryName')}>
-                  <Text style={styles.btnText}>Update Name</Text>
-                </TouchableOpacity>
                 </View>
 
                 <View style={styles.sectionCard}>
@@ -317,29 +386,36 @@ export default function CategoryListScreen() {
                       <Text style={styles.label}>Add Margin</Text>
                       <TextInput
                         value={String(editCat?.categoryMargin ?? '0')}
-                        onChangeText={(v) => setEditCat((p) => ({ ...p, categoryMargin: v }))}
+                        onChangeText={(v) => handlePricingInput('categoryMargin', v)}
                         placeholder="0"
                         keyboardType="decimal-pad"
                         style={styles.input}
                         returnKeyType="done"
                       />
-                      <TouchableOpacity style={styles.btnPrimary} onPress={() => updateField('categoryMargin')}>
-                        <Text style={styles.btnText}>Update Margin</Text>
-                      </TouchableOpacity>
                     </View>
                     <View style={styles.gridCol}>
                       <Text style={styles.label}>Add Markup</Text>
                       <TextInput
                         value={String(editCat?.categoryMarkup ?? '0')}
-                        onChangeText={(v) => setEditCat((p) => ({ ...p, categoryMarkup: v }))}
+                        onChangeText={(v) => handlePricingInput('categoryMarkup', v)}
                         placeholder="0"
                         keyboardType="decimal-pad"
                         style={styles.input}
                         returnKeyType="done"
                       />
-                      <TouchableOpacity style={styles.btnPrimary} onPress={() => updateField('categoryMarkup')}>
-                        <Text style={styles.btnText}>Update Markup</Text>
-                      </TouchableOpacity>
+                    </View>
+                  </View>
+                  <View style={styles.gridRow}>
+                    <View style={styles.gridCol}>
+                      <Text style={styles.label}>Add Profit Percentage</Text>
+                      <TextInput
+                        value={String(editCat?.categoryPP ?? '0')}
+                        onChangeText={(v) => handlePricingInput('categoryPP', v)}
+                        placeholder="0"
+                        keyboardType="decimal-pad"
+                        style={styles.input}
+                        returnKeyType="done"
+                      />
                     </View>
                   </View>
                 </View>
@@ -389,17 +465,17 @@ export default function CategoryListScreen() {
                         </TouchableOpacity>
                       </View>
 
-                      <TouchableOpacity style={styles.btnPrimary} onPress={() => updateField(key)}>
-                        <Text style={styles.btnText}>Update {title}</Text>
-                      </TouchableOpacity>
                     </View>
                   );
                 })}
               </ScrollView>
 
               <View style={styles.modalFooter}>
-                <TouchableOpacity style={styles.btnSecondary} onPress={closeModal}>
+                <TouchableOpacity style={[styles.btnSecondary, styles.btnDanger]} onPress={closeModal}>
                   <Text style={styles.btnLightText}>Close</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.btnPrimaryFooter} onPress={handleUpdateChanges}>
+                  <Text style={styles.btnLightText}>Update</Text>
                 </TouchableOpacity>
               </View>
             </View>
@@ -521,7 +597,15 @@ const styles = StyleSheet.create({
   },
   closeX: { fontSize: 18, color: '#6B7280', lineHeight: 20 },
   modalScroll: { maxHeight: '100%' },
-  modalFooter: { paddingTop: 10, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: COLORS.stroke, alignItems: 'center' },
+  modalFooter: {
+    paddingTop: 10,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: COLORS.stroke,
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    flexDirection: 'row',
+    gap: 10,
+  },
 
   modalTitle: { fontSize: 19, fontWeight: '800', color: COLORS.text },
   modalSub: { fontSize: 12, color: COLORS.sub, marginTop: 2 },
@@ -596,6 +680,15 @@ const styles = StyleSheet.create({
   btnGhostText: { color: COLORS.sub, fontWeight: '700' },
   btnSecondary: {
     backgroundColor: '#111827',
+    borderRadius: 10,
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+  },
+  btnDanger: {
+    backgroundColor: '#DC2626',
+  },
+  btnPrimaryFooter: {
+    backgroundColor: COLORS.primary,
     borderRadius: 10,
     paddingVertical: 12,
     paddingHorizontal: 24,

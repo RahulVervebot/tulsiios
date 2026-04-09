@@ -110,7 +110,7 @@ export default function ArchivedProductList() {
           {unarchivingId === item?.id ? (
             <ActivityIndicator size="small" color="#fff" />
           ) : (
-            <Text style={styles.unarchiveBtnText}>Unarchive</Text>
+            <Text style={styles.unarchiveBtnText}>Restore</Text>
           )}
         </TouchableOpacity>
       </View>
@@ -126,7 +126,7 @@ export default function ArchivedProductList() {
     try {
       setUnarchivingId(pid);
       await unarchiveProduct(pid);
-      Alert.alert('Success', 'Product unarchived successfully.');
+      Alert.alert('Success', 'Product restored successfully.');
       setRows((prev) => prev.filter((r) => Number(r?.id) !== pid));
       setServerCount((prev) => Math.max(0, Number(prev || 0) - 1));
     } catch (e) {
@@ -138,18 +138,18 @@ export default function ArchivedProductList() {
 
   const handleUnarchive = (item) => {
     Alert.alert(
-      'Unarchive Product',
-      'Are you sure you want to unarchive this product?',
+      'Restore Product',
+      'Are you sure you want to restore this product?',
       [
         { text: 'Cancel', style: 'cancel' },
-        { text: 'Unarchive', style: 'destructive', onPress: () => doUnarchive(item) },
+        { text: 'Restore', style: 'destructive', onPress: () => doUnarchive(item) },
       ]
     );
   };
 
   return (
     <ImageBackground source={getImageSource(reportbg)} style={styles.screen} resizeMode="cover">
-      <AppHeader Title="ARCHIVED PRODUCTS" backgroundType="image" backgroundValue={reportbg} />
+      <AppHeader Title="DELETED PRODUCTS" backgroundType="image" backgroundValue={reportbg} />
 
       <View style={styles.container}>
         <View style={styles.searchRow}>
@@ -170,7 +170,7 @@ export default function ArchivedProductList() {
         {loading ? (
           <View style={styles.center}>
             <ActivityIndicator size="large" />
-            <Text style={styles.loadingText}>Loading archived products...</Text>
+            <Text style={styles.loadingText}>Loading deleted products...</Text>
           </View>
         ) : (
           <FlatList
@@ -182,7 +182,7 @@ export default function ArchivedProductList() {
             contentContainerStyle={{ paddingBottom: 24 }}
             ListEmptyComponent={
               <View style={styles.center}>
-                <Text style={styles.emptyText}>No archived products found.</Text>
+                <Text style={styles.emptyText}>No deleted products found.</Text>
               </View>
             }
           />

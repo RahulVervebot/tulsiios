@@ -1,0 +1,54 @@
+
+> PIMS@0.0.1 ios
+> react-native run-ios
+
+error Cannot start server in new windows because no terminal app was specified, use --terminal to specify, or start a dev server manually by running npm start or yarn start in other terminal window.
+info Found Xcode workspace "PIMS.xcworkspace"
+error Command failed with exit code 1: xcrun simctl list --json devices
+2026-03-11 10:38:56.359 simctl[62886:11617704] CoreSimulatorService connection became invalid.  Simulator services will no longer be available.
+2026-03-11 10:38:56.360 simctl[62886:11617706] Logging connecton invalid: <OS_xpc_error: <dictionary: 0x2071cabe0> { count = 1, transaction: 0, voucher = 0x0, contents =
+	"XPCErrorDescription" => <string: 0x2071cad28> { length = 18, contents = "Connection invalid" }
+}>
+2026-03-11 10:38:56.361 simctl[62886:11617706] Error opening log file (/Users/vervebotapps/Library/Logs/CoreSimulator/CoreSimulator.com.apple.CoreSimulator.simctl.log): Operation not permitted
+[-[SimServiceContext sendRequest:]:1743] ERROR : Unable to deliver request ({
+    "developer_dir" = "/Applications/Xcode.app/Contents/Developer";
+    request = "set_developer_dir";
+}) because we are not connected to CoreSimulatorService.
+[-[SimServiceContext initWithDeveloperDir:connectionType:error:]:450] WARN  : Unable to discover any Simulator runtimes. Developer Directory is /Applications/Xcode.app/Contents/Developer.
+[-[SimDiskImageManager init]:148] ERROR : Could not kickstart simdiskimaged; SimDiskImageManager services will not be available: Error Domain=NSPOSIXErrorDomain Code=53 "Software caused connection abort" UserInfo={NSLocalizedDescription=Error returned in reply from CoreSimulatorService: Connection invalid}
+[-[SimDiskImageManager _onQueue_checkConnection:]:212] ERROR : simdiskimaged returned error (invalid), marking disconnected.
+[-[SimServiceContext initWithDeveloperDir:connectionType:error:]_block_invoke:486] ERROR : Could not get list of trusted mount directories: Error Domain=com.apple.CoreSimulator.SimError Code=410 "The service used to manage runtime disk images (simdiskimaged) crashed or is not responding" UserInfo={NSLocalizedDescription=The service used to manage runtime disk images (simdiskimaged) crashed or is not responding}
+[-[SimDiskImageManager _onQueue_checkConnection:]:212] ERROR : simdiskimaged returned error (invalid), marking disconnected.
+[-[SimServiceContext sendRequest:reply:error:]:1763] ERROR : Unable to deliver request ({
+    request = "notification_subscription";
+    "set_path" = "/Users/vervebotapps/Library/Developer/CoreSimulator/Devices";
+}) because we are not connected to CoreSimulatorService.
+2026-03-11 10:38:56.443 simctl[62886:11617701] Error Domain=NSPOSIXErrorDomain Code=61 "Connection refused" UserInfo={NSLocalizedDescription=CoreSimulatorService connection became invalid.  Simulator services will no longer be available.}
+Unable to locate device set: Error Domain=NSPOSIXErrorDomain Code=61 "Connection refused" UserInfo={NSLocalizedFailureReason=Failed to subscribe to notifications from CoreSimulatorService., NSLocalizedDescription=Failed to initialize simulator device set., NSUnderlyingError=0x11f627ed0 {Error Domain=NSPOSIXErrorDomain Code=61 "Connection refused" UserInfo={NSLocalizedDescription=CoreSimulatorService connection became invalid.  Simulator services will no longer be available.}}}.
+Error: Command failed with exit code 1: xcrun simctl list --json devices
+2026-03-11 10:38:56.359 simctl[62886:11617704] CoreSimulatorService connection became invalid.  Simulator services will no longer be available.
+2026-03-11 10:38:56.360 simctl[62886:11617706] Logging connecton invalid: <OS_xpc_error: <dictionary: 0x2071cabe0> { count = 1, transaction: 0, voucher = 0x0, contents =
+	"XPCErrorDescription" => <string: 0x2071cad28> { length = 18, contents = "Connection invalid" }
+}>
+2026-03-11 10:38:56.361 simctl[62886:11617706] Error opening log file (/Users/vervebotapps/Library/Logs/CoreSimulator/CoreSimulator.com.apple.CoreSimulator.simctl.log): Operation not permitted
+[-[SimServiceContext sendRequest:]:1743] ERROR : Unable to deliver request ({
+    "developer_dir" = "/Applications/Xcode.app/Contents/Developer";
+    request = "set_developer_dir";
+}) because we are not connected to CoreSimulatorService.
+[-[SimServiceContext initWithDeveloperDir:connectionType:error:]:450] WARN  : Unable to discover any Simulator runtimes. Developer Directory is /Applications/Xcode.app/Contents/Developer.
+[-[SimDiskImageManager init]:148] ERROR : Could not kickstart simdiskimaged; SimDiskImageManager services will not be available: Error Domain=NSPOSIXErrorDomain Code=53 "Software caused connection abort" UserInfo={NSLocalizedDescription=Error returned in reply from CoreSimulatorService: Connection invalid}
+[-[SimDiskImageManager _onQueue_checkConnection:]:212] ERROR : simdiskimaged returned error (invalid), marking disconnected.
+[-[SimServiceContext initWithDeveloperDir:connectionType:error:]_block_invoke:486] ERROR : Could not get list of trusted mount directories: Error Domain=com.apple.CoreSimulator.SimError Code=410 "The service used to manage runtime disk images (simdiskimaged) crashed or is not responding" UserInfo={NSLocalizedDescription=The service used to manage runtime disk images (simdiskimaged) crashed or is not responding}
+[-[SimDiskImageManager _onQueue_checkConnection:]:212] ERROR : simdiskimaged returned error (invalid), marking disconnected.
+[-[SimServiceContext sendRequest:reply:error:]:1763] ERROR : Unable to deliver request ({
+    request = "notification_subscription";
+    "set_path" = "/Users/vervebotapps/Library/Developer/CoreSimulator/Devices";
+}) because we are not connected to CoreSimulatorService.
+2026-03-11 10:38:56.443 simctl[62886:11617701] Error Domain=NSPOSIXErrorDomain Code=61 "Connection refused" UserInfo={NSLocalizedDescription=CoreSimulatorService connection became invalid.  Simulator services will no longer be available.}
+Unable to locate device set: Error Domain=NSPOSIXErrorDomain Code=61 "Connection refused" UserInfo={NSLocalizedFailureReason=Failed to subscribe to notifications from CoreSimulatorService., NSLocalizedDescription=Failed to initialize simulator device set., NSUnderlyingError=0x11f627ed0 {Error Domain=NSPOSIXErrorDomain Code=61 "Connection refused" UserInfo={NSLocalizedDescription=CoreSimulatorService connection became invalid.  Simulator services will no longer be available.}}}
+    at makeError (/Users/vervebotapps/work/VerveBotAPP/Tulsi_IOS/node_modules/execa/lib/error.js:60:11)
+    at module.exports.sync (/Users/vervebotapps/work/VerveBotAPP/Tulsi_IOS/node_modules/execa/index.js:194:17)
+    at listDevices (/Users/vervebotapps/work/VerveBotAPP/Tulsi_IOS/node_modules/@react-native-community/cli-platform-apple/build/tools/listDevices.js:41:52)
+    at Object.func (/Users/vervebotapps/work/VerveBotAPP/Tulsi_IOS/node_modules/@react-native-community/cli-platform-apple/build/commands/runCommand/createRun.js:139:48)
+    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)
+    at async Command.handleAction (/Users/vervebotapps/work/VerveBotAPP/Tulsi_IOS/node_modules/@react-native-community/cli/build/index.js:139:9)

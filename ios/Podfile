@@ -1,18 +1,27 @@
-# Resolve react_native_pods.rb with node to allow for hoisting
-require Pod::Executable.execute_command('node', ['-p',
-  'require.resolve(
-    "react-native/scripts/react_native_pods.rb",
-    {paths: [process.argv[1]]},
-  )', __dir__]).strip
+def node_require(script)
+  require Pod::Executable.execute_command('node', ['-p',
+    "require.resolve(
+      '#{script}',
+      {paths: [process.argv[1]]},
+    )", __dir__]).strip
+end
+
+ENV['RCT_NEW_ARCH_ENABLED'] = '0'
+
+node_require('react-native/scripts/react_native_pods.rb')
+node_require('react-native-permissions/scripts/setup.rb')
 
 platform :ios, min_ios_version_supported
 prepare_react_native_project!
+setup_permissions([
+  'Camera',
+  'Microphone',
+  'SpeechRecognition',
+  'PhotoLibrary',
+])
 
-linkage = ENV['USE_FRAMEWORKS']
-if linkage != nil
-  Pod::UI.puts "Configuring Pod with #{linkage}ally linked Frameworks".green
-  use_frameworks! :linkage => linkage.to_sym
-end
+$RNFirebaseAsStaticFramework = true
+use_frameworks! :linkage => :static
 
 target 'PIMS' do
   config = use_native_modules!
@@ -31,5 +40,50 @@ target 'PIMS' do
       :mac_catalyst_enabled => false,
       # :ccache_enabled => true
     )
+    
+    # Fix bitcode and build settings for App Store submission
+    installer.pods_project.targets.each do |target|
+      target.build_configurations.each do |config|
+        # Disable bitcode (Apple no longer accepts bitcode)
+        config.build_settings['ENABLE_BITCODE'] = 'NO'
+        
+        # Enable dSYM generation for crash reporting
+        config.build_settings['DEBUG_INFORMATION_FORMAT'] = 'dwarf-with-dsym'
+        
+        # Strip bitcode from frameworks
+        config.build_settings['STRIP_BITCODE_FROM_COPIED_FILES'] = 'YES'
+        
+        # Ensure symbols are not stripped in release
+        config.build_settings['COPY_PHASE_STRIP'] = 'NO'
+        config.build_settings['STRIP_INSTALLED_PRODUCT'] = 'NO'
+        
+        # Generate dSYM files for all configurations
+        config.build_settings['GCC_GENERATE_DEBUGGING_SYMBOLS'] = 'YES'
+        
+        # Other recommended settings for App Store
+        config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '13.4'
+        config.build_settings['ONLY_ACTIVE_ARCH'] = 'NO'
+      end
+    end
+    
+    # Strip bitcode from all frameworks using xcrun
+    installer.pods_project.targets.each do |target|
+      if target.respond_to?(:product_type) && target.product_type == "com.apple.product-type.framework"
+        target.build_configurations.each do |config|
+          config.build_settings['ENABLE_BITCODE'] = 'NO'
+        end
+      end
+    end
+    
+    # Strip bitcode from OneSignal frameworks after installation
+    puts "🔧 Stripping bitcode from OneSignal frameworks..."
+    ['OneSignal', 'OneSignalCore', 'OneSignalExtension', 'OneSignalOutcomes'].each do |framework_name|
+      framework_path = Dir.glob("#{installer.sandbox.root}/**/#{framework_name}.framework/#{framework_name}").first
+      if framework_path && File.exist?(framework_path)
+        puts "   Processing #{framework_name}..."
+        system("xcrun bitcode_strip -r '#{framework_path}' -o '#{framework_path}' 2>/dev/null")
+      end
+    end
+    puts "✅ Bitcode stripping complete!"
   end
 end

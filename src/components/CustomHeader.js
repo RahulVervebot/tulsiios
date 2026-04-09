@@ -1,6 +1,7 @@
 // components/CustomHeader.js
 import React,{useEffect,useState} from 'react';
 import { View, StyleSheet, ImageBackground, TouchableOpacity, Image, Text, useWindowDimensions } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Profile from "../assets/icons/Profile.svg";
 import Setting from "../assets/icons/Profile.svg";
 import TulsiLogo from '../assets/images/Tulsi.svg';
@@ -16,6 +17,7 @@ const CustomHeader = ({
   children
 }) => {
   const navigation = useNavigation();
+  const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
   const isCompact = width < 420;
   const isTablet = width >= 768;
@@ -47,7 +49,11 @@ const CustomHeader = ({
       return (
         <ImageBackground
           source={getImageSource(backgroundValue)}
-          style={[styles.headerContainer, isCompact && styles.headerContainerCompact]}
+          style={[
+            styles.headerContainer,
+            isCompact && styles.headerContainerCompact,
+            { paddingTop: (isCompact ? styles.headerContainerCompact.paddingTop : styles.headerContainer.paddingTop) + insets.top },
+          ]}
           resizeMode="cover"
         >
           {renderContent()}
@@ -56,7 +62,13 @@ const CustomHeader = ({
       );
     }
     return (
-      <View style={[styles.headerContainer, { backgroundColor: backgroundValue }, isCompact && styles.headerContainerCompact]}>
+      <View
+        style={[
+          styles.headerContainer,
+          { backgroundColor: backgroundValue },
+          isCompact && styles.headerContainerCompact,
+          { paddingTop: (isCompact ? styles.headerContainerCompact.paddingTop : styles.headerContainer.paddingTop) + insets.top },
+        ]}>
         {renderContent()}
         {children}
       </View>
@@ -74,7 +86,7 @@ const renderContent = () => {
         <View style={styles.logoTextWrap}>
           <Text style={styles.headerUser}>Hello,</Text>
           <Text style={styles.headerName} numberOfLines={1} ellipsizeMode="tail">
-            {user_name}
+            {user_name ? user_name.split(' ')[0] : ''}
           </Text>
         </View>
       </View>
@@ -103,12 +115,12 @@ const renderContent = () => {
 
 const getStyles = ({ isCompact, isTablet }) => {
   const horizontalPadding = isTablet ? 28 : isCompact ? 16 : 22;
-  const verticalPadding = isTablet ? 24 : isCompact ? 14 : 20;
+  const verticalPadding = isTablet ? 24 : isCompact ? 14 : 14;
   const iconSize = isTablet ? 42 : isCompact ? 30 : 36;
   const titleSize = isTablet ? 22 : isCompact ? 16 : 18;
   const nameSize = isTablet ? 18 : isCompact ? 14 : 16;
   const userSize = isTablet ? 13 : isCompact ? 11 : 12;
-  const titleTopPad = isTablet ? 36 : 28;
+  const titleTopPad = isTablet ? 36 : 14;
 
   return StyleSheet.create({
     logo: {
@@ -127,12 +139,12 @@ const getStyles = ({ isCompact, isTablet }) => {
     headerContainer: {
       paddingHorizontal: horizontalPadding,
       paddingVertical: verticalPadding,
-      paddingTop: isTablet ? 10 : isCompact ? 20 : 20,
+      paddingTop: isTablet ? 10 : isCompact ? 10 : 10,
     },
     headerContainerCompact: {
       paddingHorizontal: horizontalPadding,
       paddingVertical: verticalPadding,
-      paddingTop: isTablet ? 18 : isCompact ? 20 : 20,
+      paddingTop: isTablet ? 18 : isCompact ? 5 : 5,
     },
     content: {
       position: 'relative',

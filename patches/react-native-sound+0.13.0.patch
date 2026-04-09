@@ -1,0 +1,44 @@
+diff --git a/node_modules/react-native-sound/ios/RNSound.mm b/node_modules/react-native-sound/ios/RNSound.mm
+index 94b2335..ae67a8a 100644
+--- a/node_modules/react-native-sound/ios/RNSound.mm
++++ b/node_modules/react-native-sound/ios/RNSound.mm
+@@ -107,6 +107,21 @@ - (NSDictionary *)constantsToExport {
+     };
+ }
+ 
++RCT_EXPORT_METHOD(getDirectories:(RCTPromiseResolveBlock)resolve
++                  reject:(RCTPromiseRejectBlock)reject) {
++    @try {
++        NSDictionary *directories = @{
++            @"document": [self getDirectory:NSDocumentDirectory],
++            @"library": [self getDirectory:NSLibraryDirectory],
++            @"cache": [self getDirectory:NSCachesDirectory],
++            @"bundle": [[NSBundle mainBundle] bundlePath]
++        };
++        resolve(directories);
++    } @catch (NSException *exception) {
++        reject(@"Error", exception.reason, nil);
++    }
++}
++
+ #pragma mark - Audio Session Configuration
+ 
+ RCT_EXPORT_METHOD(enable : (BOOL)enabled) {
+@@ -142,7 +157,7 @@ - (NSString *)modeForName:(NSString *)modeName {
+     return modes[modeName];
+ }
+ 
+-RCT_EXPORT_METHOD(setCategory:(NSString *)categoryName mixWithOthers:(NSNumber *)mixWithOthers) {
++RCT_EXPORT_METHOD(setCategory:(NSString *)categoryName mixWithOthers:(nonnull NSNumber *)mixWithOthers) {
+     AVAudioSession *session = [AVAudioSession sharedInstance];
+     NSString *category = [self categoryForName:categoryName];
+     
+@@ -177,7 +192,7 @@ - (NSString *)categoryForName:(NSString *)categoryName {
+ 
+ #pragma mark - Audio Control Methods
+ 
+-RCT_EXPORT_METHOD(prepare:(NSString *)fileName key:(double)key options:(JS::NativeSoundIOS::SoundOptionTypes &)options callback:(RCTResponseSenderBlock)callback ) {
++RCT_EXPORT_METHOD(prepare:(NSString *)fileName key:(double)key options:(NSDictionary *)options callback:(RCTResponseSenderBlock)callback ) {
+     NSError *error;
+     NSURL *fileNameUrl;
+     AVAudioPlayer *player;

@@ -28,6 +28,7 @@ export default function CreateCategoryModal({ visible, onClose, onCreated }) {
   const [name, setName] = useState('');
   const [categoryMargin, setCategoryMargin] = useState('0');
   const [categoryMarkup, setCategoryMarkup] = useState('0');
+  const [categoryPP, setCategoryPP] = useState('0');
   const [topList, setTopList] = useState(false);
   const [image, setImage] = useState(null); // base64
   const [topIcon, setTopIcon] = useState(null);
@@ -116,10 +117,37 @@ export default function CreateCategoryModal({ visible, onClose, onCreated }) {
     return null;
   };
 
+  const isPositive = (v) => Number(v || 0) > 0;
+  const handlePricingInput = (field, value) => {
+    const nextValue = value ?? '0';
+    if (field === 'categoryMargin') {
+      setCategoryMargin(nextValue);
+      if (isPositive(nextValue)) {
+        setCategoryMarkup('0');
+        setCategoryPP('0');
+      }
+      return;
+    }
+    if (field === 'categoryMarkup') {
+      setCategoryMarkup(nextValue);
+      if (isPositive(nextValue)) {
+        setCategoryMargin('0');
+        setCategoryPP('0');
+      }
+      return;
+    }
+    setCategoryPP(nextValue);
+    if (isPositive(nextValue)) {
+      setCategoryMargin('0');
+      setCategoryMarkup('0');
+    }
+  };
+
   const resetForm = () => {
     setName('');
     setCategoryMargin('0');
     setCategoryMarkup('0');
+    setCategoryPP('0');
     setTopList(false);
     setImage(null);
     setTopIcon(null);
@@ -140,12 +168,23 @@ export default function CreateCategoryModal({ visible, onClose, onCreated }) {
         name: name.trim(),
         categoryMargin: Number(categoryMargin || 0),
         categoryMarkup: Number(categoryMarkup || 0),
+        categoryPP: Number(categoryPP || 0),
         ...(image != null ? { image } : {}),
         ...(typeof topList === 'boolean' ? { topList } : {}),
         ...(topIcon != null ? { topIcon } : {}),
         ...(topBanner != null ? { topBanner } : {}),
         ...(topBannerBottom != null ? { topBannerBottom } : {}),
       };
+      if (Number(body.categoryMargin) > 0) {
+        body.categoryMarkup = 0;
+        body.categoryPP = 0;
+      } else if (Number(body.categoryMarkup) > 0) {
+        body.categoryMargin = 0;
+        body.categoryPP = 0;
+      } else if (Number(body.categoryPP) > 0) {
+        body.categoryMargin = 0;
+        body.categoryMarkup = 0;
+      }
 
       const res = await fetch(url, {
         method: 'POST',
@@ -210,7 +249,7 @@ export default function CreateCategoryModal({ visible, onClose, onCreated }) {
                   placeholderTextColor="#6B7280"
                   keyboardType="decimal-pad"
                   value={categoryMargin}
-                  onChangeText={setCategoryMargin}
+                  onChangeText={(v) => handlePricingInput('categoryMargin', v)}
                 />
               </View>
               <View style={styles.halfCol}>
@@ -221,9 +260,23 @@ export default function CreateCategoryModal({ visible, onClose, onCreated }) {
                   placeholderTextColor="#6B7280"
                   keyboardType="decimal-pad"
                   value={categoryMarkup}
-                  onChangeText={setCategoryMarkup}
+                  onChangeText={(v) => handlePricingInput('categoryMarkup', v)}
                 />
               </View>
+            </View>
+            <View style={styles.row}>
+              <View style={styles.halfCol}>
+                <Text style={styles.label}>Profit Percentage</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="Profit Percentage"
+                  placeholderTextColor="#6B7280"
+                  keyboardType="decimal-pad"
+                  value={categoryPP}
+                  onChangeText={(v) => handlePricingInput('categoryPP', v)}
+                />
+              </View>
+              <View style={styles.halfCol} />
             </View>
 
             {/* Top List toggle */}
