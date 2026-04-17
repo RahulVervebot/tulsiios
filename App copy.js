@@ -61,6 +61,7 @@ import ProductScreen from './src/screens/ProductScreen.js';
 import CartIcon from './src/assets/icons/inventory_1.svg';
 import POSIcon from './src/assets/icons/payment_2.svg';
 import ReportIcon from './src/assets/icons/Reportsicon.svg'; 
+import UserList from './src/screens/UserList.js';
 const Stack = createNativeStackNavigator();
 const Drawer = createDrawerNavigator();
 const Tab = createBottomTabNavigator();
@@ -317,7 +318,7 @@ export default function App() {
     <Stack.Screen name="MixMatchFreeProductScreen" component={MixMatchFreeProductScreen} />
     <Stack.Screen name="MixMatchQuantityBasedOfferScreen" component={MixMatchQuantityBasedOfferScreen} />
     <Stack.Screen name="QuantityDiscountScreen" component={QuantityDiscountScreen} />
-
+    <Stack.Screen name="UserList" component={UserList} />
      
       <Stack.Screen name="SignupScreen" component={SignupScreen} />
 
@@ -358,7 +359,7 @@ export default function App() {
           <Stack.Screen
             name="RedProducts"
             component={RedProductsScreen}
-            options={{ title: 'Red Products' }}
+            options={{ title: 'Unlinked Products' }}
           />
           <Stack.Screen
             name="PedingInvoices"

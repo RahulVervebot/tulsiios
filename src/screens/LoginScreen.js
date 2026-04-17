@@ -21,7 +21,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import LoginBackground from '../assets/images/Login_screen_white.png';
 import LinearGradient from 'react-native-linear-gradient';
 import { dbPromise } from '../firebaseConfig';
- import { registerDeviceWithStoreUrl, tagDeviceWithStoreUrl,tagDeviceWithUserRole } from '../config/OneSignalConfig';
+import { registerDeviceWithStoreUrl, tagDeviceWithStoreUrl, tagDeviceWithUserRole } from '../config/OneSignalConfig';
 
 export default function LoginScreen({ navigation }) {
   const insets = useSafeAreaInsets();
@@ -61,9 +61,9 @@ export default function LoginScreen({ navigation }) {
           await AsyncStorage.setItem('tulsi_websocket', data.tulsi_websocket);
           await AsyncStorage.setItem('tulsi_ai_backend', data.tulsi_ai_backend);
           await AsyncStorage.setItem('tulsifrontendurl', data.tulsifrontendurl);
-           await AsyncStorage.setItem('onesignalid', data.onesignalid);
+          await AsyncStorage.setItem('onesignalid', data.onesignalid);
           await AsyncStorage.setItem('onesignalkey', data.onesignalkey);
-      }
+        }
       } else {
         console.warn('Firestore: tulsi/storelist does not exist');
       }
@@ -89,15 +89,15 @@ export default function LoginScreen({ navigation }) {
       // Use joinUrl helper for consistent URL building (same as login)
       const url = joinUrl(baseUrl, '/auth/widget/login/');
       console.log('[ChatLogin] 🤖 Attempting auth to:', url);
-      
+
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 15000); // 15s timeout
-      
+
       let res;
       try {
         res = await fetch(url, {
           method: 'POST',
-          headers: { 
+          headers: {
             'Content-Type': 'application/json',
             'Accept': 'application/json',
             'User-Agent': 'TulsiApp/1.0 (ChatAI)',
@@ -112,7 +112,7 @@ export default function LoginScreen({ navigation }) {
       // Get response text first (safer than assuming JSON)
       const responseText = await res.text();
       const contentType = res.headers.get('content-type');
-      
+
       console.log('[ChatLogin] 📨 Response:', {
         status: res.status,
         ok: res.ok,
@@ -148,7 +148,7 @@ export default function LoginScreen({ navigation }) {
       console.log('[ChatLogin] ✅ Success:', { status: res.status });
       const user = json?.user || {};
       const tokens = json?.tokens || {};
-      
+
       const entries = [];
       Object.keys(user).forEach((key) => {
         if (key === 'last_login' || key === 'date_joined') return;
@@ -157,7 +157,7 @@ export default function LoginScreen({ navigation }) {
       Object.keys(tokens).forEach((key) => {
         entries.push([`chatai_${key}`, String(tokens[key] ?? '')]);
       });
-      
+
       if (entries.length) {
         await AsyncStorage.multiSet(entries);
         console.log('[ChatLogin] 💾 Saved', entries.length, 'keys to AsyncStorage');
@@ -250,7 +250,7 @@ export default function LoginScreen({ navigation }) {
       await AsyncStorage.setItem('storepin', String(store.storepin ?? ''));
       await AsyncStorage.setItem('chat_ai_api', store.chat_ai_api ?? '');
       await AsyncStorage.setItem('chat_ai_baseurl', store.chat_ai_baseurl ?? '');
-      
+
     } catch (e) {
       console.error('AsyncStorage set error:', e);
     } finally {
@@ -306,22 +306,22 @@ export default function LoginScreen({ navigation }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       });
-      console.log("body & url",body,url);
+      console.log("body & url", body, url);
       const data = await res.json().catch(() => ({}));
       console.log("login response:", data);
-      
+
       // Check if login was successful
-      if (!data?.result || data?.error || data?.result?.status === "error") {
-        const msg = data?.result?.message || 
-                    data?.error?.data?.message || 
-                    data?.error?.message || 
-                    data?.message ||
-                    'Invalid credentials or server error';
+      if (!data?.result || data?.error || data?.result?.status === "error" || data?.result?.code === 401) {
+        const msg = data?.result?.message ||
+          data?.error?.data?.message ||
+          data?.error?.message ||
+          data?.message ||
+          'Invalid credentials or server error';
         Alert.alert('Login Failed', msg);
         return;
       }
-      
-      const { pos_role, access_token, expiry, user_full_name, user_context } = data.result || {};
+
+      const { pos_role, access_token, expiry, user_full_name, user_context, is_promotion_accessible, is_show_cost_price, is_show_credit_sale, is_product_edit_permission_in_app, is_allow_tulsi_ai, is_allow_tulsi_chat_support, is_user_setting_visible_in_app } = data.result || {};
       await AsyncStorage.multiSet([
         ['userRole', String(pos_role || '')],
         ['access_token', String(access_token || '')],
@@ -333,18 +333,25 @@ export default function LoginScreen({ navigation }) {
         ['userLang', String(user_context?.lang || '')],
         ['storepin', String(selectedStore?.storepin || '')],
         ['storeurl', String(selectedStore?.storeurl || '')],
+        ['is_promotion_accessible', String(is_promotion_accessible || 'false')],
+        ['is_show_cost_price', String(is_show_cost_price || 'false')],
+        ['is_show_credit_sale', String(is_show_credit_sale || 'false')],
+        ['is_product_edit_permission_in_app', String(is_product_edit_permission_in_app || 'false')],
+        ['is_allow_tulsi_ai', String(is_allow_tulsi_ai || 'false')],
+        ['is_allow_tulsi_chat_support', String(is_allow_tulsi_chat_support || 'false')],
+        ['is_user_setting_visible_in_app', String(is_user_setting_visible_in_app || 'false')],
       ]);
-      
+
       // Register device with OneSignal using the selected store's URL
       const storeUrlForRegistration = selectedStore?.storeurl || '';
-      console.log('📱 Registering device with store URL:', storeUrlForRegistration,pos_role);
+      console.log('📱 Registering device with store URL:', storeUrlForRegistration, pos_role);
       console.log('📝 Store details:', {
         name: selectedStore?.name,
         storeurl: storeUrlForRegistration,
         normalized: storeUrlForRegistration.trim().toLowerCase(),
       });
       // await registerDeviceWithStoreUrl(storeUrlForRegistration);
-    const notification_tag = await tagDeviceWithStoreUrl(storeUrlForRegistration, pos_role);
+      const notification_tag = await tagDeviceWithStoreUrl(storeUrlForRegistration, pos_role);
       // await tagDeviceWithUserRole(pos_role);
       const chatBaseUrl = await AsyncStorage.getItem('tulsi_ai_backend');
       console.log('[Login] chat base url from storage:', chatBaseUrl);

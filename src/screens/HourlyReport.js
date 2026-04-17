@@ -326,7 +326,8 @@ export default function ReportsByHours({ navigation }) {
                   mode="date"
                   display="spinner"
                   onChange={(e, d) => d && setTempPrimary(d)}
-                  textColor={colorScheme === "dark" ? "white" : "black"}
+                  textColor="#000000"
+                  themeVariant="light"
                   style={{ alignSelf: 'stretch' }}
                 />
               </>
@@ -340,7 +341,8 @@ export default function ReportsByHours({ navigation }) {
                   mode="date"
                   display="spinner"
                   onChange={(e, d) => d && setTempCompare(d)}
-                  textColor={colorScheme === "dark" ? "white" : "black"}
+                  textColor="#000000"
+                  themeVariant="light"
                   style={{ alignSelf: 'stretch' }}
                 />
               </>

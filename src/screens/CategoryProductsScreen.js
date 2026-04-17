@@ -1,7 +1,8 @@
 // src/screens/CategoryProductsScreen.js
 // src/screens/CategoryProductsScreen.js
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { View, StyleSheet, ImageBackground, TouchableOpacity, Text } from "react-native";
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import CategoryProductList from "../components/CategoryProductList";
 import ProductSearch from "../components/ProductSearch";
 import reportbg from '../assets/images/report-bg.png';
@@ -14,6 +15,19 @@ export default function CategoryProductsScreen({ route }) {
   const insets = useSafeAreaInsets();
   const [showCreate, setShowCreate] = useState(false);
   const [listReloadKey, setListReloadKey] = useState(0);
+  const [isProductEditPermission, setIsProductEditPermission] = useState(false);
+
+  useEffect(() => {
+    const loadPermission = async () => {
+      try {
+        const editPerm = await AsyncStorage.getItem('is_product_edit_permission_in_app');
+        setIsProductEditPermission(editPerm === 'true');
+      } catch (error) {
+        console.log('Error loading product edit permission:', error);
+      }
+    };
+    loadPermission();
+  }, []);
   const getImageSource = (val) => (typeof val === 'number' ? val : { uri: val });
 
   return (
@@ -34,23 +48,27 @@ export default function CategoryProductsScreen({ route }) {
         />
       </View>
 
-      <TouchableOpacity
-        onPress={() => setShowCreate(true)}
-        activeOpacity={0.85}
-        style={[styles.createFab, { bottom: 16 + insets.bottom }]}
-      >
-        <Text style={styles.createFabText}>+</Text>
-      </TouchableOpacity>
+      {isProductEditPermission && (
+        <TouchableOpacity
+          onPress={() => setShowCreate(true)}
+          activeOpacity={0.85}
+          style={[styles.createFab, { bottom: 16 + insets.bottom }]}
+        >
+          <Text style={styles.createFabText}>+</Text>
+        </TouchableOpacity>
+      )}
 
-      <CreateProductModal
-        visible={showCreate}
-        onClose={() => setShowCreate(false)}
-        initialCategoryId={id}
-        onCreated={() => {
-          setShowCreate(false);
-          setListReloadKey((k) => k + 1);
-        }}
-      />
+      {isProductEditPermission && (
+        <CreateProductModal
+          visible={showCreate}
+          onClose={() => setShowCreate(false)}
+          initialCategoryId={id}
+          onCreated={() => {
+            setShowCreate(false);
+            setListReloadKey((k) => k + 1);
+          }}
+        />
+      )}
     </ImageBackground>
   );
 }

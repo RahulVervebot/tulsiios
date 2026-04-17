@@ -205,7 +205,7 @@ const SearchTableComponent = ({ tableData, setTableData, onRemoveRow, onAddManua
       categoryMarkup: String(pricing.categoryMarkup ?? '0'),
       description: row.description || '',
       qty: String(row.qty ?? ''),
-      unitPrice: String(row.unitPrice ?? ''),
+      unitPrice: row.unitPrice !== '' && row.unitPrice != null ? Number(row.unitPrice).toFixed(2) : '',
       extendedPrice: String(row.extendedPrice ?? ''),
     });
     setEditModalVisible(true);
@@ -413,7 +413,7 @@ const SearchTableComponent = ({ tableData, setTableData, onRemoveRow, onAddManua
                   <Text numberOfLines={1} style={[
                     styles.cellText,
                     isUnexpectedValue(item.unitPrice, tableData, 'unitPrice') && { color: COLORS.danger }
-                  ]}>{String(item.unitPrice ?? '')}</Text>
+                  ]}>{item.unitPrice !== '' && item.unitPrice != null ? Number(item.unitPrice).toFixed(2) : ''}</Text>
                 </TouchableOpacity>
 
                 <TouchableOpacity style={[styles.tableCell, { width: 44 }]} onPress={() => removeRow(realIndex)}>

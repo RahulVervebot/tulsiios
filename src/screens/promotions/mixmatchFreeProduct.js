@@ -159,23 +159,23 @@ export default function MixMatchScreen() {
   };
 
   const handleFilterStartDateChange = (_, date) => {
-    if (Platform.OS === 'android') setShowFilterStartPicker(false);
+    // if (Platform.OS === 'android') setShowFilterStartPicker(false);
     if (!date) return;
     const yyyy = date.getFullYear();
     const mm = String(date.getMonth() + 1).padStart(2, '0');
     const dd = String(date.getDate()).padStart(2, '0');
     setFilterStart(`${yyyy}-${mm}-${dd}`);
-    if (Platform.OS === 'ios') setShowFilterStartPicker(false);
+    // if (Platform.OS === 'ios') setShowFilterStartPicker(false);
   };
 
   const handleFilterEndDateChange = (_, date) => {
-    if (Platform.OS === 'android') setShowFilterEndPicker(false);
+    // if (Platform.OS === 'android') setShowFilterEndPicker(false);
     if (!date) return;
     const yyyy = date.getFullYear();
     const mm = String(date.getMonth() + 1).padStart(2, '0');
     const dd = String(date.getDate()).padStart(2, '0');
     setFilterEnd(`${yyyy}-${mm}-${dd}`);
-    if (Platform.OS === 'ios') setShowFilterEndPicker(false);
+    // if (Platform.OS === 'ios') setShowFilterEndPicker(false);
   };
 
   const normalizeProductEntry = (entry) => {

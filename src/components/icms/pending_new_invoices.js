@@ -88,6 +88,7 @@ export default function PendingNewInvoices() {
       const token = await AsyncStorage.getItem('access_token');
       const icmsStore = await AsyncStorage.getItem('icms_store');
       const storeurl = await AsyncStorage.getItem('storeurl');
+      console.log('Fetching pending invoices with:', { API_ENDPOINTS, icmsStore, storeurl });
       const response = await fetch(API_ENDPOINTS.PENDINGINVOICES, {
         method: 'GET',
         headers: {

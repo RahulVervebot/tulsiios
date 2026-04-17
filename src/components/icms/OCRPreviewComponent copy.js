@@ -9,7 +9,6 @@ import {
   TouchableOpacity,
   ScrollView,
   ActivityIndicator,
-  Dimensions,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import API_ENDPOINTS, { initICMSBase, setICMSBase } from '../../../icms_config/api';
@@ -31,7 +30,6 @@ const OCRPreviewComponent = ({
   const [isLoadingPreview, setIsLoadingPreview] = useState(false);
   const [previewError, setPreviewError] = useState('');
   const isFetchingRef = useRef(false);
-  const scrollViewRef = useRef(null);
   // lastFetchedFilesRef removed - now using parent's lastFetchedPreviewRef
   
   // Create stable key based on actual content, not array reference
@@ -209,28 +207,13 @@ const OCRPreviewComponent = ({
         <View style={styles.modalBackground}>
           <TouchableOpacity style={styles.closeArea} onPress={closeModal} />
           <TouchableOpacity style={styles.modalCloseBtn} onPress={closeModal}>
-            <Text style={styles.modalCloseBtnText}>✕</Text>
+            <Text style={styles.modalCloseBtnText}>Close</Text>
           </TouchableOpacity>
-          <ScrollView
-            ref={scrollViewRef}
-            style={styles.imageScrollView}
-            contentContainerStyle={styles.imageScrollContent}
-            maximumZoomScale={5}
-            minimumZoomScale={1}
-            showsHorizontalScrollIndicator={false}
-            showsVerticalScrollIndicator={false}
-            bounces={true}
-            bouncesZoom={true}
-          >
-            <Image
-              source={{ uri: selectedImage }}
-              style={styles.fullImage}
-              resizeMode="contain"
-            />
-          </ScrollView>
-          <View style={styles.zoomHintContainer}>
-            <Text style={styles.zoomHint}>Pinch to zoom in/out</Text>
-          </View>
+          <Image
+            source={{ uri: selectedImage }}
+            style={styles.fullImage}
+            resizeMode="contain"
+          />
         </View>
       </Modal>
     </View>
@@ -349,45 +332,20 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: 44,
     right: 16,
-    zIndex: 10,
+    zIndex: 2,
     backgroundColor: 'rgba(0,0,0,0.7)',
-    borderRadius: 20,
-    width: 40,
-    height: 40,
-    alignItems: 'center',
-    justifyContent: 'center',
+    borderRadius: 14,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
   },
   modalCloseBtnText: {
     color: '#fff',
-    fontSize: 20,
+    fontSize: 12,
     fontWeight: '700',
   },
-  imageScrollView: {
-    flex: 1,
-    width: Dimensions.get('window').width,
-    height: Dimensions.get('window').height,
-  },
-  imageScrollContent: {
-    flexGrow: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
   fullImage: {
-    width: Dimensions.get('window').width,
-    height: Dimensions.get('window').height * 0.8,
-  },
-  zoomHintContainer: {
-    position: 'absolute',
-    bottom: 30,
-    alignSelf: 'center',
-    backgroundColor: 'rgba(0,0,0,0.6)',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 20,
-  },
-  zoomHint: {
-    color: '#fff',
-    fontSize: 12,
-    fontWeight: '500',
+    width: '90%',
+    height: '80%',
+    borderRadius: 10,
   },
 });
