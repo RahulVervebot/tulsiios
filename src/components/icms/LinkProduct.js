@@ -98,6 +98,7 @@ const LinkProductModal =  ({
       try {
        const token = await   AsyncStorage.getItem('access_token');
        const icms_store = await AsyncStorage.getItem('icms_store');
+       const app_url = await AsyncStorage.getItem('storeurl');
        console.log("AsyncStorage:",token);
         const queryValue = String(searchTerm ?? '').trim();
         const bodyPayload = {
@@ -110,7 +111,10 @@ const LinkProductModal =  ({
             'Content-Type': 'application/json',
             'access_token': token,
           'mode': 'MOBILE',
-          'store': icms_store
+          'store': icms_store,
+          'app_url': app_url,
+          
+
           },
           body: JSON.stringify(bodyPayload),
         });

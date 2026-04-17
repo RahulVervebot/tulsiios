@@ -45,6 +45,7 @@ export default function ProductScreen() {
   const navigation = useNavigation();
   const [headerBg, setHeaderBg] = useState({ type: "color", value: HEADER_FALLBACK });
   const [showCreate, setShowCreate] = useState(false);
+  const [isProductEditPermission, setIsProductEditPermission] = useState(false);
   // Loader state
   const [showScreen, setShowScreen] = useState(false);
   const [showdefaulttopbanner, setShowDefaultTopBanner] = useState('');
@@ -83,6 +84,18 @@ export default function ProductScreen() {
       }
     };
     loadHeader();
+  }, []);
+
+  useEffect(() => {
+    const loadPermission = async () => {
+      try {
+        const editPerm = await AsyncStorage.getItem('is_product_edit_permission_in_app');
+        setIsProductEditPermission(editPerm === 'true');
+      } catch (error) {
+        console.log('Error loading product edit permission:', error);
+      }
+    };
+    loadPermission();
   }, []);
 
   // Initial categories load (and hiding the loader video when done)
@@ -241,22 +254,26 @@ useEffect(() => {
 
       </View>
 
-      <TouchableOpacity
-           onPress={() => setShowCreate(true)}
-           activeOpacity={0.85}
-           style={[styles.createFab, { bottom: 16 + insets.bottom }]}
-         >
-           <Text style={styles.createFabText}>+</Text>
-         </TouchableOpacity>
+      {isProductEditPermission && (
+        <TouchableOpacity
+          onPress={() => setShowCreate(true)}
+          activeOpacity={0.85}
+          style={[styles.createFab, { bottom: 16 + insets.bottom }]}
+        >
+          <Text style={styles.createFabText}>+</Text>
+        </TouchableOpacity>
+      )}
 
-      <CreateProductModal
-        visible={showCreate}
-        onClose={() => setShowCreate(false)}
-        onCreated={() => {
-          setShowCreate(false);
-          setListReloadKey((k) => k + 1);
-        }}
-      />
+      {isProductEditPermission && (
+        <CreateProductModal
+          visible={showCreate}
+          onClose={() => setShowCreate(false)}
+          onCreated={() => {
+            setShowCreate(false);
+            setListReloadKey((k) => k + 1);
+          }}
+        />
+      )}
 
     </SafeAreaView>
   );

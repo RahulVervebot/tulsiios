@@ -112,7 +112,7 @@ export default function QuantityDiscountScreen() {
     const mm = String(date.getMonth() + 1).padStart(2, '0');
     const dd = String(date.getDate()).padStart(2, '0');
     setFilterStart(`${yyyy}-${mm}-${dd}`);
-    setShowFilterStartPicker(false);
+    // setShowFilterStartPicker(false);
   };
 
   const handleFilterEndDateChange = (_, date) => {
@@ -121,7 +121,7 @@ export default function QuantityDiscountScreen() {
     const mm = String(date.getMonth() + 1).padStart(2, '0');
     const dd = String(date.getDate()).padStart(2, '0');
     setFilterEnd(`${yyyy}-${mm}-${dd}`);
-    setShowFilterEndPicker(false);
+    // setShowFilterEndPicker(false);
   };
 
   const updateForm = (key, value) => setForm((prev) => ({ ...prev, [key]: value }));

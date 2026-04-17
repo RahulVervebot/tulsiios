@@ -21,7 +21,6 @@ import POSIcon from '../assets/icons/payment_2.svg';
 import Icon from 'react-native-vector-icons/MaterialIcons';
 import TulsiIcon from '../assets/icons/inventory_1.svg';
 import { dbPromise } from '../firebaseConfig';
-import Profile from '../assets/icons/Profile.svg';
 
 import Chat from '../components/Chat';
  import { tagDeviceWithStoreUrl } from '../config/OneSignalConfig';
@@ -57,13 +56,6 @@ const cards = [
     icon: TulsiIcon,
     target: 'ICMSScreen',
   },
-    {
-    key: 'user-list',
-    title: 'User Management',
-    subtitle: 'Manage All Users on Click',
-    icon: Profile,
-    target: 'UserList',
-  },
 ];
 
 
@@ -74,6 +66,8 @@ export default function Dashboard() {
   const [userName, setUserName] = useState('');
   const [userEmail, setUserEmail] = useState('');
   const [userRole, setUserRole] = useState('');
+  const [isUserSettingVisible, setIsUserSettingVisible] = useState(false);
+  const [isAllowTulsiAi, setIsAllowTulsiAi] = useState(false);
   const [storeOptions, setStoreOptions] = useState([]);
   const [selectedStore, setSelectedStore] = useState(null);
   const [storeModalVisible, setStoreModalVisible] = useState(false);
@@ -333,7 +327,7 @@ export default function Dashboard() {
         return;
       }
 
-      const { pos_role, access_token, expiry, user_full_name, user_context } = data.result || {};
+      const { pos_role, access_token, expiry, user_full_name, user_context, is_user_setting_visible_in_app, is_allow_tulsi_ai, is_allow_icms, is_allow_tulsi_chat_support, is_promotion_accessible, is_product_edit_permission_in_app } = data.result || {};
       await AsyncStorage.multiSet([
         ['userRole', String(pos_role || '')],
         ['access_token', String(access_token || '')],
@@ -344,6 +338,12 @@ export default function Dashboard() {
         ['userLang', String(user_context?.lang || '')],
         ['password', String(passwordToUse || '')],
         ['storepin', String(selectedStore.storepin || '')],
+        ['is_user_setting_visible_in_app', String(is_user_setting_visible_in_app || 'false')],
+        ['is_allow_tulsi_ai', String(is_allow_tulsi_ai || 'false')],
+        ['is_allow_icms', String(is_allow_icms || 'false')],
+        ['is_allow_tulsi_chat_support', String(is_allow_tulsi_chat_support || 'false')],
+        ['is_promotion_accessible', String(is_promotion_accessible || 'false')],
+        ['is_product_edit_permission_in_app', String(is_product_edit_permission_in_app || 'false')],
       ]);
 
       // Register device with OneSignal using the new store's URL
@@ -357,6 +357,8 @@ export default function Dashboard() {
 
       setUserName(String(user_full_name || ''));
       setUserRole(String(pos_role || ''));
+      setIsUserSettingVisible(is_user_setting_visible_in_app === true || is_user_setting_visible_in_app === 'true');
+      setIsAllowTulsiAi(is_allow_tulsi_ai === true || is_allow_tulsi_ai === 'true');
       setSwitchPassword('');
       setSwitchPin('');
       setSwitchError('');
@@ -380,13 +382,19 @@ export default function Dashboard() {
         const storedName = await AsyncStorage.getItem('userName');
         const storedEmail = await AsyncStorage.getItem('userEmail');
         const storedRole = await AsyncStorage.getItem('userRole');
+        const storedSettingVisible = await AsyncStorage.getItem('is_user_setting_visible_in_app');
+        const storedAllowTulsiAi = await AsyncStorage.getItem('is_allow_tulsi_ai');
         setUserName(storedName || '');
         setUserEmail(storedEmail || '');
         setUserRole(storedRole || '');
+        setIsUserSettingVisible(storedSettingVisible === 'true');
+        setIsAllowTulsiAi(storedAllowTulsiAi === 'true');
       } catch (e) {
         setUserName('');
         setUserEmail('');
         setUserRole('');
+        setIsUserSettingVisible(false);
+        setIsAllowTulsiAi(false);
       }
     };
     loadUser();
@@ -402,13 +410,13 @@ export default function Dashboard() {
   
   const visibleCards = useMemo(() => {
     return cards.filter((card) => {
-      // Only show user-list card if user is administrator
-      if (card.key === 'user-list') {
-        return userRole?.toLowerCase() === 'administrator';
+      // Only show tulsi-ai card if user has permission
+      if (card.key === 'tulsi-ai') {
+        return isAllowTulsiAi;
       }
       return true;
     });
-  }, [userRole]);
+  }, [isAllowTulsiAi]);
   
   const statusBg = headerBg.type === 'image' ? 'transparent' : headerBg.value;
   const statusStyle = headerBg.type === 'image' ? 'light-content' : 'dark-content';
@@ -443,13 +451,15 @@ export default function Dashboard() {
               )}
             </View>
             <View style={styles.userActions}>
-              <TouchableOpacity
-                style={styles.settingsButton}
-                onPress={() => navigation.navigate('SettingScreen')}
-                activeOpacity={0.85}
-              >
-                <Text style={styles.settingsButtonText}>Settings</Text>
-              </TouchableOpacity>
+              {isUserSettingVisible && (
+                <TouchableOpacity
+                  style={styles.settingsButton}
+                  onPress={() => navigation.navigate('UserList')}
+                  activeOpacity={0.85}
+                >
+                  <Text style={styles.settingsButtonText}>User Setting</Text>
+                </TouchableOpacity>
+              )}
               <TouchableOpacity
                 style={styles.switchAccountButton}
                 onPress={handleSwitchAccountPress}

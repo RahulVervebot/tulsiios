@@ -5,6 +5,7 @@ import { GoogleSignin } from '@react-native-google-signin/google-signin';
 import AppHeader from "../components/AppHeader";
 import reportbg from '../assets/images/report-bg.png';
 import { removeOneSignalTagsOnLogout } from '../config/OneSignalConfig';
+
 const LIGHT_GREEN = '#e6f6ec';
 
 export default function UserScreen({ navigation }) {
@@ -14,10 +15,10 @@ export default function UserScreen({ navigation }) {
   const [user_role, setUserRole] = useState('');
 
   const handleLogout = async () => {
-    try { await GoogleSignin.signOut(); } catch (e) { console.log('Google signout error:', e); }
-    await AsyncStorage.multiRemove(['access_token', 'userRole', 'userEmail', 'userName','onesignalid','onesignalkey','tulsi_ai_backend','tulsifrontendurl','tulsi_websocket','icms_url']);
-       navigation.reset({ index: 0, routes: [{ name: 'Login' }] });
-               await removeOneSignalTagsOnLogout();
+  try { await GoogleSignin.signOut(); } catch (e) { console.log('Google signout error:', e); }
+  await AsyncStorage.multiRemove(['access_token', 'userRole', 'userEmail', 'userName','onesignalid','onesignalkey','tulsi_ai_backend','tulsifrontendurl','tulsi_websocket','icms_url']);
+  navigation.reset({ index: 0, routes: [{ name: 'Login' }] });
+  await removeOneSignalTagsOnLogout();
   };
 
   useEffect(() => {
@@ -27,7 +28,6 @@ export default function UserScreen({ navigation }) {
         const userName = await AsyncStorage.getItem('userName');
         const userEmail = await AsyncStorage.getItem('userEmail');
         const userRole = await AsyncStorage.getItem('userRole');
-
         setAccessToken(accesstoken);
         setUserEmail(userEmail || '');
         setUserName(userName || '');
@@ -35,7 +35,7 @@ export default function UserScreen({ navigation }) {
         console.log('accesstoken:', accesstoken);
       } catch (e) {
         console.log("error in user screen",e);
-        // navigation.replace('Login');
+       // navigation.replace('Login');
       }
     };
     checkLogin();
@@ -112,10 +112,10 @@ export default function UserScreen({ navigation }) {
   {isAdmin && (
     <TouchableOpacity
       style={[styles.button, styles.secondary]}
-      onPress={() => navigation.navigate('SettingScreen')}
+      onPress={() => navigation.navigate('UserList')}
       activeOpacity={0.85}
     >
-      <Text style={styles.buttonText}>Settings</Text>
+      <Text style={styles.buttonText}>User Setting</Text>
     </TouchableOpacity>
   )}
 
@@ -154,6 +154,7 @@ export default function UserScreen({ navigation }) {
       </View>
     </View>
   );
+
 }
 
 const COLORS = {

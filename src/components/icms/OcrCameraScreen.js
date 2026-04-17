@@ -502,25 +502,27 @@ const normalize = (s) =>
       for (let i = 0; i < snappedImages.length; i++) {
         const img = snappedImages[i];
         console.log('image uri', img.uri);
-        const fileOriginalName = `${selectedDatabaseName},jpg`;
+        const fileOriginalName = `${selectedDatabaseName},jpeg`;
         const formData = new FormData();
-        formData.append('file', {
+         formData.append('file', {
           uri: img.uri,
           type: 'image/jpeg',
           name: fileOriginalName,
         });
+
         console.log('SelectedDatabaseName', fileOriginalName);
         const uploadResponse = await fetchWithRetry(API_ENDPOINTS.UPLOAD_IMAGE, {
           method: 'POST',
           headers: {
-            'Content-Type': 'multipart/form-data',
+           'Content-Type': 'multipart/form-data',
             store: `${icms_store}`,
             mode: 'MOBILE',
-           api_url: storeurl ?? '',
+            api_url: storeurl ?? '',
             'access_token': token,
           }, // user-id is missing in the headers
           body: formData,
         }, 1, 700);
+        console.log('formData payload:', formData);
         console.log("upload responnes", uploadResponse)
         if (!uploadResponse.ok) {
           const t = await uploadResponse.text();
@@ -546,6 +548,7 @@ const normalize = (s) =>
       const tempOcrs = [];
       for (let i = 0; i < newFilenames.length; i++) {
         const fname = newFilenames[i];
+        console.log(`Requesting OCR for ${fname} with vendor ${selectedDatabaseName}`);
         const ocrResponse = await fetchWithRetry(API_ENDPOINTS.OCR_RESPONSE, {
           method: 'POST',
           headers: {

@@ -11,10 +11,12 @@ import {
   Switch,
   Alert,
   ScrollView,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
 import Icon from 'react-native-vector-icons/MaterialIcons';
 import AppHeader from '../components/AppHeader';
-import { getPosUsers, createPosUser, updatePosUser } from '../functions/users/function';
+import { getPosUsers, createPosUser, updatePosUser } from '../functions/users/function.js';
 
 const ROLE_OPTIONS = [
   { value: 'cashier', label: 'Cashier' },
@@ -33,6 +35,7 @@ export default function UserList() {
   const [creating, setCreating] = useState(false);
   const [showCreateRoleDropdown, setShowCreateRoleDropdown] = useState(false);
   const [showEditRoleDropdown, setShowEditRoleDropdown] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
 
   // Create user form state
   const [newUser, setNewUser] = useState({
@@ -56,6 +59,9 @@ export default function UserList() {
     is_product_edit_permission_in_app: false,
     is_product_edit_permission_in_pos: false,
     allow_app_login: false,
+    is_allow_tulsi_ai: false,
+    is_allow_tulsi_chat_support: false,
+    is_user_setting_visible_in_app: false,
   });
 
   const fetchUsers = useCallback(async () => {
@@ -63,8 +69,10 @@ export default function UserList() {
       setLoading(true);
       const result = await getPosUsers();
       setUsers(result.users || []);
+      console.log('Fetched users:', result.users);
+
     } catch (error) {
-      Alert.alert('Error', error?.message || 'Failed to fetch users');
+    console.log('Error', error?.message || 'Failed to fetch users');
     } finally {
       setLoading(false);
     }
@@ -88,6 +96,9 @@ export default function UserList() {
       is_product_edit_permission_in_app: user.is_product_edit_permission_in_app || false,
       is_product_edit_permission_in_pos: user.is_product_edit_permission_in_pos || false,
       allow_app_login: user.allow_app_login || false,
+      is_allow_tulsi_ai: user.is_allow_tulsi_ai || false,
+      is_allow_tulsi_chat_support: user.is_allow_tulsi_chat_support || false,
+      is_user_setting_visible_in_app: user.is_user_setting_visible_in_app || false,
     });
     setEditModalVisible(true);
   };
@@ -111,11 +122,16 @@ export default function UserList() {
     body.is_product_edit_permission_in_app = editUser.is_product_edit_permission_in_app;
     body.is_product_edit_permission_in_pos = editUser.is_product_edit_permission_in_pos;
     body.allow_app_login = editUser.allow_app_login;
+    body.is_allow_tulsi_ai = editUser.is_allow_tulsi_ai;
+    body.is_allow_tulsi_chat_support = editUser.is_allow_tulsi_chat_support;
+    body.is_user_setting_visible_in_app = editUser.is_user_setting_visible_in_app;
 
     try {
       setUpdating(true);
-      await updatePosUser(selectedUser.id, body);
-      Alert.alert('Success', 'User updated successfully');
+   const resData =  await updatePosUser(selectedUser.id, body);
+   console .log('User updated successfully:', resData);
+    Alert.alert('Success', resData?.result?.message || 'User updated successfully');
+     
       setEditModalVisible(false);
       fetchUsers();
     } catch (error) {
@@ -133,8 +149,10 @@ export default function UserList() {
 
     try {
       setCreating(true);
-      await createPosUser(newUser);
-      Alert.alert('Success', 'User created successfully');
+      const resData = await createPosUser(newUser);
+     console.log('User created successfully:', resData);
+      Alert.alert('Success', resData?.result?.message || 'User created successfully');
+
       setCreateModalVisible(false);
       setNewUser({
         name: '',
@@ -145,11 +163,22 @@ export default function UserList() {
       });
       fetchUsers();
     } catch (error) {
-      Alert.alert('Error', error?.message || 'Failed to create user');
+      console.log('Error', error || 'Failed to create user');
     } finally {
       setCreating(false);
     }
   };
+
+  // Filter users based on search query
+  const filteredUsers = users.filter(user => {
+    if (!searchQuery.trim()) return true;
+    const query = searchQuery.toLowerCase();
+    return (
+      (user.name && user.name.toLowerCase().includes(query)) ||
+      (user.email && user.email.toLowerCase().includes(query)) ||
+      (user.login && user.login.toLowerCase().includes(query))
+    );
+  });
 
   const renderUserCard = ({ item }) => (
     <View style={styles.card}>
@@ -191,9 +220,25 @@ export default function UserList() {
             label="Product Edit (App)"
             value={item.is_product_edit_permission_in_app}
           />
+            <PermissionItem
+            label="Product Edit (POS)"
+            value={item.is_product_edit_permission_in_pos}
+          />
           <PermissionItem
             label="App Login"
             value={item.allow_app_login}
+          />
+          <PermissionItem
+            label="TulsiAI"
+            value={item.is_allow_tulsi_ai}
+          />
+          <PermissionItem
+            label="Chat Support"
+            value={item.is_allow_tulsi_chat_support}
+          />
+          <PermissionItem
+            label="User Setting"
+            value={item.is_user_setting_visible_in_app}
           />
         </View>
       </View>
@@ -202,14 +247,36 @@ export default function UserList() {
 
   return (
     <View style={styles.container}>
-      <AppHeader Title="User Management" backgroundType="color" backgroundValue='#319241' />
-      <View style={styles.headerActions}>
-        <Text style={styles.countText}>Total Users: {users.length}</Text>
+      <AppHeader Title="User Setting" backgroundType="color" backgroundValue='#319241' />
+      
+      {/* Search and Action Bar */}
+      <View style={styles.searchContainer}>
+        <View style={styles.userCountBox}>
+          <Icon name="people" size={18} color="#166534" />
+          <Text style={styles.countText}>{filteredUsers.length}</Text>
+        </View>
+        
+        <View style={styles.searchInputWrapper}>
+          <Icon name="search" size={20} color="#9CA3AF" style={styles.searchIcon} />
+          <TextInput
+            style={styles.searchInput}
+            placeholder="Search by name..."
+            placeholderTextColor="#9CA3AF"
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+          />
+          {searchQuery.length > 0 && (
+            <TouchableOpacity onPress={() => setSearchQuery('')}>
+              <Icon name="close" size={20} color="#9CA3AF" />
+            </TouchableOpacity>
+          )}
+        </View>
+        
         <TouchableOpacity
           style={styles.addBtn}
           onPress={() => setCreateModalVisible(true)}
         >
-          <Icon name="add" size={24} color="#fff" />
+          <Icon name="person-add" size={22} color="#fff" />
         </TouchableOpacity>
       </View>
 
@@ -218,13 +285,24 @@ export default function UserList() {
           <ActivityIndicator size="large" color="#319241" />
           <Text style={styles.loadingText}>Loading users...</Text>
         </View>
-      ) : users.length === 0 ? (
+      ) : filteredUsers.length === 0 ? (
         <View style={styles.centerContainer}>
-          <Text style={styles.emptyText}>No users found</Text>
+          <Icon name="search-off" size={48} color="#D1D5DB" />
+          <Text style={styles.emptyText}>
+            {searchQuery ? 'No users match your search' : 'No users found'}
+          </Text>
+          {searchQuery && (
+            <TouchableOpacity
+              style={styles.clearSearchBtn}
+              onPress={() => setSearchQuery('')}
+            >
+              <Text style={styles.clearSearchText}>Clear Search</Text>
+            </TouchableOpacity>
+          )}
         </View>
       ) : (
         <FlatList
-          data={users}
+          data={filteredUsers}
           keyExtractor={(item) => String(item.id)}
           renderItem={renderUserCard}
           contentContainerStyle={styles.listContent}
@@ -236,10 +314,13 @@ export default function UserList() {
       <Modal
         visible={editModalVisible}
         transparent
-        animationType="slide"
+        animationType="fade"
         onRequestClose={() => setEditModalVisible(false)}
       >
-        <View style={styles.modalOverlay}>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={styles.modalOverlay}
+        >
           <TouchableOpacity
             style={styles.modalBackdrop}
             activeOpacity={1}
@@ -390,6 +471,27 @@ export default function UserList() {
                   setEditUser({ ...editUser, allow_app_login: val })
                 }
               />
+              <ToggleRow
+                label="TulsiAI"
+                value={editUser.is_allow_tulsi_ai}
+                onToggle={(val) =>
+                  setEditUser({ ...editUser, is_allow_tulsi_ai: val })
+                }
+              />
+              <ToggleRow
+                label="Chat Support"
+                value={editUser.is_allow_tulsi_chat_support}
+                onToggle={(val) =>
+                  setEditUser({ ...editUser, is_allow_tulsi_chat_support: val })
+                }
+              />
+              <ToggleRow
+                label="User Setting"
+                value={editUser.is_user_setting_visible_in_app}
+                onToggle={(val) =>
+                  setEditUser({ ...editUser, is_user_setting_visible_in_app: val })
+                }
+              />
             </ScrollView>
 
             <View style={styles.modalActions}>
@@ -412,17 +514,20 @@ export default function UserList() {
               </TouchableOpacity>
             </View>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
 
       {/* Create User Modal */}
       <Modal
         visible={createModalVisible}
         transparent
-        animationType="slide"
+        animationType="fade"
         onRequestClose={() => setCreateModalVisible(false)}
       >
-        <View style={styles.modalOverlay}>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={styles.modalOverlay}
+        >
           <TouchableOpacity
             style={styles.modalBackdrop}
             activeOpacity={1}
@@ -548,7 +653,7 @@ export default function UserList() {
               </TouchableOpacity>
             </View>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
     </View>
   );
@@ -598,17 +703,51 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#F5F6FA',
   },
-  headerActions: {
+  searchContainer: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 16,
+    paddingHorizontal: 12,
     paddingVertical: 12,
+    backgroundColor: '#fff',
+    borderBottomWidth: 1,
+    borderBottomColor: '#E5E7EB',
+    gap: 10,
+  },
+  userCountBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#D1FAE5',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 10,
+    gap: 6,
+    borderWidth: 1,
+    borderColor: '#86EFAC',
   },
   countText: {
-    fontSize: 14,
+    fontSize: 16,
     fontWeight: '700',
     color: '#166534',
+  },
+  searchInputWrapper: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F9FAFB',
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  searchIcon: {
+    marginRight: 8,
+  },
+  searchInput: {
+    flex: 1,
+    fontSize: 14,
+    color: '#111827',
+    padding: 0,
   },
   addBtn: {
     width: 44,
@@ -622,6 +761,18 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.2,
     shadowRadius: 4,
     shadowOffset: { width: 0, height: 2 },
+  },
+  clearSearchBtn: {
+    marginTop: 12,
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    backgroundColor: '#319241',
+    borderRadius: 8,
+  },
+  clearSearchText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '600',
   },
   listContent: {
     padding: 16,
@@ -742,17 +893,24 @@ const styles = StyleSheet.create({
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.5)',
-    justifyContent: 'flex-end',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
   },
   modalBackdrop: {
     ...StyleSheet.absoluteFillObject,
   },
   modalCard: {
     backgroundColor: '#fff',
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    maxHeight: '85%',
-    paddingBottom: 20,
+    borderRadius: 16,
+    width: '100%',
+    maxWidth: 500,
+    maxHeight: '90%',
+    elevation: 5,
+    shadowColor: '#000',
+    shadowOpacity: 0.25,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
   },
   modalHeader: {
     flexDirection: 'row',
@@ -785,6 +943,7 @@ const styles = StyleSheet.create({
   },
   modalBody: {
     padding: 16,
+    maxHeight: 400,
   },
   toggleRow: {
     flexDirection: 'row',
@@ -891,6 +1050,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     borderRadius: 8,
     backgroundColor: '#E5E7EB',
+      marginVertical: 5,
   },
   cancelBtnText: {
     fontSize: 14,
@@ -904,11 +1064,14 @@ const styles = StyleSheet.create({
     backgroundColor: '#319241',
     minWidth: 100,
     alignItems: 'center',
+     marginVertical: 5,
   },
   saveBtnDisabled: {
+
     opacity: 0.6,
   },
   saveBtnText: {
+
     fontSize: 14,
     fontWeight: '600',
     color: '#fff',

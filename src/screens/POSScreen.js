@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -12,6 +12,7 @@ import {
   LayoutAnimation,
   UIManager,
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import CustomHeader from '../components/CustomHeader';
 import reportbg from '../assets/images/report-bg.png';
 import HourlyReport from '../assets/icons/Hourly-Reports.png';
@@ -19,7 +20,7 @@ import PromotionsIcon from '../assets/icons/Promotions.svg';
 import TopCustumerList from '../assets/icons/Top-Customers-List.png';
 import ProductPrint from '../assets/icons/product_print.svg'
 import CreateCategoryModal from '../components/CreateCategoryModal';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import SaslePrint from '../assets/icons/sale_print.svg'
 import MixMatch from '../assets/icons/mix_match.svg';
 import QuantityDiscount from '../assets/icons/quantity_discount.svg';
@@ -41,6 +42,8 @@ export default function POSScreen() {
   const navigation = useNavigation();
   const [showProductCreate, setShowProductCreate] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
+  const [isPromotionAccessible, setIsPromotionAccessible] = useState(false);
+  const [isProductEditPermission, setIsProductEditPermission] = useState(false);
   const getImageSource = (val) => (typeof val === 'number' ? val : { uri: val });
 
   const [expanded, setExpanded] = useState({
@@ -48,6 +51,46 @@ export default function POSScreen() {
     print: false,
     category: false,
   });
+
+  useEffect(() => {
+    const loadPermissions = async () => {
+      try {
+        const [promotionPerm, productPerm] = await AsyncStorage.multiGet([
+          'is_promotion_accessible',
+          'is_product_edit_permission_in_app'
+        ]);
+        setIsPromotionAccessible(promotionPerm[1] === 'true');
+        setIsProductEditPermission(productPerm[1] === 'true');
+
+      } catch (error) {
+        console.log('Error loading POS permissions:', error);
+      }
+    };
+    loadPermissions();
+    
+    // Poll for permission changes
+    const interval = setInterval(loadPermissions, 2000);
+    return () => clearInterval(interval);
+  }, []);
+
+  useFocusEffect(
+    React.useCallback(() => {
+      const loadPermissions = async () => {
+        try {
+          const [promotionPerm, productPerm] = await AsyncStorage.multiGet([
+            'is_promotion_accessible',
+            'is_product_edit_permission_in_app'
+          ]);
+          setIsPromotionAccessible(promotionPerm[1] === 'true');
+          setIsProductEditPermission(productPerm[1] === 'true');
+          console.log('[POS Focus] Promotion:', promotionPerm[1], 'Product Edit:', productPerm[1]);
+        } catch (error) {
+          console.log('Error loading POS permissions on focus:', error);
+        }
+      };
+      loadPermissions();
+    }, [])
+  );
 
   const toggle = (key) => {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
@@ -93,38 +136,42 @@ export default function POSScreen() {
           contentContainerStyle={styles.panelContent}
         >
           {/* PROMOTIONS (Accordion) */}
-          <Row
-            icon={PromotionsIcon}
-            label="Promotions"
-            isFirst
-            onPress={() => toggle('promo')}
-            right={<Text style={styles.toggleText}>{expanded.promo ? '−' : '+'}</Text>}
-          />
-          {expanded.promo && (
-            <View>
+          {isPromotionAccessible && (
+            <>
               <Row
-                icon={MixMatch}
-                label="Mix Match Free Product"
-                isChild
-                onPress={() => navigation.navigate('MixMatchFreeProductScreen')}
-                right={null}
+                icon={PromotionsIcon}
+                label="Promotions"
+                isFirst
+                onPress={() => toggle('promo')}
+                right={<Text style={styles.toggleText}>{expanded.promo ? '−' : '+'}</Text>}
               />
-              <Row
-                icon={QuantityDiscount}
-                label="Mix Match Quantity Based Product"
-                isChild
-                onPress={() => navigation.navigate('MixMatchQuantityBasedOfferScreen')}
-                right={null}
-              />
-              <Row
-                icon={QuantityDiscount}
-                label="Quantity Discount"
-                isChild
-                isLast
-                onPress={() => navigation.navigate('QuantityDiscountScreen')}
-                right={null}
-              />
-            </View>
+              {expanded.promo && (
+                <View>
+                  <Row
+                    icon={MixMatch}
+                    label="Mix Match Free Product"
+                    isChild
+                    onPress={() => navigation.navigate('MixMatchFreeProductScreen')}
+                    right={null}
+                  />
+                  <Row
+                    icon={QuantityDiscount}
+                    label="Mix Match Quantity Based Product"
+                    isChild
+                    onPress={() => navigation.navigate('MixMatchQuantityBasedOfferScreen')}
+                    right={null}
+                  />
+                  <Row
+                    icon={QuantityDiscount}
+                    label="Quantity Discount"
+                    isChild
+                    isLast
+                    onPress={() => navigation.navigate('QuantityDiscountScreen')}
+                    right={null}
+                  />
+                </View>
+              )}
+            </>
           )}
 
           {/* PRINT (Accordion) */}
@@ -155,44 +202,48 @@ export default function POSScreen() {
           )}
 
           {/* PRODUCT CATEGORIES (Accordion) */}
-          <Row
-            icon={TopCustumerList}
-            label="Product Managment"
-            onPress={() => toggle('category')}
-            right={<Text style={styles.toggleText}>{expanded.category ? '−' : '+'}</Text>}
-          />
-          {expanded.category && (
-            <View>
+          {isProductEditPermission && (
+            <>
               <Row
-                icon={CreateProduct}
-                label="Create Product"
-                isChild
-                right={null}
-                onPress={() => setShowProductCreate(true)}
+                icon={TopCustumerList}
+                label="Product Managment"
+                onPress={() => toggle('category')}
+                right={<Text style={styles.toggleText}>{expanded.category ? '−' : '+'}</Text>}
               />
-              <Row
-                icon={CreateCategory}
-                label="Create Category"
-                isChild
-                right={null}
-                onPress={() => setShowCreate(true)}
-              />
-              <Row
-                icon={CategoryList}
-                label="Category List"
-                isChild
-                onPress={() => navigation.navigate('CategoryListScreen')}
-                right={null}
-              />
-              <Row
-                icon={CategoryList}
-                label="Deleted Product List"
-                isChild
-                isLast
-                onPress={() => navigation.navigate('ArchivedProductList')}
-                right={null}
-              />
-            </View>
+              {expanded.category && (
+                <View>
+                  <Row
+                    icon={CreateProduct}
+                    label="Create Product"
+                    isChild
+                    right={null}
+                    onPress={() => setShowProductCreate(true)}
+                  />
+                  <Row
+                    icon={CreateCategory}
+                    label="Create Category"
+                    isChild
+                    right={null}
+                    onPress={() => setShowCreate(true)}
+                  />
+                  <Row
+                    icon={CategoryList}
+                    label="Category List"
+                    isChild
+                    onPress={() => navigation.navigate('CategoryListScreen')}
+                    right={null}
+                  />
+                  <Row
+                    icon={CategoryList}
+                    label="Deleted Product List"
+                    isChild
+                    isLast
+                    onPress={() => navigation.navigate('ArchivedProductList')}
+                    right={null}
+                  />
+                </View>
+              )}
+            </>
           )}
         </ScrollView>
       </View>

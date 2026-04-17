@@ -55,10 +55,13 @@ const OcrScreen = () => {
   const wasCameraOpenRef = React.useRef(false);
   const cameraRef = useRef(null);
   const previewTimeoutRef = useRef(null);
+  const lastFetchedPreviewRef = useRef(null); // Persists across OCRPreviewComponent remounts
   const [selectedImage, setSelectedImage] = useState(null);
   const [snapPreview, setSnapPreview] = useState(null);
   const [modalVisible, setModalVisible] = useState(false);
   const [saveInvoiceVisible, setSaveInvoiceVisible] = useState(false);
+  const [previewModalVisible, setPreviewModalVisible] = useState(false);
+  const [highlightedImages, setHighlightedImages] = useState([]);
   const [invoiceList, setInvoiceList] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isGenerate, setIsGenerate] = useState(false);
@@ -239,6 +242,7 @@ const normalize = (s) =>
 
       const token = await AsyncStorage.getItem('access_token');
       const icms_store = await AsyncStorage.getItem('icms_store');
+      const storeurl = await AsyncStorage.getItem('storeurl');
       console.log("AsyncStorage:", token);
       const body = {
         "q": trimmedQuery
@@ -249,6 +253,7 @@ const normalize = (s) =>
           'Content-Type': 'application/json',
           'access_token': token,
           'mode': 'MOBILE',
+          'app_url': storeurl ?? '',
           'store': icms_store
         },
         body: JSON.stringify(body),
@@ -492,17 +497,19 @@ const normalize = (s) =>
       const newImageURLs = [];
       const token = await AsyncStorage.getItem('access_token');
       const icms_store = await AsyncStorage.getItem('icms_store');
+      const storeurl = await AsyncStorage.getItem('storeurl');
       // Upload each image
       for (let i = 0; i < snappedImages.length; i++) {
         const img = snappedImages[i];
         console.log('image uri', img.uri);
-        const fileOriginalName = `${selectedDatabaseName},jpg`;
+        const fileOriginalName = `${selectedDatabaseName},jpeg`;
         const formData = new FormData();
-        formData.append('file', {
+         formData.append('file', {
           uri: img.uri,
           type: 'image/jpeg',
           name: fileOriginalName,
         });
+
         console.log('SelectedDatabaseName', fileOriginalName);
         const uploadResponse = await fetchWithRetry(API_ENDPOINTS.UPLOAD_IMAGE, {
           method: 'POST',
@@ -510,10 +517,12 @@ const normalize = (s) =>
             'Content-Type': 'multipart/form-data',
             store: `${icms_store}`,
             mode: 'MOBILE',
+           api_url: storeurl ?? '',
             'access_token': token,
           }, // user-id is missing in the headers
           body: formData,
         }, 1, 700);
+        console.log('formData payload:', formData);
         console.log("upload responnes", uploadResponse)
         if (!uploadResponse.ok) {
           const t = await uploadResponse.text();
@@ -539,13 +548,15 @@ const normalize = (s) =>
       const tempOcrs = [];
       for (let i = 0; i < newFilenames.length; i++) {
         const fname = newFilenames[i];
+        console.log(`Requesting OCR for ${fname} with vendor ${selectedDatabaseName}`);
         const ocrResponse = await fetchWithRetry(API_ENDPOINTS.OCR_RESPONSE, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
             'access_token': token,
             'mode': 'MOBILE',
-            'store': icms_store
+            'store': icms_store,
+            'app_url': storeurl ?? '',
           },
 
           body: JSON.stringify({
@@ -622,6 +633,7 @@ const mismatch = detectInvoiceMismatch(queryResponsesByIndexLocal, 70);
     };
     const token = await AsyncStorage.getItem('access_token');
     const icms_store = await AsyncStorage.getItem('icms_store');
+    const storeurl = await AsyncStorage.getItem('storeurl');
     const response = await fetch(API_ENDPOINTS.SETPRODUCTINTABLEFROMOCR, {
       method: 'POST',
       headers: {
@@ -629,6 +641,7 @@ const mismatch = detectInvoiceMismatch(queryResponsesByIndexLocal, 70);
         store: `${icms_store}`,
         'access_token': token,
         'mode': 'MOBILE',
+        'app_url': storeurl ?? '',
       },
       body: JSON.stringify(bodyPayload),
     });
@@ -667,6 +680,8 @@ const mismatch = detectInvoiceMismatch(queryResponsesByIndexLocal, 70);
     setTableData([]);
     setUploadedFilenames([]);
     setUploadedImageURLs([]);
+    setHighlightedImages([]);
+    lastFetchedPreviewRef.current = null; // Reset cache when clearing
     handleClearSearch();
     setIsGenerate(false);
     setIsResponseImg(false);
@@ -948,11 +963,11 @@ const mismatch = detectInvoiceMismatch(queryResponsesByIndexLocal, 70);
                   <Text style={styles.loadingText}>Generating invoice data...</Text>
                 </View>
               ) : (
-                <View style={{ flexDirection: 'row' }}>
+                <View style={styles.actionButtonRow}>
                   <ButtonWithLoader
                     label="Save"
                     onPress={() => setSaveInvoiceVisible(s => !s)}
-                    style={[styles.stepBtn, isNarrow && styles.stepBtnFull, styles.btnPrimary]}
+                    style={[styles.actionBtn, styles.btnPrimary]}
                     loading={false}
                     disabled={!hasTableData}
                   />
@@ -960,8 +975,15 @@ const mismatch = detectInvoiceMismatch(queryResponsesByIndexLocal, 70);
                     label="Clear"
                     onPress={handleClearAll}
                     loading={buttonLoading.clear}
-                    style={[styles.stepBtn, isNarrow && styles.stepBtnFull, styles.btnDanger]}
+                    style={[styles.actionBtn, styles.btnDanger]}
                   />
+                  <TouchableOpacity
+                    style={[styles.actionBtn, styles.btnLight, !hasTableData && styles.btnDisabled]}
+                    onPress={() => setPreviewModalVisible(true)}
+                    disabled={!hasTableData}
+                  >
+                    <Text style={[styles.btnText, styles.btnLightText]}>Preview</Text>
+                  </TouchableOpacity>
                 </View>
               )}
             </View>
@@ -969,26 +991,9 @@ const mismatch = detectInvoiceMismatch(queryResponsesByIndexLocal, 70);
         </View>
 
 
-        {/* Snapped / Selected Images Row OR OCR Preview */}
+        {/* Snapped / Selected Images Row */}
 
-        {step >= 2 && hasTableData && uploadedFilenames.length > 0 && uploadedImageURLs.length > 0 ? (
-          <View style={styles.previewCard}>
-            <ScrollView
-              horizontal
-              style={styles.imageRow}
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.previewScroll}
-            >
-              <OCRPreviewComponent
-                filenames={uploadedFilenames}
-                vendorName={selectedDatabaseName}
-                imageURIs={uploadedImageURLs}
-                tableData={tableData}
-                ocrurl={ocrurl}
-              />
-            </ScrollView>
-          </View>
-        ) : step >= 2 && snappedImages.length > 0 ? (
+        {step >= 2 && step < 3 && snappedImages.length > 0 ? (
           <View style={styles.previewCard}>
             <Text style={styles.previewTitle}>Selected Images ({snappedImages.length})</Text>
             <ScrollView
@@ -1117,10 +1122,59 @@ const mismatch = detectInvoiceMismatch(queryResponsesByIndexLocal, 70);
           defaultInvoiceNo={defaultInvoiceMeta.invoiceNumber}
           defaultInvoiceDateISO={defaultInvoiceMeta.invoiceDateISO}
           tableData={tableData}
-          cleardata={clearAll}
+          cleardata={() => {
+            clearAll();
+            setHighlightedImages([]);
+          }}
           selectedVendor={selectedVendor}
         />
       )}
+
+      {/* Preview Modal */}
+      <Modal visible={previewModalVisible} transparent animationType="fade" onRequestClose={() => setPreviewModalVisible(false)}>
+        <TouchableOpacity 
+          style={styles.previewModalBg} 
+          activeOpacity={1}
+          onPress={() => setPreviewModalVisible(false)}
+        >
+          <TouchableOpacity activeOpacity={1} onPress={(e) => e.stopPropagation()}>
+            <View style={styles.previewModalCard}>
+              <View style={styles.modalHeader}>
+                <Text style={styles.modalTitle}>OCR Preview</Text>
+                <TouchableOpacity onPress={() => setPreviewModalVisible(false)} hitSlop={{top: 10, bottom: 10, left: 10, right: 10}}>
+                  <Text style={[styles.btnText, styles.btnLightText, { fontSize: 18 }]}>✕</Text>
+                </TouchableOpacity>
+              </View>
+              {hasTableData && uploadedFilenames.length > 0 && uploadedImageURLs.length > 0 ? (
+                <ScrollView
+                  style={styles.previewModalContent}
+                  showsVerticalScrollIndicator={true}
+                  contentContainerStyle={styles.previewModalScrollContent}
+                >
+                  <View style={styles.previewWrapper}>
+                    <OCRPreviewComponent
+                      filenames={uploadedFilenames}
+                      vendorName={selectedDatabaseName}
+                      imageURIs={uploadedImageURLs}
+                      tableData={tableData}
+                      ocrurl={ocrurl}
+                      highlightedImages={highlightedImages}
+                      setHighlightedImages={setHighlightedImages}
+                      lastFetchedPreviewRef={lastFetchedPreviewRef}
+                    />
+                  </View>
+                </ScrollView>
+              ) : (
+                <View style={styles.previewLoaderContainer}>
+                  <ActivityIndicator size="large" color={COLORS.primary} />
+                  <Text style={styles.previewLoaderText}>Loading OCR data...</Text>
+                  <Text style={styles.previewLoaderSubtext}>Please wait while we process the invoice</Text>
+                </View>
+              )}
+            </View>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
     </ImageBackground>
   );
 };
@@ -1356,6 +1410,25 @@ const styles = StyleSheet.create({
   },
   btnDanger: {
     backgroundColor: '#cf4d47',
+  },
+  actionButtonRow: {
+    flexDirection: 'row',
+    gap: 8,
+    paddingHorizontal: 8,
+  },
+  actionBtn: {
+    flex: 1,
+    minHeight: 48,
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 4,
+    elevation: 2,
   },
 
 
@@ -1615,9 +1688,11 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   modalTitle: {
+    flex: 1,
     fontSize: 16,
     fontWeight: '700',
     color: COLORS.text,
+    marginRight: 12,
   },
   clearLink: {
     color: COLORS.primary,
@@ -1757,6 +1832,62 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 14,
     fontWeight: '700',
+  },
+  previewModalBg: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 30,
+    paddingVertical: 20,
+  },
+  previewModalCard: {
+    width: '80%',
+    maxWidth: 350,
+    minHeight: 400,
+    maxHeight: 700,
+    backgroundColor: '#fff',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 10,
+    elevation: 10,
+  },
+  previewModalContent: {
+    flex: 1,
+  },
+  previewModalScrollContent: {
+    flexGrow: 1,
+    padding: 16,
+  },
+  previewWrapper: {
+    width: '100%',
+    alignItems: 'center',
+    paddingHorizontal: 10,
+  },
+  previewLoaderContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 80,
+    paddingHorizontal: 20,
+    gap: 12,
+    minHeight: 300,
+  },
+  previewLoaderText: {
+    fontSize: 16,
+    color: COLORS.text,
+    fontWeight: '700',
+    marginTop: 8,
+  },
+  previewLoaderSubtext: {
+    fontSize: 13,
+    color: COLORS.sub,
+    fontWeight: '500',
+    textAlign: 'center',
   },
 
 });
