@@ -1,6 +1,28 @@
 // src/function/reports/pos_reports.js
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
+/**
+ * Build generic headers for API requests
+ * @param {string} token - Access token
+ * @param {object} options - Additional options
+ * @param {boolean} options.includeContentType - Whether to include Content-Type header
+ * @returns {object} Headers object
+ */
+function buildHeaders(token, options = {}) {
+  const headers = {
+    accept: 'application/json',
+    access_token: token,
+    credentials: 'omit',
+    Cookie: 'session_id',
+  };
+
+  if (options.includeContentType) {
+    headers['Content-Type'] = 'application/json';
+  }
+
+  return headers;
+}
+
 async function getReportAuth() {
   const [storeUrl, baseUrl, token] = await Promise.all([
     AsyncStorage.getItem('storeurl'),
@@ -29,7 +51,7 @@ console.log("token",token);
     `${storeUrl}/pos/app/sales-summary/payment-type-report?${qs}`,
     {
       method: 'GET',
-      headers: { accept: 'application/json', access_token: token },
+      headers: buildHeaders(token),
     }
   );
 
@@ -73,7 +95,7 @@ export async function SaleSummaryCashReport(startdate, enddate) {
     `${storeUrl}/pos/app/sales-summary/cash-in-cash-out-report?${qs}`,
     {
       method: 'GET',
-      headers: { accept: 'application/json', access_token: token },
+      headers: buildHeaders(token),
     }
   );
 
@@ -115,7 +137,7 @@ export async function SaleSummaryRefundReport(startdate, enddate) {
 
   const res = await fetch(`${storeUrl}/pos/app/sales-summary/refund-report?${qs}`, {
     method: 'GET',
-    headers: { accept: 'application/json', access_token: token },
+    headers: buildHeaders(token),
   });
 
   if (!res.ok) {
@@ -159,7 +181,7 @@ export async function SaleSummaryTaxReport(startdate, enddate) {
     `${storeUrl}/pos/app/sales-summary/tax-report?${qs}`,
     {
       method: 'GET',
-      headers: { accept: 'application/json', access_token: token },
+      headers: buildHeaders(token),
     }
   );
 
@@ -203,7 +225,7 @@ export async function SaleSummaryDepartmentAllianceReport(startdate, enddate) {
     `${storeUrl}/pos/app/sales-summary/department/with-alliance-report?${qs}`,
     {
       method: 'GET',
-      headers: { accept: 'application/json', access_token: token },
+      headers: buildHeaders(token),
     }
   );
 
@@ -256,7 +278,7 @@ const fetchurl = `${storeUrl}/pos/app/hourly-sales-report?startDate=${startDate}
 console.log("fetchurl:",fetchurl);
   const res = await fetch(fetchurl, {
     method: 'GET',
-    headers: { accept: 'application/json', access_token: token},
+    headers: buildHeaders(token),
     // redirect: 'follow',
     // credentials: 'omit',
   });
@@ -291,7 +313,7 @@ export async function TopSellingCatgegoriesReport(startdate, enddate, numberOfCa
     `${storeUrl}/pos/app/top-selling/category-wise-sales?${qs}`,
     {
       method: 'GET',
-      headers: { accept: 'application/json', access_token: token },
+      headers: buildHeaders(token),
     }
   );
 
@@ -340,7 +362,7 @@ export async function TopSellingProductsReport(startdate, enddate, numberOfProdu
     `${storeUrl}/pos/app/top-selling/product-wise-sales?${qs}`,
     {
       method: 'GET',
-      headers: { accept: 'application/json', access_token: token },
+      headers: buildHeaders(token),
     }
   );
 
@@ -391,7 +413,7 @@ export async function TopSellingCustomersReport(startdate, enddate, numberOfCust
     `${storeUrl}/pos/app/top-selling/customers?${qs}`,
     {
       method: 'GET',
-      headers: { accept: 'application/json', access_token: token },
+      headers: buildHeaders(token),
     }
   );
 
@@ -424,7 +446,7 @@ export async function getTodaySessions(page = 1, limit = 10) {
   const qs = new URLSearchParams({ page: String(page), limit: String(limit) }).toString();
   const res = await fetch(`${apiBase}/pos/app/session/report/today`, {
     method: 'GET',
-    headers: { accept: 'application/json', access_token: token },
+    headers: buildHeaders(token),
   });
   if (!res.ok) {
     const text = await res.text().catch(() => '');
@@ -439,7 +461,7 @@ export async function getYesterdaySessions(page = 1, limit = 10) {
   const qs = new URLSearchParams({ page: String(page), limit: String(limit) }).toString();
   const res = await fetch(`${apiBase}/pos/app/session/report/yesterday`, {
     method: 'GET',
-    headers: { accept: 'application/json', access_token: token },
+    headers: buildHeaders(token),
   });
   if (!res.ok) {
     const text = await res.text().catch(() => '');
@@ -460,7 +482,7 @@ export async function getCustomDateSessions(fromDate, toDate, page = 1, limit = 
   }).toString();
   const res = await fetch(`${apiBase}/api/pos/app/custom-date-sessions?${qs}`, {
     method: 'POST',
-    headers: { accept: 'application/json', access_token: token },
+    headers: buildHeaders(token),
   });
   if (!res.ok) {
     const text = await res.text().catch(() => '');
@@ -477,7 +499,7 @@ export async function getSessionZReportPreview(sessionId) {
   console.log("check id first:",qs);
   const res = await fetch(`${apiBase}/pos/app/session/z-report/preview?${qs}`, {
     method: 'GET',
-    headers: { accept: 'application/json', access_token: token },
+    headers: buildHeaders(token),
   });
   if (!res.ok) {
     const text = await res.text().catch(() => '');
@@ -490,7 +512,7 @@ export async function getRegisterList() {
   const { apiBase, token } = await getReportAuth();
   const res = await fetch(`${apiBase}/api/pos/app/get-register-list`, {
     method: 'GET',
-    headers: { accept: 'application/json', access_token: token },
+    headers: buildHeaders(token),
   });
   if (!res.ok) {
     const text = await res.text().catch(() => '');
@@ -504,7 +526,7 @@ export async function printSessionReport(sessionIds, regId) {
   const { apiBase, token } = await getReportAuth();
   const res = await fetch(`${apiBase}/pos/app/print/session/report`, {
     method: 'POST',
-    headers: { accept: 'application/json', 'Content-Type': 'application/json', access_token: token },
+    headers: buildHeaders(token, { includeContentType: true }),
     body: JSON.stringify({
       session_ids: Array.isArray(sessionIds) ? sessionIds : [sessionIds],
       reg_id: regId,

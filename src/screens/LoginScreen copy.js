@@ -21,13 +21,15 @@ import { useFocusEffect } from '@react-navigation/native';
 import LoginBackground from '../assets/images/Login_screen_white.png';
 import LinearGradient from 'react-native-linear-gradient';
 import { dbPromise } from '../firebaseConfig';
- import { registerDeviceWithStoreUrl, tagDeviceWithStoreUrl,tagDeviceWithUserRole } from '../config/OneSignalConfig';
+import { registerDeviceWithStoreUrl, tagDeviceWithStoreUrl, tagDeviceWithUserRole } from '../config/OneSignalConfig';
+import Icon from 'react-native-vector-icons/MaterialIcons';
 
 export default function LoginScreen({ navigation }) {
   const insets = useSafeAreaInsets();
   const [signingIn, setSigningIn] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
 
   // fetched from Firestore: public Storage URL to JSON (e.g., https://.../storelist.json?...token=...)
   const [firebaseeurl, setFirebaseUrl] = useState('');
@@ -39,6 +41,11 @@ export default function LoginScreen({ navigation }) {
   const [storeOptions, setStoreOptions] = useState([]); // options for current email domain
   const [selectedStore, setSelectedStore] = useState(null);
   const [storeModalVisible, setStoreModalVisible] = useState(false);
+
+  // PIN modal state
+  const [pinModalVisible, setPinModalVisible] = useState(false);
+  const [enteredPin, setEnteredPin] = useState('');
+  const [pinError, setPinError] = useState('');
 
   // -----------------------------
   // 1) Get Firebase URL (your existing Firestore doc)
@@ -61,9 +68,9 @@ export default function LoginScreen({ navigation }) {
           await AsyncStorage.setItem('tulsi_websocket', data.tulsi_websocket);
           await AsyncStorage.setItem('tulsi_ai_backend', data.tulsi_ai_backend);
           await AsyncStorage.setItem('tulsifrontendurl', data.tulsifrontendurl);
-           await AsyncStorage.setItem('onesignalid', data.onesignalid);
+          await AsyncStorage.setItem('onesignalid', data.onesignalid);
           await AsyncStorage.setItem('onesignalkey', data.onesignalkey);
-      }
+        }
       } else {
         console.warn('Firestore: tulsi/storelist does not exist');
       }
@@ -89,15 +96,15 @@ export default function LoginScreen({ navigation }) {
       // Use joinUrl helper for consistent URL building (same as login)
       const url = joinUrl(baseUrl, '/auth/widget/login/');
       console.log('[ChatLogin] 🤖 Attempting auth to:', url);
-      
+
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 15000); // 15s timeout
-      
+
       let res;
       try {
         res = await fetch(url, {
           method: 'POST',
-          headers: { 
+          headers: {
             'Content-Type': 'application/json',
             'Accept': 'application/json',
             'User-Agent': 'TulsiApp/1.0 (ChatAI)',
@@ -112,7 +119,7 @@ export default function LoginScreen({ navigation }) {
       // Get response text first (safer than assuming JSON)
       const responseText = await res.text();
       const contentType = res.headers.get('content-type');
-      
+
       console.log('[ChatLogin] 📨 Response:', {
         status: res.status,
         ok: res.ok,
@@ -148,7 +155,7 @@ export default function LoginScreen({ navigation }) {
       console.log('[ChatLogin] ✅ Success:', { status: res.status });
       const user = json?.user || {};
       const tokens = json?.tokens || {};
-      
+
       const entries = [];
       Object.keys(user).forEach((key) => {
         if (key === 'last_login' || key === 'date_joined') return;
@@ -157,7 +164,7 @@ export default function LoginScreen({ navigation }) {
       Object.keys(tokens).forEach((key) => {
         entries.push([`chatai_${key}`, String(tokens[key] ?? '')]);
       });
-      
+
       if (entries.length) {
         await AsyncStorage.multiSet(entries);
         console.log('[ChatLogin] 💾 Saved', entries.length, 'keys to AsyncStorage');
@@ -250,7 +257,7 @@ export default function LoginScreen({ navigation }) {
       await AsyncStorage.setItem('storepin', String(store.storepin ?? ''));
       await AsyncStorage.setItem('chat_ai_api', store.chat_ai_api ?? '');
       await AsyncStorage.setItem('chat_ai_baseurl', store.chat_ai_baseurl ?? '');
-      
+
     } catch (e) {
       console.error('AsyncStorage set error:', e);
     } finally {
@@ -292,52 +299,103 @@ export default function LoginScreen({ navigation }) {
       return;
     }
 
+    // Check if store has PIN configured
+    const storePin = String(selectedStore?.storepin || '').trim();
+    if (storePin) {
+      // Show PIN modal for verification
+      setPinError('');
+      setEnteredPin('');
+      setPinModalVisible(true);
+    } else {
+      // No PIN required, proceed with login
+      await performLogin(password);
+    }
+  };
+
+  const handlePinLogin = async () => {
+    const expectedPin = String(selectedStore?.storepin || '').trim();
+    const inputPin = String(enteredPin || '').trim();
+
+    if (!inputPin) {
+      Alert.alert('Missing PIN', 'Please enter store PIN.');
+      return;
+    }
+
+    if (inputPin !== expectedPin) {
+      setPinError('Please enter valid PIN');
+      return;
+    }
+
+    // PIN is valid, proceed with login
+    setPinModalVisible(false);
+    await performLogin(password);
+  };
+
+  const performLogin = async (passwordToUse) => {
     try {
       setSigningIn(true);
       const url = joinUrl(selectedStore.storeurl, '/pos/app/login');
       const body = {
         db: selectedStore.dbname,
         login: email,
-        password,
+        password: passwordToUse,
       };
       console.log('Login request URL:', url);
       const res = await fetch(url, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+        'Content-Type': 'application/json',
+          'credentials': 'omit',
+          'Cookie': 'session_id'
+         },
         body: JSON.stringify(body),
       });
-      console.log("body & url",body,url);
+      console.log("body & url", body, url);
       const data = await res.json().catch(() => ({}));
       console.log("login response:", data);
-      if (!res.ok || !data?.result) {
-        const msg = (data && data.error && (data.error.data?.message || data.error.message)) || 'Invalid credentials or server error';
+
+      // Check if login was successful
+      if (!data?.result || data?.error || data?.result?.status === "error" || data?.result?.code === 401) {
+        const msg = data?.result?.message ||
+          data?.error?.data?.message ||
+          data?.error?.message ||
+          data?.message ||
+          'Invalid credentials or server error';
         Alert.alert('Login Failed', msg);
         return;
       }
-      const { pos_role, access_token, expiry, user_full_name, user_context } = data.result || {};
+
+      const { pos_role, access_token, expiry, user_full_name, user_context, is_promotion_accessible, is_show_cost_price, is_show_credit_sale, is_product_edit_permission_in_app, is_allow_tulsi_ai, is_allow_tulsi_chat_support, is_user_setting_visible_in_app } = data.result || {};
       await AsyncStorage.multiSet([
         ['userRole', String(pos_role || '')],
         ['access_token', String(access_token || '')],
         ['expiry', String(expiry || '')],
         ['userName', String(user_full_name || '')],
         ['userEmail', String(email || '')],
-        ['password', String(password || '')],
+        ['password', String(passwordToUse || '')],
         ['userTimeZone', String(user_context?.tz || '')],
         ['userLang', String(user_context?.lang || '')],
         ['storepin', String(selectedStore?.storepin || '')],
         ['storeurl', String(selectedStore?.storeurl || '')],
+        ['is_promotion_accessible', String(is_promotion_accessible || 'false')],
+        ['is_show_cost_price', String(is_show_cost_price || 'false')],
+        ['is_show_credit_sale', String(is_show_credit_sale || 'false')],
+        ['is_product_edit_permission_in_app', String(is_product_edit_permission_in_app || 'false')],
+        ['is_allow_tulsi_ai', String(is_allow_tulsi_ai || 'false')],
+        ['is_allow_tulsi_chat_support', String(is_allow_tulsi_chat_support || 'false')],
+        ['is_user_setting_visible_in_app', String(is_user_setting_visible_in_app || 'false')],
       ]);
-      
+
       // Register device with OneSignal using the selected store's URL
       const storeUrlForRegistration = selectedStore?.storeurl || '';
-      console.log('📱 Registering device with store URL:', storeUrlForRegistration,pos_role);
+      console.log('📱 Registering device with store URL:', storeUrlForRegistration, pos_role);
       console.log('📝 Store details:', {
         name: selectedStore?.name,
         storeurl: storeUrlForRegistration,
         normalized: storeUrlForRegistration.trim().toLowerCase(),
       });
       // await registerDeviceWithStoreUrl(storeUrlForRegistration);
-    const notification_tag = await tagDeviceWithStoreUrl(storeUrlForRegistration, pos_role);
+      const notification_tag = await tagDeviceWithStoreUrl(storeUrlForRegistration, pos_role);
       // await tagDeviceWithUserRole(pos_role);
       const chatBaseUrl = await AsyncStorage.getItem('tulsi_ai_backend');
       console.log('[Login] chat base url from storage:', chatBaseUrl);
@@ -419,14 +477,27 @@ export default function LoginScreen({ navigation }) {
               </View>
 
               <View style={styles.field}>
-                <TextInput
-                  style={styles.input}
-                  placeholder="Password"
-                  placeholderTextColor="#9CA3AF"
-                  secureTextEntry
-                  value={password}
-                  onChangeText={setPassword}
-                />
+                <View style={styles.passwordContainer}>
+                  <TextInput
+                    style={styles.passwordInput}
+                    placeholder="Password"
+                    placeholderTextColor="#9CA3AF"
+                    secureTextEntry={!showPassword}
+                    value={password}
+                    onChangeText={setPassword}
+                  />
+                  <TouchableOpacity
+                    style={styles.eyeIcon}
+                    onPress={() => setShowPassword(!showPassword)}
+                    activeOpacity={0.7}
+                  >
+                    <Icon
+                      name={showPassword ? 'visibility' : 'visibility-off'}
+                      size={22}
+                      color="#6B7280"
+                    />
+                  </TouchableOpacity>
+                </View>
               </View>
 
               <Text style={styles.termsText}></Text>
@@ -467,6 +538,54 @@ export default function LoginScreen({ navigation }) {
             <TouchableOpacity style={[styles.modalItem, { marginTop: 8 }]} onPress={() => setStoreModalVisible(false)}>
               <Text style={[styles.modalItemText, { textAlign: 'center' }]}>Cancel</Text>
             </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* PIN verification modal */}
+      <Modal visible={pinModalVisible} transparent animationType="fade" onRequestClose={() => setPinModalVisible(false)}>
+        <View style={styles.pinModalBackdrop}>
+          <View style={styles.pinModalCard}>
+            <Text style={styles.pinModalTitle}>Enter Store PIN</Text>
+            <Text style={styles.pinModalSubTitle}>
+              {selectedStore?.name ? `Store: ${selectedStore.name}` : 'Selected store'}
+            </Text>
+            <TextInput
+              style={styles.pinInput}
+              placeholder="Enter store PIN"
+              placeholderTextColor="#9CA3AF"
+              keyboardType="number-pad"
+              value={enteredPin}
+              onChangeText={(text) => {
+                setEnteredPin(text);
+                setPinError('');
+              }}
+              autoFocus
+            />
+            {pinError ? <Text style={styles.pinErrorText}>{pinError}</Text> : null}
+            <View style={styles.pinActions}>
+              <TouchableOpacity
+                style={[styles.pinActionBtn, styles.pinCancelBtn]}
+                onPress={() => {
+                  setPinModalVisible(false);
+                  setEnteredPin('');
+                  setPinError('');
+                }}
+              >
+                <Text style={styles.pinCancelText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.pinActionBtn, styles.pinConfirmBtn]}
+                onPress={handlePinLogin}
+                disabled={signingIn}
+              >
+                {signingIn ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <Text style={styles.pinConfirmText}>Verify</Text>
+                )}
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
       </Modal>
@@ -530,6 +649,26 @@ const styles = StyleSheet.create({
     color: '#111827',
     fontSize: 15,
   },
+  passwordContainer: {
+    width: '100%',
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#DCDCDC',
+    borderRadius: 16,
+    paddingRight: 14,
+  },
+  passwordInput: {
+    flex: 1,
+    paddingVertical: 14,
+    paddingHorizontal: 14,
+    color: '#111827',
+    fontSize: 15,
+  },
+  eyeIcon: {
+    padding: 4,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
   selectInput: { justifyContent: 'center' },
   termsText: {
     marginTop: 10,
@@ -587,4 +726,73 @@ const styles = StyleSheet.create({
   },
   modalItemText: { fontSize: 15, fontWeight: '600', color: '#1F2937' },
   modalItemSub: { fontSize: 12, color: '#6B7280' },
+
+  // PIN modal styles
+  pinModalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.35)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+  },
+  pinModalCard: {
+    width: '100%',
+    maxWidth: 440,
+    backgroundColor: '#fff',
+    borderRadius: 14,
+    padding: 16,
+  },
+  pinModalTitle: {
+    fontSize: 17,
+    fontWeight: '700',
+    color: '#163e25',
+  },
+  pinModalSubTitle: {
+    marginTop: 4,
+    fontSize: 13,
+    color: '#4f6f5d',
+  },
+  pinInput: {
+    marginTop: 12,
+    width: '100%',
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    backgroundColor: '#F3F4F6',
+    borderRadius: 10,
+    color: '#111827',
+    fontSize: 15,
+  },
+  pinErrorText: {
+    marginTop: 8,
+    fontSize: 13,
+    color: '#b42318',
+  },
+  pinActions: {
+    marginTop: 14,
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: 10,
+  },
+  pinActionBtn: {
+    minWidth: 96,
+    borderRadius: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  pinCancelBtn: {
+    backgroundColor: '#E5E7EB',
+  },
+  pinConfirmBtn: {
+    backgroundColor: '#2a8a4f',
+  },
+  pinCancelText: {
+    color: '#111827',
+    fontWeight: '700',
+  },
+  pinConfirmText: {
+    color: '#fff',
+    fontWeight: '700',
+  },
 });

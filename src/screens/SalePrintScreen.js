@@ -166,6 +166,8 @@ const handleIndividualBarcodeSearch = async (boxKey, scannedData) => {
         headers: {
           accept: 'application/json',
           access_token: token,
+            'credentials': 'omit',
+         'Cookie': 'session_id'
         },
       }
     );

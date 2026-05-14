@@ -175,10 +175,8 @@ export default function InvoiceDetails() {
           method: 'GET',
           headers: { accept: 'application/json', access_token: token },
         });
-        console.log("fetch categories res:",res);
         if (!res.ok) return;
         const json = await res.json().catch(() => ({}));
-        console.log("categories:",json);
         setCategories(Array.isArray(json?.categories) ? json.categories : []);
       } catch {
         setCategories([]);
@@ -266,32 +264,32 @@ export default function InvoiceDetails() {
     });
   };
 
-  // const handleBulkUpdate = () => {
-  //   const selectedItems = itemsRef.current.filter(item =>
-  //     selectedIds.has(item.ProductId),
-  //   );
+  const handleBulkUpdate = () => {
+    const selectedItems = itemsRef.current.filter(item =>
+      selectedIds.has(item.ProductId),
+    );
 
-  //   if (selectedItems.length === 0) {
-  //     alert('Please select at least one row.');
-  //     return;
-  //   }
+    if (selectedItems.length === 0) {
+      alert('Please select at least one row.');
+      return;
+    }
 
-  //   // Example: increase cost by 10%
-  //   const updatedItems = itemsRef.current.map(item => {
-  //     if (selectedIds.has(item.ProductId)) {
-  //       return {
-  //         ...item,
-  //         unitPrice: (Number(item.unitPrice) * 1.1).toFixed(2), // increase cost
-  //         extendedPrice: (Number(item.extendedPrice) * 1.1).toFixed(2),
-  //       };
-  //     }
-  //     return item;
-  //   });
+    // Example: increase cost by 10%
+    const updatedItems = itemsRef.current.map(item => {
+      if (selectedIds.has(item.ProductId)) {
+        return {
+          ...item,
+          unitPrice: (Number(item.unitPrice) * 1.1).toFixed(2), // increase cost
+          extendedPrice: (Number(item.extendedPrice) * 1.1).toFixed(2),
+        };
+      }
+      return item;
+    });
 
-  //   itemsRef.current = updatedItems;
-  //   setSelectedIds(new Set()); // clear selection
-  //   alert(`Updated ${selectedItems.length} items successfully ✅`);
-  // };
+    itemsRef.current = updatedItems;
+    setSelectedIds(new Set()); // clear selection
+    alert(`Updated ${selectedItems.length} items successfully ✅`);
+  };
 
   const handleLinkingRemove = async () => {
     const selectedItems = itemsRef.current.filter(item =>
@@ -511,9 +509,8 @@ export default function InvoiceDetails() {
   .filter(item => {
     const source = String(item?.source ?? '').trim().toLowerCase();
     const storeValue = String(icms_store ?? '').trim().toLowerCase();
-   const isStockUpdated = item?.isStockUpdated === true || item?.isStockUpdated === 'true';
-    const sourceMatches = source === storeValue && !isStockUpdated;
-
+    const sourceMatches = source === storeValue;
+    
     // If rows are selected, only include selected rows
     // If no rows are selected, include all rows that match source
     if (selectedIds.size > 0) {

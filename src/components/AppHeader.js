@@ -1,18 +1,30 @@
 // components/ReportHeader.js
-import React from 'react';
+import React, { useContext } from 'react';
 import { View, StyleSheet, ImageBackground, TouchableOpacity, Text } from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import { useNavigation } from '@react-navigation/native';
+import { CartContext } from '../context/CartContext';
+import { PrintContext } from '../context/PrintContext';
+import CartIcon from '../assets/icons/cart.svg';
+import PrinterIcon from '../assets/icons/Printericon.svg';
 const getImageSource = (val) => (typeof val === 'number' ? val : { uri: val });
 
 const AppHeader = ({
   Title, 
   backgroundType = "color", 
   backgroundValue = "#fff", 
+  hideCartIcon = false,
+  hidePrintIcon = false,
   children
 }) => {
 
   const navigation = useNavigation();
+  const { cart } = useContext(CartContext);
+  const { print } = useContext(PrintContext);
+  
+  const cartItemCount = cart.reduce((sum, item) => sum + (item.qty || 0), 0);
+  const printItemCount = print.reduce((sum, item) => sum + (item.qty || 0), 0);
+  
   const renderBackground = () => {
     if (backgroundType === "image") {
       return (
@@ -68,7 +80,42 @@ const renderContent = () => (
       </Text>
     </View>
 
-    <View style={styles.rightSpacer} />
+    <View style={styles.rightButtons}>
+      {!hideCartIcon && (
+        <TouchableOpacity
+          style={styles.rightIcon}
+          activeOpacity={0.7}
+          hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+          onPress={() => navigation.navigate('Cart')}
+        >
+          <CartIcon width={24} height={24} fill="#fff" />
+          {cartItemCount > 0 && (
+            <View style={styles.cartBadge}>
+              <Text style={styles.cartBadgeText}>
+                {cartItemCount > 99 ? '99+' : cartItemCount}
+              </Text>
+            </View>
+          )}
+        </TouchableOpacity>
+      )}
+        {!hidePrintIcon && (
+      <TouchableOpacity
+        style={styles.rightIcon}
+        activeOpacity={0.7}
+        hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+        onPress={() => navigation.navigate('PrintScreen')}
+      >
+        <PrinterIcon width={24} height={24} fill="#fff" />
+        {printItemCount > 0 && (
+          <View style={styles.printBadge}>
+            <Text style={styles.printBadgeText}>
+              {printItemCount > 99 ? '99+' : printItemCount}
+            </Text>
+          </View>
+        )}
+      </TouchableOpacity>
+        )}
+    </View>
   </View>
 );
 
@@ -106,7 +153,59 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  rightSpacer: { width: 64, height: 48 },
+  rightButtons: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  rightIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    position: 'relative',
+  },
+  cartBadge: {
+    position: 'absolute',
+    top: -4,
+    right: -4,
+    backgroundColor: '#16A34A',
+    borderRadius: 10,
+    minWidth: 20,
+    height: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 4,
+    borderWidth: 2,
+    borderColor: '#fff',
+  },
+  cartBadgeText: {
+    color: '#fff',
+    fontSize: 11,
+    fontWeight: '700',
+    lineHeight: 14,
+  },
+  printBadge: {
+    position: 'absolute',
+    top: -4,
+    right: -4,
+    backgroundColor: '#16A34A',
+    borderRadius: 10,
+    minWidth: 20,
+    height: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 4,
+    borderWidth: 2,
+    borderColor: '#fff',
+  },
+  printBadgeText: {
+    color: '#fff',
+    fontSize: 11,
+    fontWeight: '700',
+    lineHeight: 14,
+  },
   titleWrap: {
     flex: 1,
     alignItems: 'center',

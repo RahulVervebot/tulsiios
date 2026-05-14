@@ -16,7 +16,7 @@ export default function UserScreen({ navigation }) {
 
   const handleLogout = async () => {
   try { await GoogleSignin.signOut(); } catch (e) { console.log('Google signout error:', e); }
-  await AsyncStorage.multiRemove(['access_token', 'userRole', 'userEmail', 'userName','onesignalid','onesignalkey','tulsi_ai_backend','tulsifrontendurl','tulsi_websocket','icms_url']);
+  await AsyncStorage.multiRemove(['access_token', 'userRole', 'userEmail', 'userName','onesignalid','onesignalkey','tulsi_ai_backend','tulsifrontendurl','tulsi_websocket','icms_url','local_icms_url','developer_mode']);
   navigation.reset({ index: 0, routes: [{ name: 'Login' }] });
   await removeOneSignalTagsOnLogout();
   };

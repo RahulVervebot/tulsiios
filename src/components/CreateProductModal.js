@@ -78,6 +78,12 @@ export default function CreateProductModal({
   const hasInitializedRef = useRef(false);
   const previousVisibleRef = useRef(false);
 
+  // Price Calculator states
+  const [pricingMethod, setPricingMethod] = useState('margin'); // 'margin' or 'markup'
+  const [pricingValue, setPricingValue] = useState('');
+  const [calculatedPrice, setCalculatedPrice] = useState(null);
+  const [showPriceCalculator, setShowPriceCalculator] = useState(false);
+
   useEffect(() => {
     (async () => {
       try {
@@ -120,6 +126,21 @@ export default function CreateProductModal({
         console.log("Failed to fetch master lists:", e?.message);
       }
     })();
+  }, []);
+
+  // Load saved pricing method on mount
+  useEffect(() => {
+    const loadPricingMethod = async () => {
+      try {
+        const savedMethod = await AsyncStorage.getItem('pricingMethod');
+        if (savedMethod) {
+          setPricingMethod(savedMethod);
+        }
+      } catch (error) {
+        console.log('Error loading pricing method:', error);
+      }
+    };
+    loadPricingMethod();
   }, []);
 
   // Debounced vendor search
@@ -460,6 +481,67 @@ export default function CreateProductModal({
     setCost(unitCost.toFixed(2));
   };
 
+  // Calculate new price based on pricing method with validation
+  const calculateNewPrice = () => {
+    const costValue = parseFloat(cost);
+    const value = parseFloat(pricingValue);
+
+    // Validation: cost should not be empty or 0
+    if (!cost || cost.trim() === '') {
+      Alert.alert('Cost Required', 'Please enter cost value first');
+      return;
+    }
+
+    if (!costValue || costValue <= 0) {
+      Alert.alert('Invalid Cost', 'Cost must be greater than 0');
+      return;
+    }
+
+    if (!value || value < 0) {
+      Alert.alert('Invalid Input', 'Please enter a valid percentage value');
+      return;
+    }
+
+    let newPrice = 0;
+
+    switch (pricingMethod) {
+      case 'margin':
+        // Margin: Sale Price = Cost / (1 - Margin%)
+        if (value >= 100) {
+          Alert.alert('Invalid Margin', 'Margin cannot be 100% or more');
+          return;
+        }
+        newPrice = costValue / (1 - value / 100);
+        break;
+      
+      case 'markup':
+        // Markup: Sale Price = Cost * (1 + Markup%)
+        newPrice = costValue * (1 + value / 100);
+        break;
+      
+      default:
+        newPrice = costValue;
+    }
+
+    setCalculatedPrice(newPrice.toFixed(2));
+  };
+
+  // Accept calculated price
+  const acceptCalculatedPrice = async () => {
+    if (calculatedPrice) {
+      setPrice(calculatedPrice);
+      // Save selected pricing method
+      try {
+        await AsyncStorage.setItem('pricingMethod', pricingMethod);
+      } catch (error) {
+        console.log('Error saving pricing method:', error);
+      }
+      setShowPriceCalculator(false);
+      setCalculatedPrice(null);
+      setPricingValue('');
+    }
+  };
+
   const handleSubmit = async () => {
     try {
       const msg = validate();
@@ -497,6 +579,8 @@ export default function CreateProductModal({
         headers: {
           'Content-Type': 'application/json',
           'access_token': token,
+          'credentials': 'omit',
+         'Cookie': 'session_id'
         },
         body: JSON.stringify(body),
       });
@@ -603,7 +687,7 @@ export default function CreateProductModal({
             </View>
 
             {/* Barcode (full width with scan) */}
-            <Text style={styles.fieldLabel}>Barcode *</Text>
+            <Text style={[styles.fieldLabel, { marginTop: 10}]}>Barcode *</Text>
             <View style={styles.barcodeRow}>
               <TextInput
                 style={[styles.inputWithRightIcon, styles.barcodeInput]}
@@ -623,17 +707,18 @@ export default function CreateProductModal({
 
             {/* Row 2: Price | Unit Cost */}
             <View style={styles.rowGap}>
-              <View style={styles.inputGroupCol}>
-                <Text style={styles.fieldLabel}>Sale Price *</Text>
+                     <View style={styles.inputGroupCol}>
+                <Text style={styles.fieldLabel}>Units in Case</Text>
                 <TextInput
-                  style={styles.inputCol}
-                  placeholder="Sale Price*"
+                  style={[styles.inputCol, { marginTop: 0 }]}
+                  placeholder="Units in Case"
                   placeholderTextColor={PLACEHOLDER}
-                  value={price}
-                  onChangeText={setPrice}
-                  keyboardType="decimal-pad"
+                  value={unitc}
+                  keyboardType="number-pad"
+                  onChangeText={setUnitc}
                 />
               </View>
+
               <View style={styles.inputGroupCol}>
                 <Text style={styles.fieldLabel}>Case Cost</Text>
                 <TextInput
@@ -646,18 +731,23 @@ export default function CreateProductModal({
                 />
               </View>
             </View>
+    <View style={styles.calcBtnRow}>
+              <TouchableOpacity style={styles.calcBtn} onPress={calculateUnitCost}>
+                <Text style={styles.calcBtnText}>Calculate Unit Cost</Text>
+              </TouchableOpacity>
+            </View>
 
             {/* Row 3: Units in Case | Unit Cost */}
             <View style={styles.rowGap}>
-              <View style={styles.inputGroupCol}>
-                <Text style={styles.fieldLabel}>Units in Case</Text>
+               <View style={styles.inputGroupCol}>
+                <Text style={styles.fieldLabel}>Sell Price *</Text>
                 <TextInput
-                  style={[styles.inputCol, { marginTop: 0 }]}
-                  placeholder="Units in Case"
+                  style={styles.inputCol}
+                  placeholder="Sell Price*"
                   placeholderTextColor={PLACEHOLDER}
-                  value={unitc}
-                  keyboardType="number-pad"
-                  onChangeText={setUnitc}
+                  value={price}
+                  onChangeText={setPrice}
+                  keyboardType="decimal-pad"
                 />
               </View>
               <View style={styles.inputGroupCol}>
@@ -672,12 +762,185 @@ export default function CreateProductModal({
                 />
               </View>
             </View>
-            <View style={styles.calcBtnRow}>
-              <TouchableOpacity style={styles.calcBtn} onPress={calculateUnitCost}>
-                <Text style={styles.calcBtnText}>Calculate Unit Cost</Text>
+
+            {/* Price Calculator Section */}
+            <View
+              style={{
+                borderWidth: 1,
+                borderColor: '#319241',
+                borderRadius: 12,
+                padding: 15,
+                marginTop: 15,
+                marginBottom: 15,
+                backgroundColor: '#F9FAFB',
+              }}>
+              <TouchableOpacity
+                onPress={() => setShowPriceCalculator(!showPriceCalculator)}
+                style={{
+                  flexDirection: 'row',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                }}>
+                <Text style={{ fontSize: 18, fontWeight: '600', color: '#319241' }}>
+                  Selling Price Calculator
+                </Text>
+                <Text style={{ fontSize: 20, color: '#319241' }}>
+                  {showPriceCalculator ? '▼' : '▶'}
+                </Text>
               </TouchableOpacity>
+
+              {showPriceCalculator && (
+                <View style={{ marginTop: 15 }}>
+                  <Text style={{ fontSize: 14, color: '#6B7280', marginBottom: 10 }}>
+                    Calculate sell price based on cost and percentage
+                  </Text>
+
+                  {/* Pricing Method Selector */}
+                  <View
+                    style={{
+                      flexDirection: 'row',
+                      justifyContent: 'space-between',
+                      marginBottom: 15,
+                    }}>
+                    <TouchableOpacity
+                      onPress={() => setPricingMethod('margin')}
+                      style={{
+                        flex: 1,
+                        padding: 10,
+                        marginRight: 5,
+                        borderRadius: 8,
+                        borderWidth: 2,
+                        borderColor: pricingMethod === 'margin' ? '#319241' : '#E5E7EB',
+                        backgroundColor: pricingMethod === 'margin' ? '#E8F5E9' : '#fff',
+                      }}>
+                      <Text
+                        style={{
+                          textAlign: 'center',
+                          color: pricingMethod === 'margin' ? '#319241' : '#6B7280',
+                          fontWeight: pricingMethod === 'margin' ? '600' : '400',
+                        }}>
+                        Margin
+                      </Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      onPress={() => setPricingMethod('markup')}
+                      style={{
+                        flex: 1,
+                        padding: 10,
+                        marginLeft: 5,
+                        borderRadius: 8,
+                        borderWidth: 2,
+                        borderColor: pricingMethod === 'markup' ? '#319241' : '#E5E7EB',
+                        backgroundColor: pricingMethod === 'markup' ? '#E8F5E9' : '#fff',
+                      }}>
+                      <Text
+                        style={{
+                          textAlign: 'center',
+                          color: pricingMethod === 'markup' ? '#319241' : '#6B7280',
+                          fontWeight: pricingMethod === 'markup' ? '600' : '400',
+                        }}>
+                        Markup
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+
+                  {/* Input Fields */}
+                  <View style={{ marginBottom: 15 }}>
+                    <Text style={{ fontSize: 14, fontWeight: '500', marginBottom: 5, color: '#111' }}>
+                      Cost Price: ${cost || '0.00'}
+                    </Text>
+                    
+                    <View
+                      style={{
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        marginTop: 10,
+                      }}>
+                      <Text style={{ fontSize: 14, fontWeight: '500', marginRight: 10, color: '#111' }}>
+                        {pricingMethod === 'margin' ? 'Margin' : 'Markup'} %:
+                      </Text>
+                      <TextInput
+                        keyboardType="numeric"
+                        placeholder="Enter %"
+                        placeholderTextColor={PLACEHOLDER}
+                        value={pricingValue}
+                        onChangeText={setPricingValue}
+                        style={{
+                          flex: 1,
+                          borderWidth: 1,
+                          borderColor: '#D1D5DB',
+                          borderRadius: 8,
+                          padding: 10,
+                          backgroundColor: '#fff',
+                          color: '#111',
+                        }}
+                      />
+                    </View>
+                  </View>
+
+                  {/* Calculate Button */}
+                  <TouchableOpacity
+                    onPress={calculateNewPrice}
+                    style={{
+                      backgroundColor: '#319241',
+                      padding: 12,
+                      borderRadius: 8,
+                      marginBottom: 10,
+                    }}>
+                    <Text
+                      style={{
+                        color: '#fff',
+                        textAlign: 'center',
+                        fontWeight: '600',
+                      }}>
+                      Calculate Sell Price
+                    </Text>
+                  </TouchableOpacity>
+
+                  {/* Calculated Price Display */}
+                  {calculatedPrice && (
+                    <View
+                      style={{
+                        backgroundColor: '#E8F5E9',
+                        padding: 15,
+                        borderRadius: 8,
+                        borderWidth: 1,
+                        borderColor: '#319241',
+                      }}>
+                      <Text
+                        style={{
+                          fontSize: 16,
+                          fontWeight: '600',
+                          color: '#1B5E20',
+                          textAlign: 'center',
+                          marginBottom: 10,
+                        }}>
+                        New Sell Price: ${calculatedPrice}
+                      </Text>
+                      <TouchableOpacity
+                        onPress={acceptCalculatedPrice}
+                        style={{
+                          backgroundColor: '#319241',
+                          padding: 10,
+                          borderRadius: 8,
+                        }}>
+                        <Text
+                          style={{
+                            color: '#fff',
+                            textAlign: 'center',
+                            fontWeight: '600',
+                          }}>
+                          Accept & Update Sell Price
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
+                  )}
+                </View>
+              )}
             </View>
 
+        
             {/* Row 4: Qty Available (full) */}
             <Text style={styles.fieldLabel}>Qty Available</Text>
             <TextInput
@@ -1033,7 +1296,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
-    marginTop: 10,
   },
   barcodeInput: {
     flex: 1,

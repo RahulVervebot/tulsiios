@@ -10,6 +10,7 @@ import {
   TextInput,
   Alert,
   ActivityIndicator,
+  Switch,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -81,6 +82,7 @@ export default function Dashboard() {
   const inFlightRef = useRef(false);
   const chatAuthInFlightRef = useRef(false);
   const [chatOpen, setChatOpen] = useState(false);
+  const [developerMode, setDeveloperMode] = useState(false);
 
   useEffect(() => {
     const loadHeader = async () => {
@@ -110,6 +112,7 @@ export default function Dashboard() {
       if (data?.bottombanner) await AsyncStorage.setItem('bottombanner', data.bottombanner);
       if (data?.topabanner) await AsyncStorage.setItem('topabanner', data.topabanner);
       if (data?.icmsurl) await AsyncStorage.setItem('icms_url', data.icmsurl);
+      if (data?.local_icms_url) await AsyncStorage.setItem('local_icms_url', data.local_icms_url);
       if (data?.tulsi_websocket) await AsyncStorage.setItem('tulsi_websocket', data.tulsi_websocket);
       if (data?.tulsi_ai_backend) await AsyncStorage.setItem('tulsi_ai_backend', data.tulsi_ai_backend);
       if (data?.tulsifrontendurl) await AsyncStorage.setItem('tulsifrontendurl', data.tulsifrontendurl);
@@ -307,7 +310,11 @@ export default function Dashboard() {
       console.log('Switch login request URL:', url);
       const res = await fetch(url, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+         headers: { 
+        'Content-Type': 'application/json',
+         'credentials': 'omit',
+          'Cookie': 'session_id'
+         },
         body: JSON.stringify({
           db: selectedStore.dbname,
           login: userEmail,
@@ -384,17 +391,20 @@ export default function Dashboard() {
         const storedRole = await AsyncStorage.getItem('userRole');
         const storedSettingVisible = await AsyncStorage.getItem('is_user_setting_visible_in_app');
         const storedAllowTulsiAi = await AsyncStorage.getItem('is_allow_tulsi_ai');
+        const storedDeveloperMode = await AsyncStorage.getItem('developer_mode');
         setUserName(storedName || '');
         setUserEmail(storedEmail || '');
         setUserRole(storedRole || '');
         setIsUserSettingVisible(storedSettingVisible === 'true');
         setIsAllowTulsiAi(storedAllowTulsiAi === 'true');
+        setDeveloperMode(storedDeveloperMode === 'true');
       } catch (e) {
         setUserName('');
         setUserEmail('');
         setUserRole('');
         setIsUserSettingVisible(false);
         setIsAllowTulsiAi(false);
+        setDeveloperMode(false);
       }
     };
     loadUser();
@@ -407,6 +417,16 @@ export default function Dashboard() {
   }, [userName]);
 
   const prettyRole = useMemo(() => (userRole ? userRole.replace(/_/g, ' ') : ''), [userRole]);
+  
+  const handleDeveloperModeToggle = useCallback(async (value) => {
+    try {
+      setDeveloperMode(value);
+      await AsyncStorage.setItem('developer_mode', String(value));
+    } catch (error) {
+      console.error('Failed to save developer mode:', error);
+      Alert.alert('Error', 'Failed to save developer mode setting.');
+    }
+  }, []);
   
   const visibleCards = useMemo(() => {
     return cards.filter((card) => {
@@ -429,10 +449,7 @@ export default function Dashboard() {
 	        contentContainerStyle={[styles.content, { paddingBottom: 104 + insets.bottom }]}
 	        showsVerticalScrollIndicator={false}
 	      >
-        <TouchableOpacity
-          style={styles.userCard}
-          activeOpacity={0.85}
-        >
+        <View style={styles.userCard}>
           <View style={styles.userRow}>
             <View style={styles.userAvatar}>
               <Text style={styles.userAvatarText}>{initials}</Text>
@@ -472,7 +489,27 @@ export default function Dashboard() {
               </TouchableOpacity>
             </View>
           </View>
-        </TouchableOpacity>
+          
+          {isUserSettingVisible && (
+            <View style={styles.developerModeSection}>
+              <View style={styles.developerModeContent}>
+                <View style={styles.developerModeInfo}>
+                  <Text style={styles.developerModeLabel}>Developer Mode</Text>
+                  <Text style={styles.developerModeDescription}>
+                    {developerMode ? 'Advanced features enabled' : 'Enable advanced features'}
+                  </Text>
+                </View>
+                <Switch
+                  value={developerMode}
+                  onValueChange={handleDeveloperModeToggle}
+                  trackColor={{ false: '#d1d5db', true: '#86efac' }}
+                  thumbColor={developerMode ? '#2a8a4f' : '#f3f4f6'}
+                  ios_backgroundColor="#d1d5db"
+                />
+              </View>
+            </View>
+          )}
+        </View>
 
         <View style={styles.grid}>
 
@@ -541,7 +578,7 @@ export default function Dashboard() {
               />
             )}
             {switchError ? <Text style={styles.passwordErrorText}>{switchError}</Text> : null}
-            {switchAuthMode === 'pin' ? (
+            {/* {switchAuthMode === 'pin' ? (
               <TouchableOpacity
                 style={styles.passwordLinkWrap}
                 onPress={() => {
@@ -550,7 +587,7 @@ export default function Dashboard() {
                 }}>
                 <Text style={styles.passwordLinkText}>Enter store password</Text>
               </TouchableOpacity>
-            ) : null}
+            ) : null} */}
             <View style={styles.passwordActions}>
               <TouchableOpacity
                 style={[styles.passwordActionBtn, styles.passwordCancelBtn]}
@@ -685,6 +722,32 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#2a8a4f',
     textTransform: 'capitalize',
+  },
+  developerModeSection: {
+    marginTop: 14,
+    paddingTop: 14,
+    borderTopWidth: 1,
+    borderTopColor: '#e8f5ec',
+  },
+  developerModeContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  developerModeInfo: {
+    flex: 1,
+    marginRight: 12,
+  },
+  developerModeLabel: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#163e25',
+    marginBottom: 2,
+  },
+  developerModeDescription: {
+    fontSize: 11,
+    fontWeight: '500',
+    color: '#6b7f73',
   },
   sectionTitle: {
     fontSize: 18,

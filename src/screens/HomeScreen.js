@@ -189,7 +189,6 @@ const currentBackground = useMemo(() => {
   activeColor={activeIconColor}
 />
 
-
             ))}
           </ScrollView>
         </View>
@@ -294,48 +293,9 @@ const currentBackground = useMemo(() => {
           </View>
         )}
 
-        {/* <View
-          pointerEvents="box-none"
-          style={{
-            position: "absolute",
-            left: 0,
-            right: 0,
-            bottom: 70,
-          }}
-        >
-          <TouchableOpacity
-            onPress={() => setShowCreate(true)}
-            style={{
-              alignSelf: "flex-end",
-              marginRight: 16,
-              marginBottom: 12 + insets.bottom,
-              backgroundColor: "#2c1e70",
-              paddingVertical: 12,
-              paddingHorizontal: 16,
-              borderRadius: 30,
-              elevation: 6,
-              shadowColor: "#000",
-              shadowOpacity: 0.25,
-              shadowRadius: 8,
-              shadowOffset: { width: 0, height: 4 },
-              zIndex: 9999,
-            }}
-          >
-            <Text style={{ color: "#fff", fontWeight: "700" }}>Create products +</Text>
-          </TouchableOpacity>
-        </View> */}
-
       </View>
 
-      {/* <CreateProductModal
-        visible={showCreate}
-        onClose={() => setShowCreate(false)}
-        onCreated={() => {
-          // If you want to refresh immediately after product creation:
-          setListReloadKey((k) => k + 1);
-          setShowCreate(false);
-        }}
-      /> */}
+ 
     </SafeAreaView>
   );
 

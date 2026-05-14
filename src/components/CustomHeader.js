@@ -1,5 +1,5 @@
 // components/CustomHeader.js
-import React,{useEffect,useState} from 'react';
+import React,{useEffect,useState,useContext} from 'react';
 import { View, StyleSheet, ImageBackground, TouchableOpacity, Image, Text, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Profile from "../assets/icons/Profile.svg";
@@ -8,6 +8,10 @@ import TulsiLogo from '../assets/images/Tulsi.svg';
 import TulsiWhiteLogo from '../assets/icons/Tulsi_Icon_white.svg';
 import { useNavigation } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { CartContext } from '../context/CartContext';
+import { PrintContext } from '../context/PrintContext';
+import CartIcon from '../assets/icons/cart.svg';
+import PrinterIcon from '../assets/icons/Printericon.svg';
 const getImageSource = (val) => (typeof val === 'number' ? val : { uri: val });
 
 const CustomHeader = ({
@@ -21,10 +25,16 @@ const CustomHeader = ({
   const { width } = useWindowDimensions();
   const isCompact = width < 420;
   const isTablet = width >= 768;
+  const iconSize = isTablet ? 42 : isCompact ? 30 : 36;
   const styles = getStyles({ isCompact, isTablet });
   const [user_name, setUserName] = useState('');
   const [user_email, setUserEmail] = useState('');
   const [user_role, setUserRole] = useState('');
+  const { cart } = useContext(CartContext);
+  const { print } = useContext(PrintContext);
+  
+  const cartItemCount = cart.reduce((sum, item) => sum + (item.qty || 0), 0);
+  const printItemCount = print.reduce((sum, item) => sum + (item.qty || 0), 0);
 
   useEffect(() => {
     const checkLogin = async () => {
@@ -81,8 +91,8 @@ const renderContent = () => {
     <View style={[styles.content, isCompact && styles.contentCompact]}>
       {/* Left */}
     
-      <View style={[styles.logo, isCompact && styles.logoCompact]}>
-        <TulsiWhiteLogo width={styles.rowIcon.width} height={styles.rowIcon.height} />
+      <View style={[styles.logo, isCompact && styles.logoCompact]}  onTouchStart={() => navigation.navigate('Profile')} >
+        <TulsiWhiteLogo width={styles.rowIcon.width} height={styles.rowIcon.height}  />
         <View style={styles.logoTextWrap}>
           <Text style={styles.headerUser}>Hello,</Text>
           <Text style={styles.headerName} numberOfLines={1} ellipsizeMode="tail">
@@ -102,9 +112,39 @@ const renderContent = () => {
       </View>
 
       {/* Right */}
-      <TouchableOpacity style={styles.profileBtn} onPress={() => navigation.navigate('Profile')}>
-        <Profile width={36} height={36} />
-      </TouchableOpacity>
+      <View style={styles.rightButtons}>
+        <TouchableOpacity 
+          style={styles.cartBtn} 
+          onPress={() => navigation.navigate('Cart')}
+          activeOpacity={0.7}
+        >
+          <CartIcon width={iconSize} height={iconSize} fill="#fff" />
+          {cartItemCount > 0 && (
+            <View style={styles.cartBadge}>
+              <Text style={styles.cartBadgeText}>
+                {cartItemCount > 99 ? '99+' : cartItemCount}
+              </Text>
+            </View>
+          )}
+        </TouchableOpacity>
+        <TouchableOpacity 
+          style={styles.printBtn} 
+          onPress={() => navigation.navigate('PrintScreen')}
+          activeOpacity={0.7}
+        >
+          <PrinterIcon width={iconSize} height={iconSize} fill="#fff" />
+          {printItemCount > 0 && (
+            <View style={styles.printBadge}>
+              <Text style={styles.printBadgeText}>
+                {printItemCount > 99 ? '99+' : printItemCount}
+              </Text>
+            </View>
+          )}
+        </TouchableOpacity>
+        {/* <TouchableOpacity style={styles.profileBtn} onPress={() => navigation.navigate('Profile')}>
+          <Profile width={iconSize} height={iconSize} />
+        </TouchableOpacity> */}
+      </View>
     </View>
   );
 };
@@ -164,6 +204,65 @@ const getStyles = ({ isCompact, isTablet }) => {
       justifyContent: 'space-between',
     },
     rowIcon: { width: iconSize, height: iconSize },
+    rightButtons: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: isTablet ? 16 : 12,
+    },
+    cartBtn: {
+      alignItems: 'center',
+      justifyContent: 'center',
+      minWidth: iconSize,
+      minHeight: iconSize,
+      position: 'relative',
+    },
+    cartBadge: {
+      position: 'absolute',
+      top: -4,
+      right: -4,
+      backgroundColor: '#16A34A',
+      borderRadius: 10,
+      minWidth: 20,
+      height: 20,
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingHorizontal: 4,
+      borderWidth: 2,
+      borderColor: '#fff',
+    },
+    cartBadgeText: {
+      color: '#fff',
+      fontSize: 11,
+      fontWeight: '700',
+      lineHeight: 14,
+    },
+    printBtn: {
+      alignItems: 'center',
+      justifyContent: 'center',
+      minWidth: iconSize,
+      minHeight: iconSize,
+      position: 'relative',
+    },
+    printBadge: {
+      position: 'absolute',
+      top: -4,
+      right: -4,
+      backgroundColor: '#16A34A',
+      borderRadius: 10,
+      minWidth: 20,
+      height: 20,
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingHorizontal: 4,
+      borderWidth: 2,
+      borderColor: '#fff',
+    },
+    printBadgeText: {
+      color: '#fff',
+      fontSize: 11,
+      fontWeight: '700',
+      lineHeight: 14,
+    },
     profileBtn: {
       alignItems: 'center',
       justifyContent: 'center',

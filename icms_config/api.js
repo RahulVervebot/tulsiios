@@ -1,7 +1,17 @@
 // icms_config/api.js
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { ICMSAPIsURL } from '@env'; // optional fallback
-const STORAGE_KEY = 'icms_url';
+
+// Helper to get the correct storage key based on developer_mode
+const getStorageKey = async () => {
+  try {
+    const devMode = await AsyncStorage.getItem('developer_mode');
+    return devMode === 'true' ? 'local_icms_url' : 'icms_url';
+  } catch {
+    return 'icms_url'; // fallback to production key
+  }
+};
+
 const PATHS = {
 VENDORS: '/api/getvendorlist',
 FINDPRODUCTFROMHICKSVILL: '/find-hicksville-products-for-mobile',
@@ -30,7 +40,6 @@ QUANTITY_SP_COSTUPDATE: '/api/invoice/quantity_sellinprice_and_cost_update',
 SingleLinking: '/api/linkingcollectiontransfer-for-mobile/',
 PENDINGINVOICES: '/api/icms-raw-invoices/pending-jobs',
 SAVEDINVSTATUS: '/api/invoice/updatesaveinvociestatus',
-
 };
 
 // normalize base: strip trailing slashes
@@ -44,14 +53,27 @@ export function setICMSBase(url) {
   globalThis.__ICMS_BASE__ = BASE;
 }
 
+export async function saveICMSBase(url) {
+  try {
+    const storageKey = await getStorageKey();
+    await AsyncStorage.setItem(storageKey, normalizeBase(url));
+    setICMSBase(url);
+  } catch (error) {
+    console.error('Failed to save ICMS base URL:', error);
+  }
+}
+
 export async function initICMSBase() {
   try {
-    const fromStorage = await AsyncStorage.getItem(STORAGE_KEY);
+    const storageKey = await getStorageKey();
+    const fromStorage = await AsyncStorage.getItem(storageKey);
     if (fromStorage) setICMSBase(fromStorage);
   } catch {
     // ignore and keep fallback
   }
 }
+
+export { getStorageKey };
 
 // Build an object with live getters so usage stays: API_ENDPOINTS.FETCH_INVOICE
 const API_ENDPOINTS = {};

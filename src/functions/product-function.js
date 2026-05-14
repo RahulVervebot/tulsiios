@@ -2,6 +2,27 @@
 import { API_URL } from '@env';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
+/**
+ * Build generic headers for API requests
+ * @param {string} token - Access token
+ * @param {object} options - Additional options
+ * @param {boolean} options.includeContentType - Whether to include Content-Type header
+ * @returns {object} Headers object
+ */
+function buildHeaders(token, options = {}) {
+  const headers = {
+    accept: 'application/json',
+    access_token: token,
+    credentials: 'omit',
+    Cookie: 'session_id',
+  };
+
+  if (options.includeContentType) {
+    headers['Content-Type'] = 'application/json';
+  }
+
+  return headers;
+}
 
 /**
  * Fetch all products
@@ -64,10 +85,7 @@ export async function getTopCategories() {
 
   const res = await fetch(`${storeUrl}/pos/app/categories`, {
     method: 'GET',
-    headers: {
-      accept: 'application/json',
-      access_token: token,
-    },
+    headers: buildHeaders(token),
   });
 
   console.log("rest:",res);
@@ -125,10 +143,7 @@ export async function getCategoryProducts(id) {
 
   const res = await fetch(`${storeUrl}/pos/app/product/search?categoryId=${id}`, {
     method: 'GET',
-    headers: {
-      accept: 'application/json',
-      access_token: token,
-    },
+    headers: buildHeaders(token),
   });
 
   if (!res.ok) {
@@ -156,10 +171,7 @@ export async function getLatestProducts() {
 
   const res = await fetch(`${storeUrl}/pos/app/product/search`, {
     method: 'GET',
-    headers: {
-      accept: 'application/json',
-      access_token: token,
-    },
+    headers: buildHeaders(token),
   });
 
   if (!res.ok) {
@@ -184,10 +196,7 @@ export async function getUOMList() {
 
   const res = await fetch(`${storeUrl}/pos/app/uom-list`, {
     method: 'GET',
-    headers: {
-      accept: 'application/json',
-      access_token: token,
-    },
+    headers: buildHeaders(token),
   });
 
   if (!res.ok) {
@@ -214,10 +223,7 @@ export async function TaxList() {
 
   const res = await fetch(`${storeUrl}/pos/app/account-tax-list`, {
     method: 'GET',
-    headers: {
-      accept: 'application/json',
-      access_token: token,
-    },
+    headers: buildHeaders(token),
   });
 
   if (!res.ok) {
@@ -242,10 +248,7 @@ export async function VendorList(text) {
 console.log("function text:",text);
   const res = await fetch(`${storeUrl}/pos/app/vendor-list?query=${text}`, {
     method: 'GET',
-    headers: {
-      accept: 'application/json',
-      access_token: token,
-    },
+    headers: buildHeaders(token),
   });
 
   if (!res.ok) {
@@ -271,10 +274,7 @@ export async function createCustomVariantProduct(payload) {
     `${storeUrl}/api/pos/app/product/create/custom-attributes-and-variants`,
     {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        access_token: token,
-      },
+      headers: buildHeaders(token, { includeContentType: true }),
       body: JSON.stringify(payload),
     }
   );
@@ -301,10 +301,7 @@ export async function updateCustomVariantProduct(productId, payload) {
     `${storeUrl}/api/pos/app/product/update/custom-attributes-and-variants/${productId}`,
     {
       method: 'PUT',
-      headers: {
-        'Content-Type': 'application/json',
-        access_token: token,
-      },
+      headers: buildHeaders(token, { includeContentType: true }),
       body: JSON.stringify(payload),
     }
   );
@@ -336,10 +333,7 @@ export async function archiveProduct(productId) {
     `${storeUrl}/pos/app/product/archive?product_id=${encodeURIComponent(pid)}`,
     {
       method: 'PUT',
-      headers: {
-        accept: 'application/json',
-        access_token: token,
-      },
+      headers: buildHeaders(token),
     }
   );
 
@@ -370,10 +364,7 @@ export async function getArchivedProducts() {
 
   const res = await fetch(`${storeUrl}/pos/app/list-archived-products`, {
     method: 'GET',
-    headers: {
-      accept: 'application/json',
-      access_token: token,
-    },
+    headers: buildHeaders(token),
   });
 
   const raw = await res.text().catch(() => '');
@@ -414,10 +405,7 @@ export async function unarchiveProduct(productId) {
     `${storeUrl}/pos/app/product/unarchive?product_id=${encodeURIComponent(pid)}`,
     {
       method: 'PUT',
-      headers: {
-        accept: 'application/json',
-        access_token: token,
-      },
+      headers: buildHeaders(token),
     }
   );
 

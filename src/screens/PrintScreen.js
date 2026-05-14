@@ -32,7 +32,7 @@ export default function PrintScreen() {
 
   return (
     <ImageBackground source={getImageSource(reportbg)} style={styles.screen} resizeMode="cover">
-      <AppHeader Title="PRINT" backgroundType="image" backgroundValue={reportbg} />
+      <AppHeader Title="PRINT" backgroundType="image" backgroundValue={reportbg} hidePrintIcon={true} />
 
       <View style={styles.container}>
         <FlatList

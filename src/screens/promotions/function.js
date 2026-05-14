@@ -14,8 +14,10 @@ const buildHeaders = async () => {
     throw new Error('Missing access token.');
   }
   return {
-    // accept: 'application/json',
+    accept: 'application/json',
     access_token: token,
+      credentials: 'omit',
+    Cookie: 'session_id',
   };
 };
 const buildpostHeaders = async () => {
@@ -25,8 +27,10 @@ const buildpostHeaders = async () => {
   }
   return {
     // accept: 'application/json',
-     'Content-Type': 'application/json',
+      'Content-Type': 'application/json',
     access_token: token,
+      credentials: 'omit',
+    Cookie: 'session_id',
   };
 };
 

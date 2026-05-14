@@ -7,7 +7,8 @@ import {
   StyleSheet,
   ActivityIndicator,
   FlatList,
-  Platform
+  Platform,
+  Alert
 } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -271,6 +272,7 @@ export default function App() {
         // Check if it's a 401 error
         if (error?.status === 401) {
           console.log('Unauthorized - navigating to Login');
+          Alert.alert('Session Expired', 'Your session has expired. Please log in again.');
           // Clear stored credentials
           await AsyncStorage.removeItem('access_token');
           await AsyncStorage.removeItem('userId');

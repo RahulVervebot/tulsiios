@@ -1,3 +1,4 @@
+// src/screens/CheckoutScreen.js
 import React, { useMemo, useState, useContext, useCallback, useEffect } from 'react';
 import { View, Text, FlatList, TouchableOpacity, StyleSheet, Alert, TextInput, ScrollView,ImageBackground, ActivityIndicator } from 'react-native';
 import { useRoute, useNavigation } from '@react-navigation/native';
@@ -6,7 +7,7 @@ import { API_URL } from '@env';
 import { CartContext } from '../context/CartContext';
 import reportbg from '../assets/images/report-bg.png';
 import AppHeader from '../components/AppHeader';
-import { getPartnerDetails, getPaymentMethods, getNextSequence, validateOrder, getProductQuantityDiscounts, redeemLoyaltyPoints, createCustomer } from '../components/orders/function';
+import { getPartnerDetails, getPaymentMethods, getNextSequence, validateOrder, getProductQuantityDiscounts } from '../components/orders/function';
 
 const TAX_RATE = 0.18;
 
@@ -16,7 +17,7 @@ export default function CheckoutScreen() {
   const navigation = useNavigation();
   const { clearCart } = useContext(CartContext) || { clearCart: async () => {} };
   const cart = route.params?.cart ?? [];
-
+  console.log('CheckoutScreen cart:', cart);
   const regId = route.params?.regId;
   const sessionId = route.params?.sessionId;
 
@@ -28,12 +29,10 @@ export default function CheckoutScreen() {
   const [submitting, setSubmitting] = useState(false);
   const [loadingCustomer, setLoadingCustomer] = useState(false);
   const [loadingPaymentMethods, setLoadingPaymentMethods] = useState(false);
-
   // Order sequence
   const [orderName, setOrderName] = useState(null);
   const [uid, setUid] = useState(null);
   const [sequenceNumber, setSequenceNumber] = useState(null);
-
   // Customer fields
   const [customerId, setCustomerId] = useState(null);
   const [customerName, setCustomerName] = useState('');
@@ -41,11 +40,12 @@ export default function CheckoutScreen() {
   const [email, setEmail] = useState('');
   const [loyaltyPoints, setLoyaltyPoints] = useState(null);
   const [loyaltyAmount, setLoyaltyAmount] = useState(null);
-
   // Address fields
   const [street, setStreet] = useState('');
   const [city, setCity] = useState('');
+  const [state, setState] = useState('');
   const [postalCode, setPostalCode] = useState('');
+  const [country, setCountry] = useState('');
 
   // Quantity discounts
   const [quantityDiscounts, setQuantityDiscounts] = useState([]);
@@ -87,7 +87,6 @@ export default function CheckoutScreen() {
 
       setLoadingPaymentMethods(true);
       try {
-        console.log('Fetching payment methods for regId:', regId);
         const methods = await getPaymentMethods(regId);
         setPaymentMethods(methods);
         // Set default to first payment method
@@ -161,7 +160,9 @@ export default function CheckoutScreen() {
         // Set address details if not null
         if (data.address?.street) setStreet(data.address.street);
         if (data.address?.city) setCity(data.address.city);
+        if (data.address?.state_name) setState(data.address.state_name);
         if (data.address?.zip) setPostalCode(data.address.zip);
+        if (data.address?.country_name) setCountry(data.address.country_name);
         // Set loyalty points
         if (data.loyalty) {
           setLoyaltyPoints(data.loyalty.points);
@@ -270,7 +271,7 @@ export default function CheckoutScreen() {
     if (!customerName?.trim()) return 'Please enter customer name.';
     if (!phone?.trim()) return 'Please enter phone.';
     if (email?.trim() && !/^\S+@\S+\.\S+$/.test(email.trim())) return 'Please enter a valid email.';
-    if (!street?.trim() || !city?.trim() || !postalCode?.trim()) {
+    if (!street?.trim() || !city?.trim() || !state?.trim() || !postalCode?.trim() || !country?.trim()) {
       return 'Please complete the shipping address.';
     }
     if (!paymentMethod) return 'Please select a payment method.';
@@ -299,58 +300,15 @@ export default function CheckoutScreen() {
       customerId,
       loyaltyAmount: loyaltyDiscount,
       sequenceNumber,
-      loyalty:total
     });
 
     console.log('Order validated successfully:', response);
 
-    // Only proceed if order validation was successful
-    if (response?.result?.code == 200) {
-     
-      // Create new customer if no customerId exists
-      if (!customerId) {
-        try {
-          const customerResponse = await createCustomer({
-            name: customerName,
-            email: email,
-            phone: phone,
-            street: street,
-            city: city,
-            zip: postalCode,
-          });
-          console.log('New customer created successfully:', customerResponse);
-        } catch (customerError) {
-          console.error('Failed to create customer:', customerError);
-          // Don't fail the entire order if customer creation fails
-        }
-      }
-
-      // Redeem loyalty points if applicable
-      if (loyaltyDiscount > 0 && customerId) {
-        try {
-          await redeemLoyaltyPoints(customerId, loyaltyDiscount);
-          console.log('Loyalty points redeemed successfully');
-        } catch (loyaltyError) {
-          console.error('Failed to redeem loyalty points:', loyaltyError);
-          // Don't fail the entire order if loyalty redemption fails
-        }
-      }
-
-      // Clear cart only after successful order
-      await AsyncStorage.setItem('cart', JSON.stringify([]));
-      if (clearCart) await clearCart();
-
-     Alert.alert(
-        'Success',
-        response?.result?.message || "Order placed successfully",
-        [
-          { text: 'OK', onPress: () => navigation.navigate('MainDrawer') },
-        ]
-      );
-     
-    } else {
-      throw new Error('Order validation failed');
-    }
+    await AsyncStorage.setItem('cart', JSON.stringify([]));
+    if (clearCart) await clearCart();
+    Alert.alert('Success', 'Order placed successfully', [
+      { text: 'OK', onPress: () => navigation.navigate('MainDrawer') },
+    ]);
   } catch (e) {
     Alert.alert('Error', e.message);
     console.log('error:', e);
@@ -375,16 +333,16 @@ export default function CheckoutScreen() {
           {showDiscount && (
             <Text style={styles.discountBadge}>
               QTY Discount: {item.completeSets}×(Buy {item.requiredQty})
-              {item.remainingItems > 0 && ` + ${item.remainingItems} regular`} • Save ${item.quantityDiscountAmount.toFixed(2)}
+              {item.remainingItems > 0 && ` + ${item.remainingItems} regular`} • Save ₹{item.quantityDiscountAmount.toFixed(2)}
             </Text>
           )}
         </View>
         <Text style={styles.qty}>x{qty}</Text>
         <View style={{ alignItems: 'flex-end' }}>
           {showDiscount && (
-            <Text style={styles.originalPrice}>${item.originalTotal.toFixed(2)}</Text>
+            <Text style={styles.originalPrice}>₹{item.originalTotal.toFixed(2)}</Text>
           )}
-          <Text style={[styles.price, showDiscount && { color: '#28a745', fontWeight: '700' }]}>${lineTotal}</Text>
+          <Text style={[styles.price, showDiscount && { color: '#28a745', fontWeight: '700' }]}>₹{lineTotal}</Text>
         </View>
       </View>
     );
@@ -412,26 +370,26 @@ export default function CheckoutScreen() {
             {quantityDiscountTotal > 0 && (
               <View style={styles.rowJustify}>
                 <Text style={styles.discountLabel}>Quantity Discount Applied</Text>
-                <Text style={styles.discountValue}>-${quantityDiscountTotal.toFixed(2)}</Text>
+                <Text style={styles.discountValue}>-₹{quantityDiscountTotal.toFixed(2)}</Text>
               </View>
             )}
             <View style={styles.rowJustify}>
               <Text style={styles.label}>Subtotal</Text>
-              <Text style={styles.value}>${subtotal.toFixed(2)}</Text>
+              <Text style={styles.value}>₹{subtotal.toFixed(2)}</Text>
             </View>
             {loyaltyDiscount > 0 && (
               <View style={styles.rowJustify}>
                 <Text style={styles.discountLabel}>Loyalty Discount</Text>
-                <Text style={styles.discountValue}>-${loyaltyDiscount.toFixed(2)}</Text>
+                <Text style={styles.discountValue}>-₹{loyaltyDiscount.toFixed(2)}</Text>
               </View>
             )}
             <View style={styles.rowJustify}>
               <Text style={styles.label}>Tax (18%)</Text>
-              <Text style={styles.value}>${tax.toFixed(2)}</Text>
+              <Text style={styles.value}>₹{tax.toFixed(2)}</Text>
             </View>
             <View style={styles.rowJustify}>
               <Text style={styles.totalLabel}>Total</Text>
-              <Text style={styles.totalValue}>${total.toFixed(2)}</Text>
+              <Text style={styles.totalValue}>₹{total.toFixed(2)}</Text>
             </View>
           </View>
 
@@ -443,7 +401,6 @@ export default function CheckoutScreen() {
             <TextInput
               style={[styles.input, styles.phoneInput]}
               placeholder="Phone Number"
-              placeholderTextColor="#333"
               keyboardType="phone-pad"
               value={phone}
               onChangeText={setPhone}
@@ -464,7 +421,6 @@ export default function CheckoutScreen() {
           <TextInput
             style={styles.input}
             placeholder="Customer Name"
-            placeholderTextColor="#333"
             value={customerName}
             onChangeText={setCustomerName}
           />
@@ -472,7 +428,6 @@ export default function CheckoutScreen() {
           <TextInput
             style={styles.input}
             placeholder="Email (optional)"
-            placeholderTextColor="#333"
             keyboardType="email-address"
             autoCapitalize="none"
             value={email}
@@ -485,23 +440,27 @@ export default function CheckoutScreen() {
               <Text style={styles.loyaltyLabel}>Loyalty Points:</Text>
               <Text style={styles.loyaltyValue}>{loyaltyPoints.toFixed(2)} points</Text>
               {loyaltyAmount !== null && (
-                <Text style={styles.loyaltyAmount}>(${loyaltyAmount.toFixed(2)})</Text>
+                <Text style={styles.loyaltyAmount}>(₹{loyaltyAmount.toFixed(2)})</Text>
               )}
             </View>
           )}
 
           {/* Address */}
           <Text style={styles.sectionTitle}>Shipping Address</Text>
-          <TextInput style={styles.input} placeholder="Street" placeholderTextColor="#333" value={street} onChangeText={setStreet} />
-          <TextInput style={styles.input} placeholder="City" placeholderTextColor="#333" value={city} onChangeText={setCity} />
-          <TextInput
-            style={styles.input}
-            placeholder="Postal Code"
-            placeholderTextColor="#333"
-            value={postalCode}
-            onChangeText={setPostalCode}
-            keyboardType="number-pad"
-          />
+          <TextInput style={styles.input} placeholder="Street" value={street} onChangeText={setStreet} />
+          <TextInput style={styles.input} placeholder="City" value={city} onChangeText={setCity} />
+          <View style={{ flexDirection: 'row', gap: 10 }}>
+            <TextInput style={[styles.input, { flex: 1 }]} placeholder="State" value={state} onChangeText={setState} />
+            <TextInput
+              style={[styles.input, { flex: 1 }]}
+              placeholder="Postal Code"
+              value={postalCode}
+              onChangeText={setPostalCode}
+              keyboardType="number-pad"
+            />
+
+          </View>
+          <TextInput style={styles.input} placeholder="Country" value={country} onChangeText={setCountry} />
           {/* Payment */}
           <View style={styles.payment}>
             <Text style={styles.payTitle}>Payment Method</Text>
@@ -535,6 +494,7 @@ export default function CheckoutScreen() {
         </View>
 
       </ScrollView>
+
     </>
   );
 }
