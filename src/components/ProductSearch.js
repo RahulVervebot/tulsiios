@@ -19,6 +19,8 @@ import { check, request, PERMISSIONS, RESULTS } from "react-native-permissions";
 import { CartContext } from "../context/CartContext";
 import { PrintContext } from "../context/PrintContext";
 import ProductModal from "./ProductModal";
+import VariantModal from "./VariantModal";
+import VariantProductModal from "./VariantProductModal";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
 const PLACEHOLDER = "#9AA3AF";
@@ -27,6 +29,7 @@ const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
 export default function ProductSearch() {
   const [searchText, setSearchText] = useState("");
   const [results, setResults] = useState([]);
+  const [areResultsVariants, setAreResultsVariants] = useState(false);
   const typingTimeout = useRef(null);
 
   const { addToCart } = useContext(CartContext);
@@ -49,6 +52,8 @@ export default function ProductSearch() {
 
   const searchRowRef = useRef(null);
   const sheetRef = useRef(null);
+  const variantModalRef = useRef(null);
+  const variantProductModalRef = useRef(null);
 
   useEffect(() => {
     (async () => {
@@ -83,39 +88,77 @@ export default function ProductSearch() {
 
     if (!text || text.trim().length === 0) {
       setResults([]);
+      setAreResultsVariants(false);
       return;
     }
 
     typingTimeout.current = setTimeout(async () => {
       if (text.trim().length >= 3) {
         try {
+          // Get fresh tokens from AsyncStorage
+          const token = await AsyncStorage.getItem("access_token");
+          const url = await AsyncStorage.getItem("storeurl");
+          
+          if (!token || !url) {
+            console.error("❌ Missing token or URL");
+            Alert.alert("Error", "Please login again");
+            return;
+          }
+
           measureSearchBox();
+          
+          console.log("🔍 Search URL:", `${url}/pos/app/product/search?query=${text}`);
+          console.log("🔑 Token:", token ? "Present" : "Missing");
 
           const res = await fetch(
-            `${storeURL}/pos/app/product/search?query=${encodeURIComponent(text)}`,
+            `${url}/pos/app/product/search?query=${encodeURIComponent(text)}`,
             {
               method: "GET",
               headers: {
                 accept: "application/json",
-                access_token: access_token,
+                access_token: token,
+                credentials: 'omit',
+               Cookie: 'session_id',
               },
             }
           );
 
+          console.log("📡 Response status:", res.status);
+
           if (!res.ok) {
             const txt = await res.text().catch(() => "");
+            console.error("❌ Response error:", txt);
             throw new Error(`Failed to fetch products (${res.status}): ${txt || "No details"}`);
           }
-
           const json = await res.json();
-          const list = Array.isArray(json?.products) ? json.products : [];
+          
+          // Check if first product has variants array
+          let list = [];
+          let isVariantList = false;
+          if (Array.isArray(json?.products) && json.products.length > 0) {
+            const firstProduct = json.products[0];
+            if (Array.isArray(firstProduct?.variants) && firstProduct.variants.length > 0) {
+              // Show variants instead of the parent product
+              list = firstProduct.variants;
+              isVariantList = true;
+            } else {
+              // Show regular products
+              list = json.products;
+              isVariantList = false;
+            }
+          }
+          
+          console.log("📦 Products/Variants found:", list.length, "| IsVariants:", isVariantList);
           setResults(list);
+          setAreResultsVariants(isVariantList);
         } catch (err) {
           console.error("❌ Search error:", err?.message);
           setResults([]);
+          setAreResultsVariants(false);
         }
       } else {
         setResults([]);
+        setAreResultsVariants(false);
       }
     }, 500);
   };
@@ -132,8 +175,10 @@ const runQueryWithBarcode = async (barcode) => {
       {
         method: "GET",
         headers: {
-          accept: "application/json",
           access_token: access_token,
+          accept: "application/json",
+          credentials: 'omit',
+          Cookie: 'session_id',
         },
       }
     );
@@ -144,7 +189,9 @@ const runQueryWithBarcode = async (barcode) => {
     }
 
     const json = await res.json();
-    return Array.isArray(json?.products) ? json.products : [];
+    console.log("🔍 Barcode search response:", json);
+    
+    return json;
   };
 
   try {
@@ -177,6 +224,7 @@ const runQueryWithBarcode = async (barcode) => {
 
     let foundList = [];
     let matchedBarcode = originalBarcode;
+    let hasVariants = false;
 
     for (const attempt of attempts) {
       const cleaned = String(attempt || "").trim();
@@ -184,22 +232,49 @@ const runQueryWithBarcode = async (barcode) => {
 
       tried.add(cleaned);
 
-      const list = await searchProduct(cleaned);
-      if (list.length >= 1) {
-        foundList = list;
+      const result = await searchProduct(cleaned);
+      
+      // Check if products array exists and has items
+      if (Array.isArray(result?.products) && result.products.length > 0) {
+        const firstProduct = result.products[0];
+        
+        // Check if first product has variants array
+        if (Array.isArray(firstProduct?.variants) && firstProduct.variants.length > 0) {
+          foundList = firstProduct.variants;
+          hasVariants = true;
+        } else {
+          foundList = result.products;
+          hasVariants = false;
+        }
+        
         matchedBarcode = cleaned;
         break;
       }
     }
 
-    if (foundList.length >= 1) {
+    if (foundList.length === 0) {
+      Alert.alert("Not found", "No product matched this barcode.");
+    } else if (hasVariants || foundList.length > 1) {
+      // Show variant selection modal if variants exist or multiple products found
       setResults([]);
       setSearchText(matchedBarcode);
       setTimeout(() => {
-        sheetRef.current?.open(foundList[0]);
+        variantModalRef.current?.open(foundList, (selectedProduct) => {
+          // Open VariantProductModal for variant products
+          variantProductModalRef.current?.open(selectedProduct);
+        });
       }, 180);
     } else {
-      Alert.alert("Not found", "No product matched this barcode.");
+      // Single product found - check if it's a variant and open appropriate modal
+      setResults([]);
+      setSearchText(matchedBarcode);
+      setTimeout(() => {
+        if (hasVariants) {
+          variantProductModalRef.current?.open(foundList[0]);
+        } else {
+          sheetRef.current?.open(foundList[0]);
+        }
+      }, 180);
     }
   } catch (err) {
     console.error("❌ Barcode search error:", err?.message);
@@ -268,7 +343,12 @@ const runQueryWithBarcode = async (barcode) => {
 
   const openSheetFor = (item) => {
     setResults([]);
-    sheetRef.current?.open(item);
+    // Check if the current results are from variants array
+    if (areResultsVariants) {
+      variantProductModalRef.current?.open(item);
+    } else {
+      sheetRef.current?.open(item);
+    }
   };
 
   const showDropdown = results.length > 0 && searchText.trim().length >= 3;
@@ -329,14 +409,17 @@ const runQueryWithBarcode = async (barcode) => {
           >
             {results.map((item, idx) => (
               <TouchableOpacity
-                key={item?._id || String(idx)}
+                key={item?._id || item?.product_id || String(idx)}
                 activeOpacity={0.8}
                 onPress={() => openSheetFor(item)}
               >
                 <View style={styles.resultItem}>
-                  <Text style={styles.resultTitle} numberOfLines={1}>
-                    {item?.productName}
-                  </Text>
+                  <View style={styles.resultTitleRow}>
+                    <Text style={styles.resultTitle} numberOfLines={1}>
+                      {item?.productName}
+                    </Text>
+                    <Text style={styles.resultPrice}>₹{Number(item?.salePrice || 0).toFixed(2)}</Text>
+                  </View>
                   <Text style={styles.resultMeta} numberOfLines={1}>
                     {item?.category}
                     {item?.barcode ? ` • ${item.barcode}` : ""}
@@ -415,6 +498,14 @@ const runQueryWithBarcode = async (barcode) => {
         onAddToCart={(p) => onAddToCart(p)}
         onAddToPrint={(p) => onAddToPrint(p)}
       />
+
+      <VariantModal ref={variantModalRef} />
+      
+      <VariantProductModal
+        ref={variantProductModalRef}
+        onAddToCart={(p) => onAddToCart(p)}
+        onAddToPrint={(p) => onAddToPrint(p)}
+      />
     </View>
   );
 }
@@ -468,9 +559,22 @@ const styles = StyleSheet.create({
     borderBottomColor: "#eee",
     backgroundColor: "#fff",
   },
+  resultTitleRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 2,
+  },
   resultTitle: {
     fontWeight: "600",
     color: "#111",
+    flex: 1,
+    marginRight: 8,
+  },
+  resultPrice: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: "#16A34A",
   },
   resultMeta: {
     color: "#666",

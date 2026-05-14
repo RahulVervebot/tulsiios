@@ -514,10 +514,10 @@ const normalize = (s) =>
         const uploadResponse = await fetchWithRetry(API_ENDPOINTS.UPLOAD_IMAGE, {
           method: 'POST',
           headers: {
-            'Content-Type': 'multipart/form-data',
+           'Content-Type': 'multipart/form-data',
             store: `${icms_store}`,
             mode: 'MOBILE',
-           api_url: storeurl ?? '',
+            api_url: storeurl ?? '',
             'access_token': token,
           }, // user-id is missing in the headers
           body: formData,

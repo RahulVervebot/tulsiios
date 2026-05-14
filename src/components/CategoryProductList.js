@@ -19,7 +19,7 @@ import { archiveProduct, getCategoryProducts, getLatestProducts } from '../funct
 import ProductModal from './ProductModal';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import PrinterIcon from '../assets/icons/Printericon.svg'; 
-import CartIcon from "../assets/icons/Carticon.svg"
+import CartIcon from "../assets/icons/cart.svg";
 
 export default function CategoryProductList({ id, category, showFloatingCart = false }) {
   const navigation = useNavigation();
@@ -30,15 +30,13 @@ export default function CategoryProductList({ id, category, showFloatingCart = f
   const { cart, addToCart, increaseQty, decreaseQty } = useContext(CartContext);
   const { print, addToPrint, increasePrintQty, decreasePrintQty, removeFromprint } = useContext(PrintContext);
   const sheetRef = useRef(null);
-
+  const [isProductBillingPermission, setIsProductBillingPermission] = useState(true);
   const { width } = useWindowDimensions();
   const isTablet = width >= 768;
-
   const COLS = isTablet ? 3 : 2;
   const GAP = isTablet ? 14 : 10;
   const H_PADDING = 12;
   const FLOATING_BOTTOM = isTablet ? 28 : 20;
-
   const CARD_WIDTH = useMemo(() => {
     const inner = width - H_PADDING * 2 - GAP * (COLS - 1);
     return Math.floor(inner / COLS);
@@ -51,6 +49,8 @@ export default function CategoryProductList({ id, category, showFloatingCart = f
   const fetchProducts = async () => {
     try {
       const userRole = await AsyncStorage.getItem('userRole');
+         const billingPerm = await AsyncStorage.getItem('is_product_billing_in_app');
+       setIsProductBillingPermission(billingPerm === 'true');
       setUserRole(userRole);
       setRefreshing(true);
 
@@ -68,7 +68,7 @@ export default function CategoryProductList({ id, category, showFloatingCart = f
     }
   };
 
-  const openDetails = (item) => sheetRef.current?.open(item);
+const openDetails = (item) => sheetRef.current?.open(item);
 
   const handleArchiveProduct = (item) => {
     const productId = Number(item?.product_id);
@@ -142,7 +142,7 @@ export default function CategoryProductList({ id, category, showFloatingCart = f
             <View style={styles.bottomRow}>
               <View style={styles.priceWrap}>
                 <Text style={styles.price}>
-                  ₹{Number(item.salePrice || 0).toFixed(2)}
+                  ${Number(item.salePrice || 0).toFixed(2)}
                 </Text>
                 {!!item.productSize && (
                   <Text style={styles.sizeText}>
@@ -151,10 +151,11 @@ export default function CategoryProductList({ id, category, showFloatingCart = f
                 )}
               </View>
 
-              <View>
-                {userrole === 'customer' ? (
-                  inCart ? (
-                    <View style={styles.qtyRow}>
+              <View style={styles.bottomRow}>
+                 {isProductBillingPermission && (
+                  <>
+                  {inCart ? (
+                  <View style={styles.qtyRow}>
                       <TouchableOpacity
                         style={styles.qtyBtn}
                         onPress={() => decreaseQty(item.product_id)}
@@ -171,20 +172,23 @@ export default function CategoryProductList({ id, category, showFloatingCart = f
                         <Text style={styles.qtyText}>+</Text>
                       </TouchableOpacity>
                     </View>
-                  ) : (
-                    <TouchableOpacity onPress={() => addToCart(item)}>
-                      <CartIcon width={28} height={28} fill="#f57200" />
+                ) : (
+                <TouchableOpacity onPress={() => addToCart(item)}>
+                      <CartIcon width={28} height={28} fill="#16A34A" />
                     </TouchableOpacity>
-                  )
-                ) : inPrint ? (
+                )}
+                </>
+                 )}
+
+                {inPrint ? (
                   <TouchableOpacity
                     style={styles.removePrintBtn}
                     onPress={() => removeFromprint(item.product_id)}
                   >
-                    <Icon name="delete" size={20} color="#fff" />
+                      <PrinterIcon width={18} height={28} fill="#fff" />
                   </TouchableOpacity>
                 ) : (
-                  <TouchableOpacity onPress={() => addToPrint(item)}>
+                  <TouchableOpacity onPress={() => addToPrint(item)}  style={styles.addPrintBtn} >
                     <PrinterIcon width={28} height={28} fill="#16A34A" />
                   </TouchableOpacity>
                 )}
@@ -195,6 +199,7 @@ export default function CategoryProductList({ id, category, showFloatingCart = f
         </View>
       </TouchableOpacity>
     );
+
   };
 
   return (
@@ -218,7 +223,7 @@ export default function CategoryProductList({ id, category, showFloatingCart = f
         showsVerticalScrollIndicator={false}
       />
 
-      {showFloatingCart && cart.length > 0 && (
+      {/* {showFloatingCart && cart.length > 0 && (
         <TouchableOpacity
           style={[styles.floatingCart, { bottom: FLOATING_BOTTOM, right: 20 }]}
           onPress={() => navigation.navigate('Cart')}
@@ -227,7 +232,7 @@ export default function CategoryProductList({ id, category, showFloatingCart = f
             🛒 {cart.length}
           </Text>
         </TouchableOpacity>
-      )}
+      )} */}
 
       <ProductModal
         ref={sheetRef}
@@ -237,6 +242,7 @@ export default function CategoryProductList({ id, category, showFloatingCart = f
       />
     </View>
   );
+
 }
 
 const styles = StyleSheet.create({
@@ -331,11 +337,23 @@ const styles = StyleSheet.create({
   },
 
   removePrintBtn: {
-    backgroundColor: '#D9534F',
-    padding: 6,
-    borderRadius: 6,
+    backgroundColor: '#16A34A',
+    zIndex: 3,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 
+  addPrintBtn:{
+    zIndex: 3,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   floatingCart: {
     position: 'absolute',
     backgroundColor: '#2c1e70',

@@ -245,15 +245,28 @@ export default function QuantityDiscountScreen() {
     productDebounceRef.current = setTimeout(async () => {
       try {
         const results = await searchProductsByBarcode(text.trim());
-        const normalized = Array.isArray(results)
-          ? results.map((p) => ({
-              id: Number(p.id ?? p.product_id ?? p._id),
-              name: p.productName ?? p.product_name ?? p.name ?? 'Product',
-              barcode: p.barcode || '',
-              salePrice: p.salePrice ?? p.sale_price ?? '',
-            }))
-          : [];
-          console.log("search products results,", results);
+        
+        // Check if first product has variants array
+        let productList = [];
+        if (Array.isArray(results) && results.length > 0) {
+          const firstProduct = results[0];
+          if (Array.isArray(firstProduct?.variants) && firstProduct.variants.length > 0) {
+            // Show variants instead of the parent product
+            productList = firstProduct.variants;
+          } else {
+            // Show regular products
+            productList = results;
+          }
+        }
+        
+        const normalized = productList.map((p) => ({
+          id: Number(p.id ?? p.product_id ?? p._id),
+          name: p.productName ?? p.product_name ?? p.name ?? 'Product',
+          barcode: p.barcode || '',
+          salePrice: p.salePrice ?? p.sale_price ?? '',
+        }));
+        
+        console.log("search products results,", results);
         const searchTerm = text.trim().toLowerCase();
         const filtered = normalized.filter((p) => {
           if (!Number.isFinite(p.id)) return false;
@@ -618,7 +631,7 @@ const filteredRows = useMemo(() => {
                       }}
                     >
                       <Text style={styles.dropdownTitle}>{p.name}</Text>
-                      <Text style={styles.dropdownMeta}>Barcode: {p.barcode || '-'}</Text>
+                      <Text style={styles.dropdownMeta}>ID: {p.id} | Barcode: {p.barcode || '-'}</Text>
                     </TouchableOpacity>
                   ))}
                 </ScrollView>

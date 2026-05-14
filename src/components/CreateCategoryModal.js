@@ -191,6 +191,8 @@ export default function CreateCategoryModal({ visible, onClose, onCreated }) {
         headers: {
           'Content-Type': 'application/json',
           access_token: token,
+            'credentials': 'omit',
+         'Cookie': 'session_id'
         },
         body: JSON.stringify(body),
       });

@@ -242,24 +242,18 @@ export default function InvoiceStepperModal({
     const invoiceDb = await fetchVendorDbName();
     
     // Filter: only linked rows where source equals icms_store (or no source field)
-    const linkedRows = (rows || [])
-      .filter((r) => {
-        const hasBarcode = String(r?.barcode ?? '').trim().length > 0;
-        if (!hasBarcode) return false;
-        
-        // If source exists, only include if it matches icms_store
-        if (r?.source) {
-          return String(r.source).trim() === String(icms_store).trim();
-        }
-        
-        // If no source field, include the product
-        return true;
-      })
-      .map((item) => ({
-        ...item,
-        isStockUpdated: item?.isStockUpdated ?? false,
-        tableDataCopyElement: { ...item }
-      }));
+    const linkedRows = (rows || []).filter((r) => {
+      const hasBarcode = String(r?.barcode ?? '').trim().length > 0;
+      if (!hasBarcode) return false;
+      
+      // If source exists, only include if it matches icms_store
+      if (r?.source) {
+        return String(r.source).trim() === String(icms_store).trim();
+      }
+      
+      // If no source field, include the product
+      return true;
+    });
     
     const body = {
       invoiceName,
@@ -437,7 +431,7 @@ export default function InvoiceStepperModal({
                         <View style={styles.previewRow}>
                           <Text style={styles.previewMain} numberOfLines={1}>{item?.description || '-'}</Text>
                             <Text style={styles.previewSub}>Barcode: {item?.barcode || '-'}</Text>
-                          <Text style={styles.previewSub}>Item: {item?.itemNo || '-'} • Qty: {item?.qty || '-'} • Case Cost: {item?.unitPrice || '-'}</Text>
+                          <Text style={styles.previewSub}>Item: {item?.itemNo || '-'} • Qty: {item?.qty || '-'} • Cost: {item?.unitPrice || '-'}</Text>
                           <View style={styles.step2BtnRow}>
                             <TouchableOpacity
                               style={[styles.confirmLinkBtn, loadingConfirmId === (item?.ProductId || item?.itemNo) && styles.confirmLinkBtnDisabled]}

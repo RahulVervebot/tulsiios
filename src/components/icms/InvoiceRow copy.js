@@ -43,11 +43,12 @@ const InvoiceRow = ({ item, index, categoryMetaByDept = {}, isExpanded, selected
     const hideUnlinkButton = isBaseUnlinked || !isicmsdata || isStockUpdated;
     const showCheckbox = hasBarcode && !isCentral && !isStockUpdated;
     const deptKey = String(item?.department ?? '').trim().toLowerCase();
-    const pricingMeta = categoryMetaByDept?.[deptKey] || { margin: 0, markup: 0 };
+    const pricingMeta = categoryMetaByDept?.[deptKey] || { margin: 0, markup: 0, pp: 0 };
     const margin = Number(pricingMeta?.margin ?? 0);
     const markup = Number(pricingMeta?.markup ?? 0);
+    const pp = Number(pricingMeta?.pp ?? 0);
     const cpNum = Number(item?.cp ?? 0);
-    
+    const appliedRate = margin !== 0 ? margin : (markup !== 0 ? markup : (pp !== 0 ? pp : 0));
     const roundToNearestLimitedDecimal = (value) => {
       const num = Number(value);
       if (!Number.isFinite(num)) return null;
@@ -73,23 +74,11 @@ const InvoiceRow = ({ item, index, categoryMetaByDept = {}, isExpanded, selected
       }
       return Number(best.toFixed(2));
     };
-    
     const newcost = Number((item.unitPrice / item.pieces).toFixed(2));
-    
-    let calculatedPrice;
-    if (margin !== 0) {
-      // For margin: newSellingPrice = newcost / (1 - margin / 100)
-      calculatedPrice = newcost / (1 - margin / 100);
-    } else if (markup !== 0) {
-      // For markup: newSellingPrice = newcost * (1 + markup / 100)
-      calculatedPrice = newcost * (1 + markup / 100);
-    } else {
-      calculatedPrice = null;
-    }
-    
-    const newSellingPrice = calculatedPrice !== null
-      ? roundToNearestLimitedDecimal(calculatedPrice)
-      : (item?.sellingPrice != null ? String(item.sellingPrice) : '-');
+    const newSellingPrice =
+       appliedRate !== 0
+        ? roundToNearestLimitedDecimal(newcost + (newcost * appliedRate) / 100)
+        : (item?.sellingPrice != null ? String(item.sellingPrice) : '-');
 
     // Update parent with new selling price
     React.useEffect(() => {
@@ -257,7 +246,8 @@ const InvoiceRow = ({ item, index, categoryMetaByDept = {}, isExpanded, selected
               // ['Unit Price', `$${item.sellingPrice ?? 0}`],
               ...(margin !== 0 ? [['Category Margin', `${margin}%`]] : []),
               ...(margin === 0 && markup !== 0 ? [['Category Markup', `${markup}%`]] : []),
-              ...(margin !== 0 || markup !== 0 ? [['New Unit Price', `$${newSellingPrice}`]] : []),
+              ...(margin === 0 && markup === 0 && pp !== 0 ? [['Category Profit Percentage', `${pp}%`]] : []),
+              ...(margin !== 0 || markup !== 0 || pp !== 0 ? [['New Unit Price', `$${newSellingPrice}`]] : []),
               ['(Inv) Case Cost', `$${item.unitPrice}`],
               ['(Inv) Extended Price', `${item.extendedPrice}`],
             ].map(([label, value], idx, arr) => (

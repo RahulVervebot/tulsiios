@@ -62,6 +62,7 @@ import CartIcon from './src/assets/icons/inventory_1.svg';
 import POSIcon from './src/assets/icons/payment_2.svg';
 import ReportIcon from './src/assets/icons/Reportsicon.svg'; 
 import UserList from './src/screens/UserList.js';
+import { getPosAuthStatus } from './src/functions/users/function.js';
 const Stack = createNativeStackNavigator();
 const Drawer = createDrawerNavigator();
 const Tab = createBottomTabNavigator();
@@ -97,6 +98,24 @@ function CustomDrawerContent(props) {
 // ---------- Bottom Tabs ----------
 function BottomTabs() {
   const insets = useSafeAreaInsets();
+  const [isAllowIcms, setIsAllowIcms] = useState(false);
+
+  useEffect(() => {
+    const loadIcmsPermission = async () => {
+      try {
+        const storedAllowIcms = await AsyncStorage.getItem('is_allow_tulsi_ai');
+        setIsAllowIcms(storedAllowIcms === 'true');
+        // console.log('[ICMS Permission] Loaded:', storedAllowIcms);
+      } catch (error) {
+        console.log('Error loading ICMS permission:', error);
+      }
+    };
+    loadIcmsPermission();
+    
+    // Set up interval to check for permission changes
+    const interval = setInterval(loadIcmsPermission, 2000);
+    return () => clearInterval(interval);
+  }, []);
 
   const BAR_PAD_BOTTOM = Math.max(insets.bottom, Platform.OS === 'android' ? 8 : 0);
   const BAR_HEIGHT = 60 + BAR_PAD_BOTTOM;
@@ -159,7 +178,7 @@ function BottomTabs() {
       <Tab.Screen name="ProductScreen" component={ProductScreen} />
       <Tab.Screen name="Report" component={ReportScreen} />
       <Tab.Screen name="POSScreen" component={POSScreen} />
-       <Tab.Screen name="ICMSScreen" component={ICMSScreen} />
+      {isAllowIcms && <Tab.Screen name="ICMSScreen" component={ICMSScreen} />}
     </Tab.Navigator>
   );
 }
@@ -194,6 +213,7 @@ function getActiveRouteName(state) {
 
 export default function App() {
   const [chatOpen, setChatOpen] = useState(false);
+  const [isAllowTulsiChatSupport, setIsAllowTulsiChatSupport] = useState(false);
 
   const [initialRoute, setInitialRoute] = useState(null);
   const [activeRouteName, setActiveRouteName] = useState('');
@@ -215,6 +235,65 @@ export default function App() {
   useEffect(() => {
     console.log('[ChatOverlay] activeRouteName:', activeRouteName, 'hidden:', CHAT_HIDDEN_ROUTES.has(activeRouteName));
   }, [activeRouteName]);
+  
+  useEffect(() => {
+    const loadChatPermission = async () => {
+      try {
+        const storedAllowChat = await AsyncStorage.getItem('is_allow_tulsi_chat_support');
+        setIsAllowTulsiChatSupport(storedAllowChat === 'true');
+        console.log('[Chat Permission] Loaded:', storedAllowChat);
+      } catch (error) {
+        console.log('Error loading chat permission:', error);
+      }
+    };
+    
+    // Reload permission when navigating to logged-in screens
+    if (activeRouteName && activeRouteName !== 'Login') {
+      loadChatPermission();
+    }
+  }, [activeRouteName]);
+
+  // Periodic auth check every 5 seconds
+  useEffect(() => {
+    const checkAuthStatus = async () => {
+      // Only check if user is logged in (not on Login screen)
+      if (activeRouteName === 'Login' || !activeRouteName) {
+        return;
+      }
+
+      try {
+        const result = await getPosAuthStatus();
+        if (result?.message === 'OK') {
+          console.log('Auth status: OK');
+        }
+      } catch (error) {
+        console.log('Auth check error:', error?.message);
+        // Check if it's a 401 error
+        if (error?.status === 401) {
+          console.log('Unauthorized - navigating to Login');
+          // Clear stored credentials
+          await AsyncStorage.removeItem('access_token');
+          await AsyncStorage.removeItem('userId');
+          // Navigate to login
+          if (navigationRef.current) {
+            navigationRef.current.reset({
+              index: 0,
+              routes: [{ name: 'Login' }],
+            });
+          }
+        }
+      }
+    };
+
+    // Run immediately on mount
+    checkAuthStatus();
+
+    // Set up interval to run every 60 seconds
+    const interval = setInterval(checkAuthStatus, 60000); 
+
+    return () => clearInterval(interval);
+  }, [activeRouteName]);
+  
   useEffect(() => {
     const checkLogin = async () => {
       try {
@@ -373,7 +452,7 @@ export default function App() {
           />
           </Stack.Navigator>
 
-          {!CHAT_HIDDEN_ROUTES.has(activeRouteName) && <ChatOverlay />}
+          {!CHAT_HIDDEN_ROUTES.has(activeRouteName) && isAllowTulsiChatSupport && <ChatOverlay />}
         </View>
         </NavigationContainer>
       </SafeAreaProvider>

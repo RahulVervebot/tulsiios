@@ -26,6 +26,28 @@ import CreateCategoryModal from './CreateCategoryModal';
 const STORE_URL_KEY = 'storeurl';
 const ACCESS_TOKEN_KEY = 'access_token';
 
+/**
+ * Build generic headers for API requests
+ * @param {string} token - Access token
+ * @param {object} options - Additional options
+ * @param {boolean} options.includeContentType - Whether to include Content-Type header
+ * @returns {object} Headers object
+ */
+function buildHeaders(token, options = {}) {
+  const headers = {
+    accept: 'application/json',
+    access_token: token,
+    credentials: 'omit',
+    Cookie: 'session_id',
+  };
+
+  if (options.includeContentType) {
+    headers['Content-Type'] = 'application/json';
+  }
+
+  return headers;
+}
+
 export default function CategoryListScreen() {
   const navigation = useNavigation();
   const [storeUrl, setStoreUrl] = useState('');
@@ -66,7 +88,7 @@ export default function CategoryListScreen() {
       const url = `${storeUrl}/pos/app/categories`;
       const res = await fetch(url, {
         method: 'GET',
-        headers: { accept: 'application/json', access_token: token },
+        headers: buildHeaders(token),
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const json = await res.json();
@@ -245,7 +267,7 @@ export default function CategoryListScreen() {
 
       const res = await fetch(url, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json', access_token: token },
+        headers: buildHeaders(token, { includeContentType: true }),
         body: JSON.stringify(body),
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}: ${await res.text()}`);

@@ -20,6 +20,7 @@ import { SvgUri } from "react-native-svg";
 import { useNavigation } from "@react-navigation/native";
 import PrinterIcon from '../assets/icons/Printericon.svg';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+
 // Tab button supporting SVG or raster icon
 
 function TabButton({ label, iconUri, active, onPress, activeColor, inactiveColor = "#fff" }) {
@@ -202,55 +203,6 @@ useEffect(() => {
         <View style={styles.listArea}>
           <CategoriesRow />
          </View>
-
-        {/* ✅ Global floating cart overlay */}
-        {cart.length > 0 && (
-          <View
-            pointerEvents="box-none"
-            style={{
-              position: "absolute",
-              left: 0,
-              right: 0,
-              bottom: 0,
-            }}
-          >
-            <TouchableOpacity
-              onPress={() => navigation.navigate("Cart")}
-              style={{
-                alignSelf: "flex-end",
-                marginRight: 16,
-                marginBottom: tabBarOffset,
-                backgroundColor: "#2c1e70",
-                paddingVertical: 12,
-                paddingHorizontal: 16,
-                borderRadius: 30,
-                elevation: 6,
-                shadowColor: "#000",
-                shadowOpacity: 0.25,
-                shadowRadius: 8,
-                shadowOffset: { width: 0, height: 4 },
-                zIndex: 9999,
-              }}
-            >
-              <Text style={{ color: "#fff", fontWeight: "700" }}>🛒 {cart.length}</Text>
-            </TouchableOpacity>
-          </View>
-        )}
-
-         {/* ✅ Global floating Print overlay */}
-        {print.length > 0 && (
-         
-                  
-            <TouchableOpacity
-              onPress={() => navigation.navigate("PrintScreen")}
-               activeOpacity={0.85}
-           style={[styles.createPrint, { bottom: 16 + insets.bottom }]}
-            >
-            <PrinterIcon width={20} height={20} fill={"#fff"}/>
-             <Text style={{ color: "#fff", fontWeight: "700" }}> {print.length}</Text>
-            </TouchableOpacity>
-     
-        )}
 
       </View>
 

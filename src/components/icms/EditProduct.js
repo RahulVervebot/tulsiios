@@ -31,18 +31,19 @@ function EditProduct({ visible, item, InvoiceDate, InvNumber, vendorName, onClos
     return Number.isFinite(n) ? n : null;
   };
   const to2 = (v) => Number(v).toFixed(2);
-  
+   
   const handleLinkedNumericChange = (field, text) => {
     // Update text state
     if (field === 'qty') setQtyText(text);
     if (field === 'unitPrice') setUnitPriceText(text);
     if (field === 'extendedPrice') setExtendedPriceText(text);
-
+    const newcost = Number((parseNum(field === 'unitPrice' ? text : unitPriceText) / editedItem.pieces).toFixed(2));
+    console.log("new cost:", newcost,"cost",unitPriceText,"pieces:",editedItem.pieces);
     const next = {
       qty: parseNum(field === 'qty' ? text : qtyText),
       unitPrice: parseNum(field === 'unitPrice' ? text : unitPriceText),
       extendedPrice: parseNum(field === 'extendedPrice' ? text : extendedPriceText),
-      cp: parseNum(editedItem?.unitPrice / editedItem?.pieces),
+      cp: newcost
     };
 
     if (field === 'qty') {
@@ -118,7 +119,7 @@ function EditProduct({ visible, item, InvoiceDate, InvNumber, vendorName, onClos
     InvoiceItemNo: editedItem.itemNo,
     ProductId: editedItem.ProductId,
     };
-
+   console.log("edited items:", editedItem);
     try {
       const token = await AsyncStorage.getItem('access_token');
       const icms_store = await AsyncStorage.getItem('icms_store');

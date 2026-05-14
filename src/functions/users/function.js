@@ -2,6 +2,29 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   Alert,
 } from 'react-native';
+
+/**
+ * Build generic headers for API requests
+ * @param {string} token - Access token
+ * @param {object} options - Additional options
+ * @param {boolean} options.includeContentType - Whether to include Content-Type header
+ * @returns {object} Headers object
+ */
+function buildHeaders(token, options = {}) {
+  const headers = {
+    accept: 'application/json',
+    access_token: token,
+    credentials: 'omit',
+    Cookie: 'session_id',
+  };
+
+  if (options.includeContentType) {
+    headers['Content-Type'] = 'application/json';
+  }
+
+  return headers;
+}
+
 // Get all POS users
 export async function getPosUsers() {
   const [storeUrl, baseUrl, token] = await Promise.all([
@@ -17,11 +40,7 @@ export async function getPosUsers() {
 
   const res = await fetch(`${apiBase}/pos/app/pos_get_users`, {
     method: 'POST',
-    headers: {
-      accept: 'application/json',
-      'Content-Type': 'application/json',
-      access_token: token,
-    },
+    headers: buildHeaders(token, { includeContentType: true }),
     body: JSON.stringify({}),
   });
 
@@ -51,11 +70,7 @@ export async function createPosUser({ name, email, login, password, pos_role }) 
 
   const res = await fetch(`${apiBase}/pos/app/pos_create_user`, {
     method: 'POST',
-    headers: {
-      accept: 'application/json',
-      'Content-Type': 'application/json',
-      access_token: token,
-    },
+    headers: buildHeaders(token, { includeContentType: true }),
     body: JSON.stringify({
       name,
       email,
@@ -89,11 +104,7 @@ export async function updatePosUser(userId, updates = {}) {
 
   const res = await fetch(`${apiBase}/pos/app/pos_update_user`, {
     method: 'POST',
-    headers: {
-      accept: 'application/json',
-      'Content-Type': 'application/json',
-      access_token: token,
-    },
+    headers: buildHeaders(token, { includeContentType: true }),
     body: JSON.stringify({
       user_id: userId,
       ...updates,
@@ -120,10 +131,7 @@ export async function getPosAuthStatus() {
 
   const res = await fetch(`${storeUrl}/api/verify-token`, {
     method: 'GET',
-    headers: {
-      accept: 'application/json',
-      access_token: token,
-    },
+    headers: buildHeaders(token),
   });
 
   console.log('Auth status response status:', res.status);
