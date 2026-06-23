@@ -22,9 +22,9 @@ import POSIcon from '../assets/icons/payment_2.svg';
 import Icon from 'react-native-vector-icons/MaterialIcons';
 import TulsiIcon from '../assets/icons/inventory_1.svg';
 import { dbPromise } from '../firebaseConfig';
-
 import Chat from '../components/Chat';
- import { tagDeviceWithStoreUrl } from '../config/OneSignalConfig';
+import { tagDeviceWithStoreUrl } from '../config/OneSignalConfig';
+ 
 const LIGHT_GREEN = '#e6f6ec';
 const HEADER_FALLBACK = '#ffffff';
 
@@ -59,7 +59,6 @@ const cards = [
   },
 ];
 
-
 export default function Dashboard() {
   const navigation = useNavigation();
   const insets = useSafeAreaInsets();
@@ -68,6 +67,7 @@ export default function Dashboard() {
   const [userEmail, setUserEmail] = useState('');
   const [userRole, setUserRole] = useState('');
   const [isUserSettingVisible, setIsUserSettingVisible] = useState(false);
+ const [isDeveloperSetting, setIsDeveloperSetting] = useState(false);
   const [isAllowTulsiAi, setIsAllowTulsiAi] = useState(false);
   const [storeOptions, setStoreOptions] = useState([]);
   const [selectedStore, setSelectedStore] = useState(null);
@@ -83,7 +83,7 @@ export default function Dashboard() {
   const chatAuthInFlightRef = useRef(false);
   const [chatOpen, setChatOpen] = useState(false);
   const [developerMode, setDeveloperMode] = useState(false);
-
+const [localIcmsUrl, setLocalIcmsUrl] = useState('');
   useEffect(() => {
     const loadHeader = async () => {
       try {
@@ -304,7 +304,6 @@ export default function Dashboard() {
         ['chat_ai_baseurl', String(selectedStore.chat_ai_baseurl || '')],
         ['storepin', String(selectedStore.storepin || '')],
       ]);
-     
 
       const url = joinUrl(selectedStore.storeurl, '/pos/app/login');
       console.log('Switch login request URL:', url);
@@ -334,7 +333,7 @@ export default function Dashboard() {
         return;
       }
 
-      const { pos_role, access_token, expiry, user_full_name, user_context, is_user_setting_visible_in_app, is_allow_tulsi_ai, is_allow_icms, is_allow_tulsi_chat_support, is_promotion_accessible, is_product_edit_permission_in_app } = data.result || {};
+      const { pos_role, access_token, expiry, user_full_name, user_context, is_user_setting_visible_in_app, is_allow_tulsi_ai, is_allow_icms, is_allow_tulsi_chat_support, is_promotion_accessible, is_product_edit_permission_in_app, enable_developer_mode_in_app } = data.result || {};
       await AsyncStorage.multiSet([
         ['userRole', String(pos_role || '')],
         ['access_token', String(access_token || '')],
@@ -346,6 +345,7 @@ export default function Dashboard() {
         ['password', String(passwordToUse || '')],
         ['storepin', String(selectedStore.storepin || '')],
         ['is_user_setting_visible_in_app', String(is_user_setting_visible_in_app || 'false')],
+        ['enable_developer_mode_in_app', String(enable_developer_mode_in_app || 'false')],
         ['is_allow_tulsi_ai', String(is_allow_tulsi_ai || 'false')],
         ['is_allow_icms', String(is_allow_icms || 'false')],
         ['is_allow_tulsi_chat_support', String(is_allow_tulsi_chat_support || 'false')],
@@ -365,6 +365,7 @@ export default function Dashboard() {
       setUserName(String(user_full_name || ''));
       setUserRole(String(pos_role || ''));
       setIsUserSettingVisible(is_user_setting_visible_in_app === true || is_user_setting_visible_in_app === 'true');
+      setIsDeveloperSetting(enable_developer_mode_in_app);
       setIsAllowTulsiAi(is_allow_tulsi_ai === true || is_allow_tulsi_ai === 'true');
       setSwitchPassword('');
       setSwitchPin('');
@@ -390,6 +391,9 @@ export default function Dashboard() {
         const storedEmail = await AsyncStorage.getItem('userEmail');
         const storedRole = await AsyncStorage.getItem('userRole');
         const storedSettingVisible = await AsyncStorage.getItem('is_user_setting_visible_in_app');
+       const storedLocalIcmsUrl = await AsyncStorage.getItem('local_icms_url');
+        const enableDeveloper = await AsyncStorage.getItem('enable_developer_mode_in_app');
+      console.log(enableDeveloper, 'enableDeveloper');
         const storedAllowTulsiAi = await AsyncStorage.getItem('is_allow_tulsi_ai');
         const storedDeveloperMode = await AsyncStorage.getItem('developer_mode');
         setUserName(storedName || '');
@@ -398,6 +402,8 @@ export default function Dashboard() {
         setIsUserSettingVisible(storedSettingVisible === 'true');
         setIsAllowTulsiAi(storedAllowTulsiAi === 'true');
         setDeveloperMode(storedDeveloperMode === 'true');
+        setIsDeveloperSetting(enableDeveloper);
+        setLocalIcmsUrl(storedLocalIcmsUrl || '');
       } catch (e) {
         setUserName('');
         setUserEmail('');
@@ -405,10 +411,28 @@ export default function Dashboard() {
         setIsUserSettingVisible(false);
         setIsAllowTulsiAi(false);
         setDeveloperMode(false);
+        setLocalIcmsUrl('');
       }
     };
     loadUser();
   }, []);
+
+  const handleSaveLocalIcmsUrl = useCallback(async () => {
+  const value = localIcmsUrl.trim();
+
+  if (!value) {
+    Alert.alert('Missing URL', 'Please enter local Tulsi Ai URL.');
+    return;
+  }
+
+  try {
+    await AsyncStorage.setItem('local_icms_url', value);
+    Alert.alert('Success', 'Local Tulsi Ai URL saved successfully.');
+  } catch (error) {
+    console.error('Failed to save local Tulsi Ai URL:', error);
+    Alert.alert('Error', 'Failed to save local Tulsi Ai URL.');
+  }
+}, [localIcmsUrl]);
 
   const initials = useMemo(() => {
     if (!userName) return 'U';
@@ -489,26 +513,54 @@ export default function Dashboard() {
               </TouchableOpacity>
             </View>
           </View>
-          
-          {isUserSettingVisible && (
-            <View style={styles.developerModeSection}>
-              <View style={styles.developerModeContent}>
-                <View style={styles.developerModeInfo}>
-                  <Text style={styles.developerModeLabel}>Developer Mode</Text>
-                  <Text style={styles.developerModeDescription}>
-                    {developerMode ? 'Advanced features enabled' : 'Enable advanced features'}
-                  </Text>
-                </View>
-                <Switch
-                  value={developerMode}
-                  onValueChange={handleDeveloperModeToggle}
-                  trackColor={{ false: '#d1d5db', true: '#86efac' }}
-                  thumbColor={developerMode ? '#2a8a4f' : '#f3f4f6'}
-                  ios_backgroundColor="#d1d5db"
-                />
-              </View>
-            </View>
-          )}
+
+     {isDeveloperSetting == 'true' && (
+     <View style={styles.developerModeSection}>
+      <View style={styles.developerModeContent}>
+      <View style={styles.developerModeInfo}>
+        <Text style={styles.developerModeLabel}>Developer Mode</Text>
+        <Text style={styles.developerModeDescription}>
+          {developerMode ? 'Advanced features enabled' : 'Enable advanced features'}
+        </Text>
+       </View>
+
+      <Switch
+        value={developerMode}
+        onValueChange={handleDeveloperModeToggle}
+        trackColor={{ false: '#d1d5db', true: '#86efac' }}
+        thumbColor={developerMode ? '#2a8a4f' : '#f3f4f6'}
+        ios_backgroundColor="#d1d5db"
+      />
+    </View>
+
+    {developerMode && (
+      <View style={styles.localIcmsWrap}>
+        <Text style={styles.localIcmsLabel}>Local TulsiAi URL / IP</Text>
+
+        <View style={styles.localIcmsRow}>
+          <TextInput
+            style={styles.localIcmsInput}
+            placeholder="Example: 192.168.1.10:8069"
+            placeholderTextColor="#9CA3AF"
+            value={localIcmsUrl}
+            onChangeText={setLocalIcmsUrl}
+            autoCapitalize="none"
+            autoCorrect={false}
+            keyboardType="url"
+          />
+
+          <TouchableOpacity
+            style={styles.localIcmsSaveButton}
+            onPress={handleSaveLocalIcmsUrl}
+            activeOpacity={0.85}
+          >
+            <Text style={styles.localIcmsSaveText}>Save</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    )}
+  </View>
+)}
         </View>
 
         <View style={styles.grid}>
@@ -530,7 +582,7 @@ export default function Dashboard() {
               </TouchableOpacity>
             );
           })}
-          
+
         </View>
 
       </ScrollView>
@@ -921,4 +973,47 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontWeight: '700',
   },
+  localIcmsWrap: {
+  marginTop: 14,
+},
+
+localIcmsLabel: {
+  fontSize: 13,
+  fontWeight: '700',
+  color: '#163e25',
+  marginBottom: 8,
+},
+
+localIcmsRow: {
+  flexDirection: 'row',
+  alignItems: 'center',
+  gap: 8,
+},
+
+localIcmsInput: {
+  flex: 1,
+  minHeight: 42,
+  backgroundColor: '#F3F4F6',
+  borderRadius: 10,
+  paddingHorizontal: 12,
+  color: '#111827',
+  fontSize: 13,
+  borderWidth: 1,
+  borderColor: '#dbe7df',
+},
+
+localIcmsSaveButton: {
+  minHeight: 42,
+  paddingHorizontal: 16,
+  borderRadius: 10,
+  backgroundColor: '#2a8a4f',
+  alignItems: 'center',
+  justifyContent: 'center',
+},
+
+localIcmsSaveText: {
+  color: '#ffffff',
+  fontSize: 13,
+  fontWeight: '700',
+},
 });

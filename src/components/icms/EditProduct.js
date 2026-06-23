@@ -22,6 +22,7 @@ function EditProduct({ visible, item, InvoiceDate, InvNumber, vendorName, onClos
   const [loading, setLoading] = useState(false);
   const [editedItem, setEditedItem] = useState(item);
   const [qtyText, setQtyText] = useState('');
+ const [piecesText, setPiecesText] = useState('');
   const [unitPriceText, setUnitPriceText] = useState('');
   const [extendedPriceText, setExtendedPriceText] = useState('');
   const isStockUpdated = item?.isStockUpdated === true || item?.isStockUpdated === 'true';
@@ -31,16 +32,18 @@ function EditProduct({ visible, item, InvoiceDate, InvNumber, vendorName, onClos
     return Number.isFinite(n) ? n : null;
   };
   const to2 = (v) => Number(v).toFixed(2);
-   
+
   const handleLinkedNumericChange = (field, text) => {
     // Update text state
     if (field === 'qty') setQtyText(text);
+    if (field === 'pieces') setPiecesText(text);
     if (field === 'unitPrice') setUnitPriceText(text);
     if (field === 'extendedPrice') setExtendedPriceText(text);
     const newcost = Number((parseNum(field === 'unitPrice' ? text : unitPriceText) / editedItem.pieces).toFixed(2));
     console.log("new cost:", newcost,"cost",unitPriceText,"pieces:",editedItem.pieces);
     const next = {
       qty: parseNum(field === 'qty' ? text : qtyText),
+      pieces: parseNum(field === 'pieces' ? text : piecesText),
       unitPrice: parseNum(field === 'unitPrice' ? text : unitPriceText),
       extendedPrice: parseNum(field === 'extendedPrice' ? text : extendedPriceText),
       cp: newcost
@@ -79,6 +82,7 @@ function EditProduct({ visible, item, InvoiceDate, InvNumber, vendorName, onClos
       unitPrice: next.unitPrice ?? 0,
       cp: next.cp ?? 0,
       extendedPrice: next.extendedPrice ?? 0,
+      pieces: next.pieces ?? 0,
     });
   };
 
@@ -87,6 +91,7 @@ function EditProduct({ visible, item, InvoiceDate, InvNumber, vendorName, onClos
     if (visible && item) {
       setEditedItem(item);
       setQtyText(String(item?.qty ?? ''));
+      setPiecesText(String(item?.pieces ?? ''));
       setUnitPriceText(String(item?.unitPrice ?? ''));
       setExtendedPriceText(String(item?.extendedPrice ?? ''));
     }
@@ -157,19 +162,73 @@ function EditProduct({ visible, item, InvoiceDate, InvNumber, vendorName, onClos
     }
   };
 
-  const onPressSave = async () => {
-    // If you also want to persist local edits upstream:
-    const ok = await handleUpdateInvoice();
-    if (!ok) return;
-    onSave?.(editedItem, true);
-    onClose?.();
+  const handleUpdateCaseInvoice = async () => {
+    try {
+      const token = await AsyncStorage.getItem('access_token');
+      const icms_store = await AsyncStorage.getItem('icms_store');
+      const app_url = await AsyncStorage.getItem('storeurl');
+      const person = await AsyncStorage.getItem('userEmail') || '';
+
+      const today = new Date();
+      const lastUpdationDate = `${today.getFullYear()}-${today.getMonth() + 1}-${today.getDate()}`;
+
+      const bodydata = {
+        invoiceName: vendorName,
+        value: {
+          Item: editedItem.itemNo,
+          Quantity: editedItem.pieces,
+          InvoiceName: vendorName,
+          InvoiceDate: InvoiceDate,
+          Size: editedItem.size || editedItem.Size || '',
+          InvoiceNo: InvNumber,
+          ProductId: editedItem.ProductId,
+          SerialNoInInv: editedItem.SerialNoInInv || editedItem.serialNoInInv,
+          itemNo: editedItem.itemNo,
+          invoiceNo: InvNumber,
+          invoiceSavedDate: InvoiceDate,
+          invoiceName: vendorName,
+          oldunitInCase: String(item.pieces ?? ''),
+          unitInCase: editedItem.pieces,
+          invUnitCost: String(editedItem.cp ?? ''),
+          lastUpdationDate,
+          person,
+          barcode: editedItem.barcode || '',
+        },
+      };
+
+      console.log('Case invoice update body:', bodydata);
+
+      const res = await fetch(API_ENDPOINTS.UPDATE_INVOICE_CASE, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          'access_token': token ?? '',
+          'mode': 'MOBILE',
+          'store': icms_store ?? '',
+          'app_url': app_url ?? '',
+        },
+        body: JSON.stringify(bodydata),
+      });
+
+      const data = await res.json().catch(() => ({}));
+      console.log('Case invoice update response:', data);
+
+      if (!res.ok) {
+        console.warn('Case invoice update failed:', data);
+      }
+    } catch (err) {
+      console.error('Error updating case invoice:', err);
+    }
   };
 
-  const handleNumericDone = () => {
-    // Dismiss keyboard
-    if (this?.input?.blur) {
-      this.input.blur();
+  const onPressSave = async () => {
+    const ok = await handleUpdateInvoice();
+    if (!ok) return;
+    if (editedItem.pieces !== item.pieces) {
+      await handleUpdateCaseInvoice();
     }
+    onSave?.(editedItem, true);
+    onClose?.();
   };
 
   return (
@@ -232,6 +291,18 @@ function EditProduct({ visible, item, InvoiceDate, InvNumber, vendorName, onClos
                         onChangeText={(text) => handleLinkedNumericChange('qty', text)}
                         onSubmitEditing={() => {}}
                         placeholder="Qty Shipped"
+                        style={styles.input}
+                        placeholderTextColor="#6b7280"
+                      />
+
+                       <Text style={styles.labelText}>Unit in Case:</Text>
+                      <TextInput
+                        value={piecesText}
+                        keyboardType="decimal-pad"
+                        returnKeyType="done"
+                        onChangeText={(text) => handleLinkedNumericChange('pieces', text)}
+                        onSubmitEditing={() => {}}
+                        placeholder="Unit in Case"
                         style={styles.input}
                         placeholderTextColor="#6b7280"
                       />

@@ -134,23 +134,25 @@ export default function ProductSearch() {
           
           // Check if first product has variants array
           let list = [];
-          let isVariantList = false;
           if (Array.isArray(json?.products) && json.products.length > 0) {
             const firstProduct = json.products[0];
             if (Array.isArray(firstProduct?.variants) && firstProduct.variants.length > 0) {
-              // Show variants instead of the parent product
-              list = firstProduct.variants;
-              isVariantList = true;
+              // Show both parent and variants
+              // Add parent product first with marker
+              list.push({ ...firstProduct, isParentProduct: true });
+              // Add all variants with marker
+              firstProduct.variants.forEach(variant => {
+                list.push({ ...variant, isVariantProduct: true });
+              });
             } else {
               // Show regular products
               list = json.products;
-              isVariantList = false;
             }
           }
           
-          console.log("📦 Products/Variants found:", list.length, "| IsVariants:", isVariantList);
+          console.log("📦 Products/Variants found:", list.length);
           setResults(list);
-          setAreResultsVariants(isVariantList);
+          setAreResultsVariants(false);
         } catch (err) {
           console.error("❌ Search error:", err?.message);
           setResults([]);
@@ -169,13 +171,13 @@ const runQueryWithBarcode = async (barcode) => {
 
   setScannerVisible(false);
 
-  const searchProduct = async (query) => {
+  const searchProduct = async (query, storeUrlValue, accessTokenValue) => {
     const res = await fetch(
-      `${storeURL}/pos/app/product/search?query=${encodeURIComponent(query)}`,
+      `${storeUrlValue}/pos/app/product/search?query=${encodeURIComponent(query)}`,
       {
         method: "GET",
         headers: {
-          access_token: access_token,
+          access_token: accessTokenValue,
           accept: "application/json",
           credentials: 'omit',
           Cookie: 'session_id',
@@ -201,6 +203,14 @@ const runQueryWithBarcode = async (barcode) => {
       return;
     }
 
+    const tokenValue = access_token || (await AsyncStorage.getItem("access_token"));
+    const storeUrlValue = storeURL || (await AsyncStorage.getItem("storeurl"));
+
+    if (!tokenValue || !storeUrlValue) {
+      Alert.alert("Error", "Missing token or URL. Please login again.");
+      return;
+    }
+
     const attempts = [];
     const tried = new Set();
 
@@ -216,15 +226,19 @@ const runQueryWithBarcode = async (barcode) => {
     if (originalBarcode.length > 1) {
       attempts.push(originalBarcode.slice(0, -1));
     }
-
+ 
     // 4. remove first and last digit
     if (originalBarcode.length > 2) {
       attempts.push(originalBarcode.slice(1, -1));
     }
-
+   // 5. if starts with 00, remove  zero
+    if (originalBarcode.startsWith("00") && originalBarcode.length > 2) {
+      attempts.push(originalBarcode.slice(2));
+    }
     let foundList = [];
     let matchedBarcode = originalBarcode;
     let hasVariants = false;
+    let parentProduct = null;
 
     for (const attempt of attempts) {
       const cleaned = String(attempt || "").trim();
@@ -232,7 +246,7 @@ const runQueryWithBarcode = async (barcode) => {
 
       tried.add(cleaned);
 
-      const result = await searchProduct(cleaned);
+      const result = await searchProduct(cleaned, storeUrlValue, tokenValue);
       
       // Check if products array exists and has items
       if (Array.isArray(result?.products) && result.products.length > 0) {
@@ -240,15 +254,31 @@ const runQueryWithBarcode = async (barcode) => {
         
         // Check if first product has variants array
         if (Array.isArray(firstProduct?.variants) && firstProduct.variants.length > 0) {
-          foundList = firstProduct.variants;
-          hasVariants = true;
+          // Filter variants to show only exact barcode match for this attempt
+          const exactMatches = firstProduct.variants.filter(v => 
+            String(v?.barcode || "").trim() === cleaned
+          );
+          
+          if (exactMatches.length > 0) {
+            foundList = exactMatches;
+            hasVariants = true;
+            parentProduct = firstProduct; // Store parent product
+            matchedBarcode = cleaned;
+            break;
+          }
         } else {
-          foundList = result.products;
-          hasVariants = false;
+          // Filter regular products to show only exact barcode match for this attempt
+          const exactMatches = result.products.filter(p => 
+            String(p?.barcode || "").trim() === cleaned
+          );
+          
+          if (exactMatches.length > 0) {
+            foundList = exactMatches;
+            hasVariants = false;
+            matchedBarcode = cleaned;
+            break;
+          }
         }
-        
-        matchedBarcode = cleaned;
-        break;
       }
     }
 
@@ -259,9 +289,13 @@ const runQueryWithBarcode = async (barcode) => {
       setResults([]);
       setSearchText(matchedBarcode);
       setTimeout(() => {
-        variantModalRef.current?.open(foundList, (selectedProduct) => {
-          // Open VariantProductModal for variant products
-          variantProductModalRef.current?.open(selectedProduct);
+        variantModalRef.current?.open(foundList, parentProduct, (selectedProduct, isParent) => {
+          // Open VariantProductModal for variant products, ProductModal for parent
+          if (isParent) {
+            sheetRef.current?.open(selectedProduct);
+          } else {
+            variantProductModalRef.current?.open(selectedProduct);
+          }
         });
       }, 180);
     } else {
@@ -343,8 +377,8 @@ const runQueryWithBarcode = async (barcode) => {
 
   const openSheetFor = (item) => {
     setResults([]);
-    // Check if the current results are from variants array
-    if (areResultsVariants) {
+    // Check if the item is a variant or parent product
+    if (item?.isVariantProduct) {
       variantProductModalRef.current?.open(item);
     } else {
       sheetRef.current?.open(item);
@@ -415,9 +449,21 @@ const runQueryWithBarcode = async (barcode) => {
               >
                 <View style={styles.resultItem}>
                   <View style={styles.resultTitleRow}>
-                    <Text style={styles.resultTitle} numberOfLines={1}>
-                      {item?.productName}
-                    </Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, marginRight: 8 }}>
+                      <Text style={styles.resultTitle} numberOfLines={1}>
+                        {item?.productName}
+                      </Text>
+                      {item?.isParentProduct && (
+                        <View style={styles.parentBadge}>
+                          <Text style={styles.parentBadgeText}>Parent</Text>
+                        </View>
+                      )}
+                      {item?.isVariantProduct && (
+                        <View style={styles.variantBadge}>
+                          <Text style={styles.variantBadgeText}>Variant</Text>
+                        </View>
+                      )}
+                    </View>
                     <Text style={styles.resultPrice}>₹{Number(item?.salePrice || 0).toFixed(2)}</Text>
                   </View>
                   <Text style={styles.resultMeta} numberOfLines={1}>
@@ -579,6 +625,30 @@ const styles = StyleSheet.create({
   resultMeta: {
     color: "#666",
     marginTop: 2,
+  },
+  variantBadge: {
+    backgroundColor: "#3B82F6",
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 4,
+    marginLeft: 6,
+  },
+  variantBadgeText: {
+    color: "#fff",
+    fontSize: 10,
+    fontWeight: "600",
+  },
+  parentBadge: {
+    backgroundColor: "#F59E0B",
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 4,
+    marginLeft: 6,
+  },
+  parentBadgeText: {
+    color: "#fff",
+    fontSize: 10,
+    fontWeight: "600",
   },
 
   scannerRoot: {

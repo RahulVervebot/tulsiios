@@ -745,7 +745,12 @@ console.log('Filtered tableData:', tableData);
           </View>
           <Text style={styles.legendText}>AI Data</Text>
         </View>
-            <View style={styles.legendItem}>
+
+        <View style={styles.legendItem}>
+          <View style={[styles.legendBox, { backgroundColor: '#FFA500' }]} />
+          <Text style={styles.legendText}>UICEmpty</Text>
+        </View>
+        <View style={styles.legendItem}>
           <View style={[styles.legendBox, { backgroundColor: '#16A34A' }]} />
           <Text style={styles.legendText}>isStockUpdated</Text>
         </View>

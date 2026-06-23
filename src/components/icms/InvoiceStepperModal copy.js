@@ -45,12 +45,10 @@ export default function InvoiceStepperModal({
   const [continueLoading, setContinueLoading] = useState(false);
   const [icmsStore, setIcmsStore] = useState('');
   const [loadingConfirmId, setLoadingConfirmId] = useState(null);
-
   const invoiceNo = invoiceItem?.SavedInvoiceNo || '';
   const invoiceName = invoiceItem?.InvoiceName || '';
   const savedDate = invoiceItem?.SavedDate || '';
   const userEmail = invoiceItem?.UserDetailInfo?.InvoiceUpdatedby || '';
-
   const hasCompleted =
     Number(invoiceItem?.StepGuider?.currentStep || 0) === 4 &&
     invoiceItem?.StepGuider?.isCompleted === true;
@@ -242,18 +240,24 @@ export default function InvoiceStepperModal({
     const invoiceDb = await fetchVendorDbName();
     
     // Filter: only linked rows where source equals icms_store (or no source field)
-    const linkedRows = (rows || []).filter((r) => {
-      const hasBarcode = String(r?.barcode ?? '').trim().length > 0;
-      if (!hasBarcode) return false;
-      
-      // If source exists, only include if it matches icms_store
-      if (r?.source) {
-        return String(r.source).trim() === String(icms_store).trim();
-      }
-      
-      // If no source field, include the product
-      return true;
-    });
+    const linkedRows = (rows || [])
+      .filter((r) => {
+        const hasBarcode = String(r?.barcode ?? '').trim().length > 0;
+        if (!hasBarcode) return false;
+        
+        // If source exists, only include if it matches icms_store
+        if (r?.source) {
+          return String(r.source).trim() === String(icms_store).trim();
+        }
+        
+        // If no source field, include the product
+        return true;
+      })
+      .map((item) => ({
+        ...item,
+        isStockUpdated: item?.isStockUpdated ?? false,
+        tableDataCopyElement: { ...item }
+      }));
     
     const body = {
       invoiceName,
@@ -431,7 +435,7 @@ export default function InvoiceStepperModal({
                         <View style={styles.previewRow}>
                           <Text style={styles.previewMain} numberOfLines={1}>{item?.description || '-'}</Text>
                             <Text style={styles.previewSub}>Barcode: {item?.barcode || '-'}</Text>
-                          <Text style={styles.previewSub}>Item: {item?.itemNo || '-'} • Qty: {item?.qty || '-'} • Cost: {item?.unitPrice || '-'}</Text>
+                          <Text style={styles.previewSub}>Item: {item?.itemNo || '-'} • Qty: {item?.qty || '-'} • Case Cost: {item?.unitPrice || '-'}</Text>
                           <View style={styles.step2BtnRow}>
                             <TouchableOpacity
                               style={[styles.confirmLinkBtn, loadingConfirmId === (item?.ProductId || item?.itemNo) && styles.confirmLinkBtnDisabled]}
@@ -481,7 +485,7 @@ export default function InvoiceStepperModal({
                             )}
                             <Text style={styles.previewMain} numberOfLines={1}>{item?.description || '-'}</Text>
                             <Text style={styles.previewSub}>Barcode: {item?.barcode || 'Not Linked'}</Text>
-                            <Text style={styles.previewSub}>Item: {item?.itemNo || '-'} • Qty: {item?.qty || '-'} • Cost: {item?.unitPrice || '-'}</Text>
+                            <Text style={styles.previewSub}>Item: {item?.itemNo || '-'} • Total Qty: {item?.qty * item?.pieces || '-'} • Cost: {item?.unitPrice || '-'}</Text>
                           </View>
                         );
                       }}

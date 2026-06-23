@@ -259,9 +259,22 @@ const VariantProductModal = forwardRef(({ onAddToCart, onAddToPrint }, ref) => {
 
     try {
       setSubmitting(true);
+      const payload = {
+          name: name.trim(),
+        list_price: priceValue,
+        available_in_pos: availablePOS,
+        ewic:ewic,
+        is_ebt_product:isEBT,
+        otc:otc,
+      }
+      console.log('Updating variant product with payload:', payload);
       const updateResponse = await updateCustomVariantProduct(id, {
         name: name.trim(),
         list_price: priceValue,
+        available_in_pos: availablePOS,
+        ewic:ewic,
+        is_ebt_product:isEBT,
+        otc:otc,
       });
 
       if (updateResponse?.result?.message) {
@@ -277,6 +290,11 @@ const VariantProductModal = forwardRef(({ onAddToCart, onAddToPrint }, ref) => {
         ...product,
         productName: name.trim(),
         salePrice: priceValue,
+       availablePOS: availablePOS,
+       ewic:ewic,
+       isEbtProduct:isEBT,
+       otc:otc,
+
       };
       setProduct(updated);
     } catch (e) {

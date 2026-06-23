@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+
 import {
   View,
   Text,
@@ -17,6 +18,7 @@ import {
   Alert,
   RefreshControl
 } from 'react-native';
+
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Voice from '@react-native-voice/voice';
 import { request, PERMISSIONS, RESULTS } from 'react-native-permissions';
@@ -25,18 +27,17 @@ import RNBlobUtil from 'react-native-blob-util';
 import AttachmentButton from './AttachmentButton';
 import AttachmentPreview from './AttachmentPreview';
 import Icon from 'react-native-vector-icons/MaterialIcons';
+import { useNavigation } from '@react-navigation/native';
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
+
 const normalizeBaseUrl = (value) => String(value || '').replace(/\/$/, '');
-
 const normalizeAttachmentBase = (value) => {
-
   const base = normalizeBaseUrl(value);
   if (!base) return '';
   const apiIndex = base.indexOf('/api');
   if (apiIndex === -1) return base;
   return base.slice(0, apiIndex);
 };
-
 const normalizeWsUrl = (value) => {
   const raw = String(value || '').replace(/\/$/, '');
   if (!raw) return '';
@@ -45,16 +46,13 @@ const normalizeWsUrl = (value) => {
   if (raw.startsWith('http://')) return `ws://${raw.slice('http://'.length)}`;
   return raw;
 };
-
 const withTrailingSlash = (value) => (value.endsWith('/') ? value : `${value}/`);
-
 const buildApiUrl = (base, path) => {
   const normalized = normalizeBaseUrl(base);
   if (!normalized) return path;
   const hasApiSegment = /\/api(\/|$)/.test(normalized);
   return hasApiSegment ? `${normalized}${path}` : `${normalized}/api${path}`;
 };
-
 const createChatEndpoints = (base) => {
   if (!base) return null;
   return {
@@ -68,7 +66,6 @@ const createChatEndpoints = (base) => {
     uploadAttachment: withTrailingSlash(buildApiUrl(base, '/chat/attachments/upload')),
   };
 };
-
 const createAuthHeaders = (token) => {
   const headers = {
     accept: 'application/json',
@@ -123,8 +120,6 @@ const parseJsonSafe = async (res, context = '') => {
   }
 };
 
-
-
 export default function Chat({ style, buttonStyle, isOpen: externalIsOpen, setIsOpen: externalSetIsOpen, hideFab }) {
   // const [isOpen, setIsOpen] = useState(false);
   const [internalOpen, setInternalOpen] = useState(false);
@@ -168,13 +163,14 @@ export default function Chat({ style, buttonStyle, isOpen: externalIsOpen, setIs
   const pendingTypeMessageRef = useRef('');
   const showTypeSelectorRef = useRef(false);
   const selectedConversationRef = useRef(null);
-
+  const navigationRef = useRef(null);
   const messagesEndRef = useRef(null);
   const wsRef = useRef(null);
   const loadedConversationRef = useRef(null);
   const aiPollingRef = useRef(null);
   const typingIntervalRef = useRef(null);
   const accessTokenRef = useRef('');
+    const navigation = useNavigation();
   const authBootstrapRef = useRef(Promise.resolve(false));
   const authContextRef = useRef({
     accessToken: '',
@@ -211,6 +207,7 @@ export default function Chat({ style, buttonStyle, isOpen: externalIsOpen, setIs
       </Text>
     );
   };
+
   const ConversationTypeSelector = ({ onSelect, onCancel }) => (
     <>
     {!sending ?
@@ -790,6 +787,10 @@ const loadConversations = async () => {
   } catch (error) {
     console.error('Failed to load conversations:', error);
     setConversations([]);
+     navigation.navigate('Login');
+          Alert.alert(
+            'Authentication Error',
+            'Your session has expired. Please log in again.');
   } finally {
     setLoadingConversations(false);
   }
@@ -821,6 +822,10 @@ const loadMessages = async (conversationId) => {
     }
   } catch (error) {
     console.error('Failed to load messages:', error);
+     navigation.navigate('Login');
+          Alert.alert(
+            'Authentication Error',
+            'Your session has expired. Please log in again.');
   }
 };
 
@@ -1128,6 +1133,10 @@ const loadMessages = async (conversationId) => {
       pendingTypeMessageRef.current = '';
     } catch (error) {
       console.error('Failed to create conversation:', error);
+        navigation.navigate('Login');
+          Alert.alert(
+            'Authentication Error',
+            'Your session has expired. Please log in again.');
     } finally {
       setSending(false);
     }
@@ -1369,7 +1378,7 @@ const loadMessages = async (conversationId) => {
         edges={["left", "right"]}
         style={[styles.overlayRoot, style]}
       >
-      {!isOpen && (
+      {!isOpen && accessToken && (
         <TouchableOpacity
              activeOpacity={0.85}
            style={[styles.createFab, { bottom: 16 + insets.bottom }, buttonStyle]}

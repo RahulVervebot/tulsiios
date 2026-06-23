@@ -13,7 +13,7 @@ const SaveInvoiceModal = ({ isVisible, onClose,ImageURL, vendorName, defaultInvo
    const baseurl = "https://icmsfrontend.vervebot.io";
      const [ocrurl, setOcrUrl] = useState(null);
    
-       const [user_email, setUserEmail] = useState('');
+  const [user_email, setUserEmail] = useState('');
   useFocusEffect(
     useCallback(() => {
       initICMSBase();
@@ -39,9 +39,7 @@ const SaveInvoiceModal = ({ isVisible, onClose,ImageURL, vendorName, defaultInvo
 
     const invoiceNoFromOCR = String(defaultInvoiceNo || '').trim();
     const dateFromOCR = String(defaultInvoiceDateISO || '').trim();
-
     setSavedInvoiceNo(invoiceNoFromOCR);
-
     const parsed = dateFromOCR ? new Date(dateFromOCR) : null;
     if (parsed && !Number.isNaN(parsed.getTime())) {
       setInvoiceDate(parsed);
@@ -79,7 +77,6 @@ const SaveInvoiceModal = ({ isVisible, onClose,ImageURL, vendorName, defaultInvo
       UserDetailInfo: {
        InvoiceUpdatedby: user_email,
        date: selectedDate,
-      
       },
       InvoiceData: invdata,
       SavedDate: selectedDate,
@@ -98,12 +95,12 @@ const SaveInvoiceModal = ({ isVisible, onClose,ImageURL, vendorName, defaultInvo
         const response = await fetch(API_ENDPOINTS.SAVE_INVOICE, {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json',
-          'store': icms_store,
+        'Content-Type': 'application/json',
+         'store': icms_store,
          'access_token': token,
-          'mode': 'MOBILE',
-            'app_url': storeurl ?? '',
-          vendordetails : JSON.stringify(vendordetails),
+         'mode': 'MOBILE',
+         'app_url': storeurl ?? '',
+         vendordetails : JSON.stringify(vendordetails),
         },
         body: JSON.stringify(bodyPayload),
         });
@@ -122,6 +119,7 @@ const SaveInvoiceModal = ({ isVisible, onClose,ImageURL, vendorName, defaultInvo
      } catch (error) {
       Alert.alert('Error', 'Failed to save invoice.');
       console.log('error', error);
+    Alert.alert(error.message || 'Invoice save failed.');
     } finally {
       setIsSubmitting(false);
     }

@@ -470,6 +470,38 @@ export async function getProductQuantityDiscounts(productIds) {
   return response?.result || { success: false, data: [] };
 }
 
+export async function getMixMatchDiscounts(productIds) {
+  const [storeUrl, baseUrl, token] = await Promise.all([
+    AsyncStorage.getItem('storeurl'),
+    AsyncStorage.getItem('baseurl'),
+    AsyncStorage.getItem('access_token'),
+  ]);
+  const apiBase = storeUrl || baseUrl;
+  if (!apiBase || !token) {
+    throw new Error('Missing storeurl/baseurl or access_token in AsyncStorage.');
+  }
+
+  if (!productIds || !Array.isArray(productIds) || productIds.length === 0) {
+    return { success: true, data: [] };
+  }
+
+  const res = await fetch(`${apiBase}/get/product/mixmatch/discounts`, {
+    method: 'POST',
+    headers: buildHeaders(token, { includeContentType: true }),
+    body: JSON.stringify({
+      product_ids: productIds,
+    }),
+  });
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`Failed to get mix-match discounts (${res.status}): ${text || 'No details'}`);
+  }
+
+  const response = await res.json();
+  return response?.result || { success: false, data: [] };
+}
+
 export async function redeemLoyaltyPoints(customerId, redeemAmount) {
   const [storeUrl, baseUrl, token] = await Promise.all([
     AsyncStorage.getItem('storeurl'),

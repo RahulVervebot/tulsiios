@@ -6,7 +6,7 @@ import {
 } from 'react-native';
 import RBSheet from 'react-native-raw-bottom-sheet';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-
+import Icon from 'react-native-vector-icons/MaterialIcons';
 const COLORS = {
   bg: '#ffffff',
   card: '#f7f9fc',
@@ -37,29 +37,29 @@ const formatQty = (n) => {
 // Helper function to detect if a value is unexpected (null or 10x outlier)
 const isUnexpectedValue = (value, allValues, field) => {
   const numValue = parseNumberValue(value);
-  
+
   // Check if null/empty
   if (numValue === '' || numValue == null) {
     return true;
   }
-  
+
   // Get all valid numbers from the dataset
   const validNumbers = allValues
     .map(item => parseNumberValue(item[field]))
     .filter(v => v !== '' && v != null && Number.isFinite(Number(v)))
     .map(Number);
-  
+
   if (validNumbers.length === 0) {
     return false;
   }
-  
+
   // Calculate median
   const sorted = [...validNumbers].sort((a, b) => a - b);
   const mid = Math.floor(sorted.length / 2);
-  const median = sorted.length % 2 === 0 
-    ? (sorted[mid - 1] + sorted[mid]) / 2 
+  const median = sorted.length % 2 === 0
+    ? (sorted[mid - 1] + sorted[mid]) / 2
     : sorted[mid];
-  
+
   // Check if value is 10x the median
   const numVal = Number(numValue);
   return numVal > median * 10;
@@ -71,7 +71,7 @@ const SearchTableComponent = ({ tableData, setTableData, onRemoveRow, onAddManua
   const [storeUrl, setStoreUrl] = useState('');
   const [token, setToken] = useState('');
   const [categories, setCategories] = useState([]);
-
+  const [icmsStore, setIcmsStore] = useState('');
   // Bottom sheets
   const listSheetRef = useRef(null);
   const [editModalVisible, setEditModalVisible] = useState(false);
@@ -90,6 +90,7 @@ const SearchTableComponent = ({ tableData, setTableData, onRemoveRow, onAddManua
     categoryMarkup: '0',
     description: '',
     qty: '',
+    pieces: '',
     unitPrice: '',
     extendedPrice: '',
   });
@@ -99,8 +100,10 @@ const SearchTableComponent = ({ tableData, setTableData, onRemoveRow, onAddManua
       try {
         const s = await AsyncStorage.getItem(STORE_URL_KEY);
         const t = await AsyncStorage.getItem(ACCESS_TOKEN_KEY);
+        const icms_store = await AsyncStorage.getItem('icms_store');
         setStoreUrl(s || '');
         setToken(t || '');
+        setIcmsStore(icms_store || '');
       } catch {
         setStoreUrl('');
         setToken('');
@@ -205,6 +208,7 @@ const SearchTableComponent = ({ tableData, setTableData, onRemoveRow, onAddManua
       categoryMarkup: String(pricing.categoryMarkup ?? '0'),
       description: row.description || '',
       qty: String(row.qty ?? ''),
+      pieces: String(row.pieces ?? ''),
       unitPrice: row.unitPrice !== '' && row.unitPrice != null ? Number(row.unitPrice).toFixed(2) : '',
       extendedPrice: String(row.extendedPrice ?? ''),
     });
@@ -225,6 +229,7 @@ const SearchTableComponent = ({ tableData, setTableData, onRemoveRow, onAddManua
       categoryMarkup: '0',
       description: '',
       qty: '',
+      pieces: '',
       unitPrice: '',
       extendedPrice: '',
     });
@@ -237,12 +242,13 @@ const SearchTableComponent = ({ tableData, setTableData, onRemoveRow, onAddManua
       const requiredFields = [
         String(draft.description ?? '').trim(),
         String(draft.qty ?? '').trim(),
+        String(draft.pieces ?? '').trim(),
         String(draft.unitPrice ?? '').trim(),
         String(draft.extendedPrice ?? '').trim(),
       ];
       const hasMissing = requiredFields.some((val) => val.length === 0);
       if (hasMissing) {
-        Alert.alert('Required fields', 'Description, Qty, Case Cost and Extended Price are required.');
+        Alert.alert('Required fields', 'Description, Qty, Pieces, Case Cost and Extended Price are required.');
         return;
       }
     }
@@ -265,12 +271,13 @@ const SearchTableComponent = ({ tableData, setTableData, onRemoveRow, onAddManua
       categoryMarkup: draft.categoryMarkup,
       description: draft.description,
       qty: qtyNum,
+      pieces: parseNumberValue(draft.pieces),
       unitPrice: priceNum,
       extendedPrice: finalExtended !== '' ? Number(finalExtended).toFixed(2) : '',
       manuallyAdded: true,
       condition: 'normal',
     };
-
+console.log('newRow to save:', newRow);
     setTableData(prev => {
       const next = [...prev];
       if (editIndex != null && editIndex < prev.length) {
@@ -346,39 +353,39 @@ const SearchTableComponent = ({ tableData, setTableData, onRemoveRow, onAddManua
           onChangeText={onSearch}
           placeholderTextColor={COLORS.sub}
         />
-         {filteredData.length === 0 ? (
+        {filteredData.length === 0 ? (
           <></>
-         ) : (
-        <TouchableOpacity style={[styles.btn, styles.btnLight]} onPress={openEditorForNew}>
-          <Text style={[styles.btnText, styles.btnLightText]}>Add Manually</Text>
-         </TouchableOpacity>
-          )
-         }
-        
+        ) : (
+          <TouchableOpacity style={[styles.btn, styles.btnLight]} onPress={openEditorForNew}>
+            <Text style={[styles.btnText, styles.btnLightText]}>Add Manually</Text>
+          </TouchableOpacity>
+        )
+        }
+
       </View>
 
       {/* Header */}
-        {filteredData.length === 0 ? (
-          <></>
-         ) : (
-      <View style={styles.tableHeader}>
-        <TouchableOpacity style={[styles.tableHeaderCell, { flex: 1 }]} onPress={onHeaderTap}>
-          <Text style={styles.headerText}>ItemNo ⌄</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={[styles.tableHeaderCell, { flex: 2 }]} onPress={onHeaderTap}>
-          <Text style={styles.headerText}>Desc ⌄</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={[styles.tableHeaderCell, { flex: 1 }]} onPress={onHeaderTap}>
-          <Text style={styles.headerText}>Qty ⌄</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={[styles.tableHeaderCell, { flex: 1 }]} onPress={onHeaderTap}>
-          <Text style={styles.headerText}>Case Cost ⌄</Text>
-        </TouchableOpacity>
-        <View style={[styles.tableHeaderCell, { width: 44 }]}>
-          <Text style={styles.headerText}>🗑</Text>
+      {filteredData.length === 0 ? (
+        <></>
+      ) : (
+        <View style={styles.tableHeader}>
+          <TouchableOpacity style={[styles.tableHeaderCell, { flex: 1 }]} onPress={onHeaderTap}>
+            <Text style={styles.headerText}>ItemNo ⌄</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={[styles.tableHeaderCell, { flex: 2 }]} onPress={onHeaderTap}>
+            <Text style={styles.headerText}>Desc ⌄</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={[styles.tableHeaderCell, { flex: 1 }]} onPress={onHeaderTap}>
+            <Text style={styles.headerText}>Qty ⌄</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={[styles.tableHeaderCell, { flex: 1 }]} onPress={onHeaderTap}>
+            <Text style={styles.headerText}>Case Cost ⌄</Text>
+          </TouchableOpacity>
+          <View style={[styles.tableHeaderCell, { width: 44 }]}>
+            <Text style={styles.headerText}>🗑</Text>
+          </View>
         </View>
-      </View>
-         )}
+      )}
 
       {/* Body */}
       <ScrollView
@@ -392,10 +399,25 @@ const SearchTableComponent = ({ tableData, setTableData, onRemoveRow, onAddManua
           filteredData.map((item, idx) => {
             // Map filtered idx back to actual idx so edits remove correct row
             const realIndex = tableData.indexOf(item);
+            const hasBarcode = String(item.barcode ?? '').trim().length > 0;
+            const linkingCorrect = item.linkingCorrect !== false;
+            const sourceValue = String(item.source ?? '').trim().toLowerCase();
+            const isCentral = sourceValue && sourceValue !== icmsStore?.toLowerCase();
+            const isPiecesEmpty = !item.pieces || item.pieces === 0 || item.pieces === '0';
+            // Orange if pieces empty, Red if !hasBarcode and !linkingCorrect, otherwise white
+            const rowBg = isPiecesEmpty ? '#FFA500' : (!hasBarcode && !linkingCorrect) ? '#ff0000' : '#fff';
+
             return (
-              <View key={`${item.itemNo}-${idx}`} style={styles.tableRow}>
-                <TouchableOpacity style={[styles.tableCell, { flex: 1 }]} onPress={() => openEditorForIndex(realIndex)}>
-                  <Text numberOfLines={1} style={styles.cellText}>{item.itemNo}</Text>
+              <View key={`${item.itemNo}-${idx}`} style={[styles.tableRow, { backgroundColor: rowBg }]}>
+                <TouchableOpacity style={[styles.tableCell, { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 4 }]} onPress={() => openEditorForIndex(realIndex)}>
+                  {isCentral ? (
+                    <View style={styles.centralIndicator}>
+                      <Icon name="smart-toy" size={12} color="#d32f2f" />
+                    </View>
+                  ) : (
+                    <View style={{ width: 16 }} />
+                  )}
+                  <Text numberOfLines={1} style={[styles.cellText, { flex: 1 }]}>{item.itemNo}</Text>
                 </TouchableOpacity>
 
                 <TouchableOpacity style={[styles.tableCell, { flex: 2 }]} onPress={() => openEditorForIndex(realIndex)}>
@@ -403,17 +425,11 @@ const SearchTableComponent = ({ tableData, setTableData, onRemoveRow, onAddManua
                 </TouchableOpacity>
 
                 <TouchableOpacity style={[styles.tableCell, { flex: 1 }]} onPress={() => openEditorForIndex(realIndex)}>
-                  <Text numberOfLines={1} style={[
-                    styles.cellText,
-                    isUnexpectedValue(item.qty, tableData, 'qty') && { color: COLORS.danger }
-                  ]}>{String(item.qty ?? '')}</Text>
+                  <Text numberOfLines={1} style={styles.cellText}>{String(item.qty ?? '')}</Text>
                 </TouchableOpacity>
 
                 <TouchableOpacity style={[styles.tableCell, { flex: 1 }]} onPress={() => openEditorForIndex(realIndex)}>
-                  <Text numberOfLines={1} style={[
-                    styles.cellText,
-                    isUnexpectedValue(item.unitPrice, tableData, 'unitPrice') && { color: COLORS.danger }
-                  ]}>{item.unitPrice !== '' && item.unitPrice != null ? Number(item.unitPrice).toFixed(2) : ''}</Text>
+                  <Text numberOfLines={1} style={styles.cellText}>{item.unitPrice !== '' && item.unitPrice != null ? Number(item.unitPrice).toFixed(2) : ''}</Text>
                 </TouchableOpacity>
 
                 <TouchableOpacity style={[styles.tableCell, { width: 44 }]} onPress={() => removeRow(realIndex)}>
@@ -464,148 +480,168 @@ const SearchTableComponent = ({ tableData, setTableData, onRemoveRow, onAddManua
                 showsVerticalScrollIndicator={false}
                 keyboardShouldPersistTaps="handled"
               >
-              <View style={styles.sheetHeader}>
-                <Text style={styles.sheetTitle}>{isEditMode ? 'Edit Row' : 'Add Row'}</Text>
-              </View>
-
-              {isEditMode && (
-                <View style={styles.formRow}>
-                  <Text style={styles.groupTitle}>Read Only Details</Text>
-                  <View style={styles.readonlyGrid}>
-                    <View style={styles.readonlyCard}>
-                      <Text style={styles.readonlyLabel}>ItemNo</Text>
-                      <Text style={styles.readonlyValue}>{draft.itemNo || '-'}</Text>
-                    </View>
-                    <View style={styles.readonlyCard}>
-                      <Text style={styles.readonlyLabel}>POS Name</Text>
-                      <Text style={styles.readonlyValue}>{String(draft.posName ?? '-') || '-'}</Text>
-                    </View>
-                    <View style={styles.readonlyCard}>
-                      <Text style={styles.readonlyLabel}>Department</Text>
-                      <Text style={styles.readonlyValue}>{String(draft.department ?? '-') || '-'}</Text>
-                    </View>
-                    <View style={styles.readonlyCard}>
-                      <Text style={styles.readonlyLabel}>Barcode</Text>
-                      <Text style={styles.readonlyValue}>{String(draft.barcode ?? '-') || '-'}</Text>
-                    </View>
-                    <View style={styles.readonlyCard}>
-                      <Text style={styles.readonlyLabel}>Cost Price</Text>
-                      <Text style={styles.readonlyValue}>{String(draft.cp ?? '-') || '-'}</Text>
-                    </View>
-                    <View style={styles.readonlyCard}>
-                      <Text style={styles.readonlyLabel}>Selling Price</Text>
-                      <Text style={styles.readonlyValue}>{String(draft.sellingPrice ?? '-') || '-'}</Text>
-                    </View>
-                    <View style={styles.readonlyCard}>
-                      <Text style={styles.readonlyLabel}>New Selling Price</Text>
-                      <Text style={styles.readonlyValue}>{String(draft.newSellingPrice ?? '-') || '-'}</Text>
-                    </View>
-                  </View>
-                  {(Number(draft.categoryMargin || 0) !== 0 || Number(draft.categoryMarkup || 0) !== 0) && (
-                    <View style={styles.readonlyMetaWrap}>
-                      {Number(draft.categoryMargin || 0) !== 0 && (
-                        <View style={styles.metaBadge}>
-                          <Text style={styles.metaBadgeText}>Margin: {draft.categoryMargin}%</Text>
-                        </View>
-                      )}
-                      {Number(draft.categoryMarkup || 0) !== 0 && (
-                        <View style={styles.metaBadge}>
-                          <Text style={styles.metaBadgeText}>Markup: {draft.categoryMarkup}%</Text>
-                        </View>
-                      )}
-                    </View>
-                  )}
+                <View style={styles.sheetHeader}>
+                  <Text style={styles.sheetTitle}>{isEditMode ? 'Edit Row' : 'Add Row'}</Text>
                 </View>
-              )}
 
-              <View style={styles.formRow}>
-                <Text style={styles.groupTitle}>Editable Fields</Text>
-                {!isEditMode && (
-                  <>
-                    <Text style={styles.label}>Item No</Text>
-                    <TextInput
-                      style={styles.input}
-                      value={draft.itemNo}
-                      onChangeText={(t) => setDraft(prev => ({ ...prev, itemNo: t }))}
-                      placeholder="Enter item number"
-                      placeholderTextColor={COLORS.sub}
-                    />
-                  </>
+                {isEditMode && (
+                  <View style={styles.formRow}>
+                    <Text style={styles.groupTitle}>Read Only Details</Text>
+                    <View style={styles.readonlyGrid}>
+                      <View style={styles.readonlyCard}>
+                        <Text style={styles.readonlyLabel}>ItemNo</Text>
+                        <Text style={styles.readonlyValue}>{draft.itemNo || '-'}</Text>
+                      </View>
+                      <View style={styles.readonlyCard}>
+                        <Text style={styles.readonlyLabel}>POS Name</Text>
+                        <Text style={styles.readonlyValue}>{String(draft.posName ?? '-') || '-'}</Text>
+                      </View>
+                      <View style={styles.readonlyCard}>
+                        <Text style={styles.readonlyLabel}>Department</Text>
+                        <Text style={styles.readonlyValue}>{String(draft.department ?? '-') || '-'}</Text>
+                      </View>
+                      <View style={styles.readonlyCard}>
+                        <Text style={styles.readonlyLabel}>Barcode</Text>
+                        <Text style={styles.readonlyValue}>{String(draft.barcode ?? '-') || '-'}</Text>
+                      </View>
+                      {/* <View style={styles.readonlyCard}>
+                        <Text style={styles.readonlyLabel}>Cost Price</Text>
+                        <Text style={styles.readonlyValue}>{String(draft.cp ?? '-') || '-'}</Text>
+                      </View>
+                      <View style={styles.readonlyCard}>
+                        <Text style={styles.readonlyLabel}>Selling Price</Text>
+                        <Text style={styles.readonlyValue}>{String(draft.sellingPrice ?? '-') || '-'}</Text>
+                      </View>
+                      <View style={styles.readonlyCard}>
+                        <Text style={styles.readonlyLabel}>New Selling Price</Text>
+                        <Text style={styles.readonlyValue}>{String(draft.newSellingPrice ?? '-') || '-'}</Text>
+                      </View> */}
+                    </View>
+                    {(Number(draft.categoryMargin || 0) !== 0 || Number(draft.categoryMarkup || 0) !== 0) && (
+                      <View style={styles.readonlyMetaWrap}>
+                        {Number(draft.categoryMargin || 0) !== 0 && (
+                          <View style={styles.metaBadge}>
+                            <Text style={styles.metaBadgeText}>Margin: {draft.categoryMargin}%</Text>
+                          </View>
+                        )}
+                        {Number(draft.categoryMarkup || 0) !== 0 && (
+                          <View style={styles.metaBadge}>
+                            <Text style={styles.metaBadgeText}>Markup: {draft.categoryMarkup}%</Text>
+                          </View>
+                        )}
+                      </View>
+                    )}
+                  </View>
                 )}
-                <Text style={styles.label}>Description</Text>
-                <TextInput
-                  style={[styles.input, { height: 72 }]}
-                  value={draft.description}
-                  onChangeText={(t) => setDraft(prev => ({ ...prev, description: t }))}
-                  placeholder="Enter description"
-                  placeholderTextColor={COLORS.sub}
-                  multiline
-                />
-              </View>
 
-              <View style={[styles.formRow, { flexDirection: 'row', gap: 12 }]}>
-                <View style={{ flex: 1 }}>
-                  <Text style={[
-                    styles.label,
-                    isEditMode && isUnexpectedValue(draft.qty, tableData, 'qty') && { color: COLORS.danger }
-                  ]}>Qty {isEditMode && isUnexpectedValue(draft.qty, tableData, 'qty') && '⚠️'}</Text>
+                <View style={styles.formRow}>
+                  <Text style={styles.groupTitle}>Editable Fields</Text>
+                  {!isEditMode && (
+                    <>
+                      <Text style={styles.label}>Item No</Text>
+                      <TextInput
+                        style={styles.input}
+                        value={draft.itemNo}
+                        onChangeText={(t) => setDraft(prev => ({ ...prev, itemNo: t }))}
+                        placeholder="Enter item number"
+                        placeholderTextColor={COLORS.sub}
+                      />
+                    </>
+                  )}
+                  <Text style={styles.label}>Description</Text>
                   <TextInput
-                    style={[
-                      styles.input,
-                      isEditMode && isUnexpectedValue(draft.qty, tableData, 'qty') && { borderColor: COLORS.danger, color: COLORS.danger }
-                    ]}
-                    keyboardType="numeric"
-                    value={String(draft.qty ?? '')}
-                    onChangeText={(t) => handleQtyCaseExtendedChange('qty', t)}
-                    placeholder="0"
+                    style={[styles.input, { height: 72 }]}
+                    value={draft.description}
+                    onChangeText={(t) => setDraft(prev => ({ ...prev, description: t }))}
+                    placeholder="Enter description"
                     placeholderTextColor={COLORS.sub}
+                    multiline
                   />
                 </View>
-                <View style={{ flex: 1 }}>
+
+                <View style={[styles.formRow, { flexDirection: 'row', gap: 12 }]}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[
+                      styles.label,
+                      isEditMode && isUnexpectedValue(draft.qty, tableData, 'qty') && { color: COLORS.danger }
+                    ]}>Qty {isEditMode && isUnexpectedValue(draft.qty, tableData, 'qty') && '⚠️'}</Text>
+                    <TextInput
+                      style={[
+                        styles.input,
+                        isEditMode && isUnexpectedValue(draft.qty, tableData, 'qty') && { borderColor: COLORS.danger, color: COLORS.danger }
+                      ]}
+                      keyboardType="numeric"
+                      value={String(draft.qty ?? '')}
+                      onChangeText={(t) => handleQtyCaseExtendedChange('qty', t)}
+                      placeholder="0"
+                      placeholderTextColor={COLORS.sub}
+                    />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[
+                      styles.label,
+                      isEditMode && isUnexpectedValue(draft.unitPrice, tableData, 'unitPrice') && { color: COLORS.danger }
+                    ]}>Case Cost {isEditMode && isUnexpectedValue(draft.unitPrice, tableData, 'unitPrice') && '⚠️'}</Text>
+                    <TextInput
+                      style={[
+                        styles.input,
+                        isEditMode && isUnexpectedValue(draft.unitPrice, tableData, 'unitPrice') && { borderColor: COLORS.danger, color: COLORS.danger }
+                      ]}
+                      keyboardType="decimal-pad"
+                      value={String(draft.unitPrice ?? '')}
+                 
+                      onChangeText={(t) => handleQtyCaseExtendedChange('unitPrice', t)}
+                      placeholder="0.00"
+                      placeholderTextColor={COLORS.sub}
+                    />
+                  </View>
+                </View> 
+
+              <View style={[styles.formRow, { flexDirection: 'row', gap: 12 }]}>
+                    <View style={{ flex: 1 }}>
+                    <Text style={[
+                      styles.label,
+                      isEditMode && isUnexpectedValue(draft.pieces, tableData, 'pieces') && { color: COLORS.danger }
+                    ]}>Pieces {isEditMode && isUnexpectedValue(draft.pieces, tableData, 'pieces') && '⚠️'}</Text>
+                    <TextInput
+                      style={[
+                        styles.input,
+                        isEditMode && isUnexpectedValue(draft.pieces, tableData, 'pieces') && { borderColor: COLORS.danger, color: COLORS.danger }
+                      ]}
+                      keyboardType="numeric"
+                      value={String(draft.pieces ?? '')}
+                      onChangeText={(t) => setDraft(prev => ({ ...prev, pieces: t }))}
+                      placeholder="0"
+                      placeholderTextColor={COLORS.sub}
+                    />
+                  </View>
+                  <View style={{ flex: 1 }}>
                   <Text style={[
                     styles.label,
-                    isEditMode && isUnexpectedValue(draft.unitPrice, tableData, 'unitPrice') && { color: COLORS.danger }
-                  ]}>Case Cost {isEditMode && isUnexpectedValue(draft.unitPrice, tableData, 'unitPrice') && '⚠️'}</Text>
+                    isEditMode && isUnexpectedValue(draft.extendedPrice, tableData, 'extendedPrice') && { color: COLORS.danger }
+                  ]}>Extended Price {isEditMode && isUnexpectedValue(draft.extendedPrice, tableData, 'extendedPrice') && '⚠️'}</Text>
                   <TextInput
                     style={[
                       styles.input,
-                      isEditMode && isUnexpectedValue(draft.unitPrice, tableData, 'unitPrice') && { borderColor: COLORS.danger, color: COLORS.danger }
+                      isEditMode && isUnexpectedValue(draft.extendedPrice, tableData, 'extendedPrice') && { borderColor: COLORS.danger, color: COLORS.danger }
                     ]}
                     keyboardType="decimal-pad"
-                    value={String(draft.unitPrice ?? '')}
-                    onChangeText={(t) => handleQtyCaseExtendedChange('unitPrice', t)}
+                    value={String(draft.extendedPrice ?? '')}
+                    onChangeText={(t) => handleQtyCaseExtendedChange('extendedPrice', t)}
                     placeholder="0.00"
                     placeholderTextColor={COLORS.sub}
                   />
                 </View>
-              </View>
-
-              <View style={styles.formRow}>
-                <Text style={[
-                  styles.label,
-                  isEditMode && isUnexpectedValue(draft.extendedPrice, tableData, 'extendedPrice') && { color: COLORS.danger }
-                ]}>Extended Price {isEditMode && isUnexpectedValue(draft.extendedPrice, tableData, 'extendedPrice') && '⚠️'}</Text>
-                <TextInput
-                  style={[
-                    styles.input,
-                    isEditMode && isUnexpectedValue(draft.extendedPrice, tableData, 'extendedPrice') && { borderColor: COLORS.danger, color: COLORS.danger }
-                  ]}
-                  keyboardType="decimal-pad"
-                  value={String(draft.extendedPrice ?? '')}
-                  onChangeText={(t) => handleQtyCaseExtendedChange('extendedPrice', t)}
-                  placeholder="0.00"
-                  placeholderTextColor={COLORS.sub}
-                />
-              </View>
-
-              <View style={styles.sheetActions}>
-                <TouchableOpacity style={[styles.btn, styles.btnPrimary]} onPress={saveDraft}>
-                  <Text style={styles.btnText}>Save</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={[styles.btn, styles.btnDanger]} onPress={() => setEditModalVisible(false)}>
-                  <Text style={styles.btnText}>Cancel</Text>
-                </TouchableOpacity>
-              </View>
+            
+</View>
+                <View style={styles.sheetActions}>
+                  <TouchableOpacity style={[styles.btn, styles.btnPrimary]} onPress={saveDraft}>
+                    <Text style={styles.btnText}>Save</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={[styles.btn, styles.btnDanger]} onPress={() => setEditModalVisible(false)}>
+                    <Text style={styles.btnText}>Cancel</Text>
+                  </TouchableOpacity>
+                </View>
               </ScrollView>
             </View>
           </KeyboardAvoidingView>
@@ -682,6 +718,15 @@ const styles = StyleSheet.create({
   },
   tableCell: { paddingHorizontal: 6, alignItems: 'center', justifyContent: 'center' },
   cellText: { fontSize: 13, color: COLORS.text },
+  centralIndicator: {
+    backgroundColor: '#FEE2E2',
+    borderRadius: 4,
+    width: 16,
+    height: 16,
+    justifyContent: 'center',
+    alignItems: 'center',
+    flexShrink: 0,
+  },
 
   infoText: { padding: 10, fontStyle: 'italic', color: COLORS.sub },
 
