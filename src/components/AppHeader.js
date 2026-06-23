@@ -1,5 +1,5 @@
 // components/ReportHeader.js
-import React, { useContext } from 'react';
+import React, { useContext, useState, useEffect } from 'react';
 import { View, StyleSheet, ImageBackground, TouchableOpacity, Text } from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import { useNavigation } from '@react-navigation/native';
@@ -7,6 +7,7 @@ import { CartContext } from '../context/CartContext';
 import { PrintContext } from '../context/PrintContext';
 import CartIcon from '../assets/icons/cart.svg';
 import PrinterIcon from '../assets/icons/Printericon.svg';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 const getImageSource = (val) => (typeof val === 'number' ? val : { uri: val });
 
 const AppHeader = ({
@@ -21,6 +22,20 @@ const AppHeader = ({
   const navigation = useNavigation();
   const { cart } = useContext(CartContext);
   const { print } = useContext(PrintContext);
+  const [showBilling, setShowBilling] = useState(false);
+
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      try {
+        const val = await AsyncStorage.getItem('is_product_billing_in_app');
+        if (mounted) setShowBilling(val === 'true');
+      } catch (e) {
+        console.log('Failed to read is_product_billing_in_app:', e?.message || e);
+      }
+    })();
+    return () => { mounted = false; };
+  }, []);
   
   const cartItemCount = cart.reduce((sum, item) => sum + (item.qty || 0), 0);
   const printItemCount = print.reduce((sum, item) => sum + (item.qty || 0), 0);
@@ -81,7 +96,7 @@ const renderContent = () => (
     </View>
 
     <View style={styles.rightButtons}>
-      {!hideCartIcon && (
+      {showBilling && !hideCartIcon && (
         <TouchableOpacity
           style={styles.rightIcon}
           activeOpacity={0.7}

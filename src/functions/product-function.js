@@ -422,3 +422,106 @@ export async function unarchiveProduct(productId) {
   }
   return data;
 }
+
+// for multi store product search and notify functions
+
+export async function searchMultiStoreProducts(searchQuery) {
+  const [storeUrl, token] = await Promise.all([
+    AsyncStorage.getItem('storeurl'),
+    AsyncStorage.getItem('access_token'),
+  ]);
+  if (!storeUrl || !token) {
+    throw new Error('Missing store_url or access_token in AsyncStorage.');
+  }
+  if (!searchQuery || searchQuery.trim().length < 3) {
+    throw new Error('Search query must be at least 3 characters');
+  }
+
+  const query = encodeURIComponent(searchQuery.trim());
+  const res = await fetch(`${storeUrl}/api/multi-store-products/search?q=${query}`, {
+    method: 'GET',
+    headers: buildHeaders(token),
+  });
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`Failed to search multi-store products (${res.status}): ${text || 'No details'}`);
+  }
+
+  const json = await res.json();
+  return Array.isArray(json) ? json : (json?.products ?? json?.results ?? []);
+}
+
+export async function notifyMultiStoreProduct(productData) {
+  const [storeUrl, token] = await Promise.all([
+    AsyncStorage.getItem('storeurl'),
+    AsyncStorage.getItem('access_token'),
+  ]);
+
+  if (!storeUrl || !token) {
+    throw new Error('Missing store_url or access_token in AsyncStorage.');
+  }
+
+  const { product_name, barcode, department, size, stores, store_requested, customer_name, customer_phone, notes } = productData;
+
+  const res = await fetch(`${storeUrl}/api/product-notification/create`, {
+    method: 'POST',
+    headers: buildHeaders(token, { includeContentType: true }),
+    body: JSON.stringify({ product_name, barcode, department, size, stores, store_requested, customer_name, customer_phone, notes }),
+  });
+
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(data?.error || data?.message || `Failed to create product notification (${res.status})`);
+  }
+  return data;
+}
+
+export async function getProductNotificationList() {
+  const [storeUrl, token] = await Promise.all([
+    AsyncStorage.getItem('storeurl'),
+    AsyncStorage.getItem('access_token'),
+  ]);
+
+  if (!storeUrl || !token) {
+    throw new Error('Missing store_url or access_token in AsyncStorage.');
+  }
+
+  const res = await fetch(`${storeUrl}/api/product-notification/list`, {
+    method: 'GET',
+    headers: buildHeaders(token),
+  });
+
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(data?.error || data?.message || `Failed to fetch product notification list (${res.status})`);
+  }
+  return Array.isArray(data) ? data : (data?.notifications ?? data ?? []);
+}
+
+export async function updateProductNotification({ id, status, store_accepted }) {
+  if (!id) {
+    throw new Error('ID is required to update product notification');
+  }
+
+  const [storeUrl, token] = await Promise.all([
+    AsyncStorage.getItem('storeurl'),
+    AsyncStorage.getItem('access_token'),
+  ]);
+
+  if (!storeUrl || !token) {
+    throw new Error('Missing store_url or access_token in AsyncStorage.');
+  }
+
+  const res = await fetch(`${storeUrl}/api/product-notification/update`, {
+    method: 'POST',
+    headers: buildHeaders(token, { includeContentType: true }),
+    body: JSON.stringify({ id, status, store_accepted }),
+  });
+
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(data?.error || data?.message || `Failed to update product notification (${res.status})`);
+  }
+  return data;
+}

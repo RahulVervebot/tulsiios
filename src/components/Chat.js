@@ -25,11 +25,11 @@ import RNBlobUtil from 'react-native-blob-util';
 import AttachmentButton from './AttachmentButton';
 import AttachmentPreview from './AttachmentPreview';
 import Icon from 'react-native-vector-icons/MaterialIcons';
+import { useNavigation } from '@react-navigation/native';
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
+
 const normalizeBaseUrl = (value) => String(value || '').replace(/\/$/, '');
-
 const normalizeAttachmentBase = (value) => {
-
   const base = normalizeBaseUrl(value);
   if (!base) return '';
   const apiIndex = base.indexOf('/api');
@@ -47,7 +47,6 @@ const normalizeWsUrl = (value) => {
 };
 
 const withTrailingSlash = (value) => (value.endsWith('/') ? value : `${value}/`);
-
 const buildApiUrl = (base, path) => {
   const normalized = normalizeBaseUrl(base);
   if (!normalized) return path;
@@ -123,8 +122,6 @@ const parseJsonSafe = async (res, context = '') => {
   }
 };
 
-
-
 export default function Chat({ style, buttonStyle, isOpen: externalIsOpen, setIsOpen: externalSetIsOpen, hideFab }) {
   // const [isOpen, setIsOpen] = useState(false);
   const [internalOpen, setInternalOpen] = useState(false);
@@ -156,6 +153,10 @@ export default function Chat({ style, buttonStyle, isOpen: externalIsOpen, setIs
   const [downloadedExports, setDownloadedExports] = useState({});
   const [downloadingUrls, setDownloadingUrls] = useState({});
   const [wsBase, setWsBase] = useState('');
+  const [tenants, setTenants] = useState([]);
+  const [selectedTenantId, setSelectedTenantId] = useState('');
+  const [showStoreModal, setShowStoreModal] = useState(false);
+  const [pendingConversationType, setPendingConversationType] = useState('');
   const [recording, setRecording] = useState(false);
   const [micGranted, setMicGranted] = useState(false);
   const [typingMessageId, setTypingMessageId] = useState(null);
@@ -168,13 +169,14 @@ export default function Chat({ style, buttonStyle, isOpen: externalIsOpen, setIs
   const pendingTypeMessageRef = useRef('');
   const showTypeSelectorRef = useRef(false);
   const selectedConversationRef = useRef(null);
-
+  const navigationRef = useRef(null);
   const messagesEndRef = useRef(null);
   const wsRef = useRef(null);
   const loadedConversationRef = useRef(null);
   const aiPollingRef = useRef(null);
   const typingIntervalRef = useRef(null);
   const accessTokenRef = useRef('');
+    const navigation = useNavigation();
   const authBootstrapRef = useRef(Promise.resolve(false));
   const authContextRef = useRef({
     accessToken: '',
@@ -211,6 +213,7 @@ export default function Chat({ style, buttonStyle, isOpen: externalIsOpen, setIs
       </Text>
     );
   };
+
   const ConversationTypeSelector = ({ onSelect, onCancel }) => (
     <>
     {!sending ?
@@ -303,6 +306,27 @@ export default function Chat({ style, buttonStyle, isOpen: externalIsOpen, setIs
   useEffect(() => {
     accessTokenRef.current = accessToken || '';
   }, [accessToken]);
+
+  useEffect(() => {
+    if (!accessToken || !apiBase) return;
+    (async () => {
+      try {
+        const url = withTrailingSlash(buildApiUrl(apiBase, '/auth/me/tenants'));
+        const res = await fetch(url, { headers: createAuthHeaders(accessToken) });
+     
+        if (!res.ok) return;
+        const data = await res.json();
+        const list = data?.tenants || [];
+           console.log('Fetch tenants response:',data);
+           console.log('Fetched tenants:', data?.tenants.length);
+        setTenants(list);
+        const defaultTenant = list.find((t) => t.is_default) || list[0];
+        if (defaultTenant) setSelectedTenantId(defaultTenant.id);
+      } catch (e) {
+        console.warn('Failed to fetch tenants:', e);
+      }
+    })();
+  }, [accessToken, apiBase]);
 
   useEffect(() => {
     authContextRef.current = {
@@ -460,7 +484,7 @@ export default function Chat({ style, buttonStyle, isOpen: externalIsOpen, setIs
   const activeConversations = conversations.filter(
     (c) => c.status !== 'closed' && c.status !== 'resolved'
   );
-
+console.log('Active conversations:', activeConversations);
   const ensureAuthenticated = async () => {
     if (accessTokenRef.current) return true;
     try {
@@ -771,9 +795,11 @@ const loadConversations = async () => {
     const chatContext = await ensureChatContext();
     if (!chatContext) return;
     const { endpoints: resolvedEndpoints, authHeaders: resolvedAuthHeaders } = chatContext;
-
     setLoadingConversations(true);
-    const res = await fetch(resolvedEndpoints.conversations, {
+    const conversationsUrl = selectedTenantId
+      ? `${resolvedEndpoints.conversations}?tenant_id=${selectedTenantId}`
+      : resolvedEndpoints.conversations;
+    const res = await fetch(conversationsUrl, {
       method: 'GET',
       headers: resolvedAuthHeaders,
     });
@@ -790,6 +816,10 @@ const loadConversations = async () => {
   } catch (error) {
     console.error('Failed to load conversations:', error);
     setConversations([]);
+     navigation.navigate('Login');
+          Alert.alert(
+            'Authentication Error',
+            'Your session has expired. Please log in again.');
   } finally {
     setLoadingConversations(false);
   }
@@ -821,6 +851,10 @@ const loadMessages = async (conversationId) => {
     }
   } catch (error) {
     console.error('Failed to load messages:', error);
+     navigation.navigate('Login');
+          Alert.alert(
+            'Authentication Error',
+            'Your session has expired. Please log in again.');
   }
 };
 
@@ -1080,8 +1114,10 @@ const loadMessages = async (conversationId) => {
           subject: type === 'ai' ? 'AI Query' : 'Support Request',
           content: messageContent,
           conversation_type: type,
+          ...(selectedTenantId ? { tenant_id: selectedTenantId } : {}),
         }),
       });
+      console.log('Chat createConversation selectedTenantId:', selectedTenantId);
       const rawConversation = await parseJsonSafe(res, resolvedEndpoints.createConversation);
       const conversation =
         rawConversation?.conversation ||
@@ -1093,11 +1129,14 @@ const loadMessages = async (conversationId) => {
         console.warn('Chat createConversation missing id:', rawConversation);
       }
 
-      const updatedRes = await fetch(resolvedEndpoints.conversations, {
+      const updatedConversationsUrl = selectedTenantId
+        ? `${resolvedEndpoints.conversations}?tenant_id=${selectedTenantId}`
+        : resolvedEndpoints.conversations;
+      const updatedRes = await fetch(updatedConversationsUrl, {
         method: 'GET',
         headers: resolvedAuthHeaders,
       });
-      const updatedConversations = await parseJsonSafe(updatedRes, resolvedEndpoints.conversations);
+      const updatedConversations = await parseJsonSafe(updatedRes, updatedConversationsUrl);
       const list = normalizeList(updatedConversations);
       setConversations(list);
       const newConv = list.find((c) => String(c.id) === String(conversationId));
@@ -1128,6 +1167,10 @@ const loadMessages = async (conversationId) => {
       pendingTypeMessageRef.current = '';
     } catch (error) {
       console.error('Failed to create conversation:', error);
+        navigation.navigate('Login');
+          Alert.alert(
+            'Authentication Error',
+            'Your session has expired. Please log in again.');
     } finally {
       setSending(false);
     }
@@ -1430,7 +1473,20 @@ const loadMessages = async (conversationId) => {
             <View style={styles.messagesPanel}>
               {showTypeSelector ? (
                 <ConversationTypeSelector
-                  onSelect={handleTypeSelection}
+                  onSelect={(type) => {
+                    if (tenants.length > 1) {
+                     setPendingConversationType(type);
+                    if (type === 'ai') {
+                      setShowStoreModal(true);
+                    }
+                   else {
+                      handleTypeSelection(type);
+                    }
+                  }
+                  else{
+                      handleTypeSelection(type);
+                  }
+                  }}
                   onCancel={() => {
                     setShowTypeSelector(false);
                     setMessage('');
@@ -1481,6 +1537,9 @@ const loadMessages = async (conversationId) => {
                                 <Text style={styles.conversationMeta}>
                                   {conv.message_count} messages · {formatShortDate(conv.last_message_at || conv.created_at)}
                                 </Text>
+                              <Text style={styles.conversationMeta}>
+                                 Store:{conv.effective_tenant?.name || conv.tenant?.name || ''}
+                              </Text>
                               </View>
                             </View>
                           </TouchableOpacity>
@@ -1821,6 +1880,96 @@ const loadMessages = async (conversationId) => {
                 <Text style={styles.wsStatus}>Reconnecting…</Text>
               )}
             </View>
+
+            {showStoreModal && (
+              <View style={[StyleSheet.absoluteFillObject, styles.storeOverlay]}>
+                <TouchableOpacity
+                  style={StyleSheet.absoluteFillObject}
+                  activeOpacity={1}
+                  onPress={() => {
+                    setShowStoreModal(false);
+                    setPendingConversationType('');
+                  }}
+                />
+                <View style={styles.storeModalSheet}>
+                  <View style={styles.storeModalHeader}>
+                    <View style={styles.storeModalHeaderIcon}>
+                      <Icon name="store" size={20} color="#16A34A" />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.storeModalTitle}>Select Store</Text>
+                      <Text style={styles.storeModalSubtitle}>Choose the store for this conversation</Text>
+                    </View>
+                    <TouchableOpacity
+                      style={styles.storeModalClose}
+                      onPress={() => {
+                      setShowStoreModal(false);
+                      setPendingConversationType('');
+                      }}
+                    >
+                      <Icon name="close" size={18} color="#6B7280" />
+                    </TouchableOpacity>
+                  </View>
+
+                  <ScrollView style={styles.storeModalList} showsVerticalScrollIndicator={false}>
+                    {tenants.map((t, index) => {
+                      const isActive = t.id === selectedTenantId;
+                      return (
+                        <TouchableOpacity
+                          key={t.id}
+                          style={[
+                            styles.storeModalItem,
+                            isActive && styles.storeModalItemActive,
+                            index === tenants.length - 1 && { borderBottomWidth: 0 },
+                          ]}
+                          onPress={() => setSelectedTenantId(t.id)}
+                          activeOpacity={0.75}
+                        >
+                          <View style={[styles.storeModalAvatar, { backgroundColor: t.primary_color || '#16A34A' }]}>
+                            <Icon name="store" size={16} color="#fff" />
+                          </View>
+                          <View style={styles.storeModalItemBody}>
+                            <Text style={[styles.storeModalItemName, isActive && styles.storeModalItemNameActive]}>
+                              {t.name}
+                            </Text>
+                            {t.role ? (
+                              <Text style={styles.storeModalItemRole}>{t.role}</Text>
+                            ) : null}
+                          </View>
+                          <View style={[styles.storeModalRadio, isActive && styles.storeModalRadioActive]}>
+                            {isActive && <View style={styles.storeModalRadioDot} />}
+                          </View>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </ScrollView>
+
+                  <View style={styles.storeModalFooter}>
+                    <TouchableOpacity
+                      style={styles.storeModalCancelBtn}
+                      onPress={() => {
+                        setShowStoreModal(false);
+                        setPendingConversationType('');
+                      }}
+                    >
+                      <Text style={styles.storeModalCancelText}>Cancel</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.storeModalConfirmBtn, !selectedTenantId && styles.storeModalConfirmBtnDisabled]}
+                      disabled={!selectedTenantId}
+                      onPress={() => {
+                        setShowStoreModal(false);
+                        handleTypeSelection(pendingConversationType);
+                        setPendingConversationType('');
+                      }}
+                    >
+                      <Icon name="check" size={16} color="#fff" />
+                      <Text style={styles.storeModalConfirmText}>Confirm</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              </View>
+            )}
           </View>
         </KeyboardAvoidingView>
       </Modal>
@@ -1938,7 +2087,9 @@ const styles = StyleSheet.create({
   },
   conversationBadgeAi: { backgroundColor: '#EDE9FE' },
   conversationBadgeSupport: { backgroundColor: '#DCFCE7' },
+  conversationBadgeStore: { backgroundColor: '#DCFCE7' },
   conversationBadgeText: { fontSize: 10, fontWeight: '700', color: '#111' },
+  conversationStoreText: { fontSize: 10, fontWeight: '700', color: '#111',marginTop:10 },
   startBtn: {
     backgroundColor: '#16A34A',
     paddingVertical: 12,
@@ -2148,6 +2299,252 @@ const styles = StyleSheet.create({
   typeCancel: { backgroundColor: '#F3F4F6' },
   typeBtnText: { color: '#fff', fontWeight: '700' },
   typeCancelText: { color: '#111', fontWeight: '600' },
+
+  storeOverlay: {
+    backgroundColor: 'rgba(0,0,0,0.48)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    zIndex: 999,
+  },
+  storeModalSheet: {
+    width: '100%',
+    backgroundColor: '#fff',
+    borderRadius: 20,
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOpacity: 0.18,
+    shadowRadius: 20,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 16,
+  },
+  storeModalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingHorizontal: 18,
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F3F4F6',
+    backgroundColor: '#F0FDF4',
+  },
+  storeModalHeaderIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    backgroundColor: '#DCFCE7',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  storeModalTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#111827',
+  },
+  storeModalSubtitle: {
+    fontSize: 12,
+    color: '#6B7280',
+    marginTop: 1,
+  },
+  storeModalClose: {
+    width: 32,
+    height: 32,
+    borderRadius: 999,
+    backgroundColor: '#F3F4F6',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  storeModalList: {
+    maxHeight: 300,
+  },
+  storeModalItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingHorizontal: 18,
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F3F4F6',
+  },
+  storeModalItemActive: {
+    backgroundColor: '#F0FDF4',
+  },
+  storeModalAvatar: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  storeModalItemBody: { flex: 1 },
+  storeModalItemName: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#111827',
+  },
+  storeModalItemNameActive: {
+    color: '#166534',
+  },
+  storeModalItemRole: {
+    fontSize: 12,
+    color: '#9CA3AF',
+    marginTop: 2,
+    textTransform: 'capitalize',
+  },
+  storeModalRadio: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    borderWidth: 2,
+    borderColor: '#D1D5DB',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  storeModalRadioActive: {
+    borderColor: '#16A34A',
+  },
+  storeModalRadioDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: '#16A34A',
+  },
+  storeModalFooter: {
+    flexDirection: 'row',
+    gap: 10,
+    paddingHorizontal: 18,
+    paddingVertical: 14,
+    borderTopWidth: 1,
+    borderTopColor: '#F3F4F6',
+  },
+  storeModalCancelBtn: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 10,
+    borderWidth: 1.5,
+    borderColor: '#E5E7EB',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  storeModalCancelText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#374151',
+  },
+  storeModalConfirmBtn: {
+    flex: 2,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 12,
+    borderRadius: 10,
+    backgroundColor: '#16A34A',
+  },
+  storeModalConfirmBtnDisabled: {
+    opacity: 0.5,
+  },
+  storeModalConfirmText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#fff',
+  },
+
+  tenantSection: {
+    backgroundColor: '#fff',
+    paddingHorizontal: 14,
+    paddingTop: 8,
+    paddingBottom: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E5E7EB',
+    zIndex: 50,
+  },
+  tenantSectionLabel: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#9CA3AF',
+    letterSpacing: 0.5,
+    textTransform: 'uppercase',
+    marginBottom: 1,
+  },
+  tenantTrigger: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    backgroundColor: '#F9FAFB',
+    borderWidth: 1.5,
+    borderColor: '#E5E7EB',
+    borderRadius: 10,
+  },
+  tenantTriggerOpen: {
+    borderColor: '#16A34A',
+    backgroundColor: '#F0FDF4',
+  },
+  tenantTriggerAvatar: {
+    width: 30,
+    height: 30,
+    borderRadius: 9,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  tenantTriggerText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#111827',
+  },
+  tenantDropdown: {
+    marginTop: 6,
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOpacity: 0.09,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 6,
+  },
+  tenantDropdownHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+    backgroundColor: '#F0FDF4',
+    borderBottomWidth: 1,
+    borderBottomColor: '#D1FAE5',
+  },
+  tenantDropdownHeaderText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#166534',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  tenantDropdownItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 11,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F3F4F6',
+  },
+  tenantDropdownItemActive: { backgroundColor: '#F0FDF4' },
+  tenantItemAvatar: {
+    width: 32,
+    height: 32,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  tenantItemBody: { flex: 1 },
+  tenantItemName: { fontSize: 13, fontWeight: '600', color: '#111827' },
+  tenantItemNameActive: { color: '#166534' },
+  tenantItemRole: { fontSize: 11, color: '#9CA3AF', marginTop: 1, textTransform: 'capitalize' },
 
   pendingWrap: { marginBottom: 10, backgroundColor: '#F9FAFB', borderRadius: 10, padding: 10, gap: 6 },
   pendingHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },

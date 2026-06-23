@@ -53,6 +53,9 @@ export default function ICMSScreen() {
           <TouchableOpacity activeOpacity={1} onPress={() => navigation.navigate('InvoiceList')}>
             <Row icon={InvoiceList} label="Invoice List" />
           </TouchableOpacity>
+             <TouchableOpacity activeOpacity={1} onPress={() => navigation.navigate('MultiVendor')}>
+            <Row icon={InvoiceList} label="Multi Vendor Products" />
+          </TouchableOpacity>
           <TouchableOpacity activeOpacity={1} onPress={() => navigation.navigate('RedProducts')}>
             <Row icon={ProductsIcon} label="Unlinked Product" />
           </TouchableOpacity>

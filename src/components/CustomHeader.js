@@ -35,6 +35,7 @@ const CustomHeader = ({
   
   const cartItemCount = cart.reduce((sum, item) => sum + (item.qty || 0), 0);
   const printItemCount = print.reduce((sum, item) => sum + (item.qty || 0), 0);
+  const [showBilling, setShowBilling] = useState(false);
 
   useEffect(() => {
     const checkLogin = async () => {
@@ -51,6 +52,19 @@ const CustomHeader = ({
       }
     };
     checkLogin();
+  }, []);
+
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      try {
+        const val = await AsyncStorage.getItem('is_product_billing_in_app');
+        if (mounted) setShowBilling(val === 'true');
+      } catch (e) {
+        console.log('Failed to read is_product_billing_in_app:', e?.message || e);
+      }
+    })();
+    return () => { mounted = false; };
   }, []);
 
 
@@ -113,20 +127,22 @@ const renderContent = () => {
 
       {/* Right */}
       <View style={styles.rightButtons}>
-        <TouchableOpacity 
-          style={styles.cartBtn} 
-          onPress={() => navigation.navigate('Cart')}
-          activeOpacity={0.7}
-        >
-          <CartIcon width={iconSize} height={iconSize} fill="#fff" />
-          {cartItemCount > 0 && (
-            <View style={styles.cartBadge}>
-              <Text style={styles.cartBadgeText}>
-                {cartItemCount > 99 ? '99+' : cartItemCount}
-              </Text>
-            </View>
-          )}
-        </TouchableOpacity>
+        {showBilling && (
+          <TouchableOpacity 
+            style={styles.cartBtn} 
+            onPress={() => navigation.navigate('Cart')}
+            activeOpacity={0.7}
+          >
+            <CartIcon width={iconSize} height={iconSize} fill="#fff" />
+            {cartItemCount > 0 && (
+              <View style={styles.cartBadge}>
+                <Text style={styles.cartBadgeText}>
+                  {cartItemCount > 99 ? '99+' : cartItemCount}
+                </Text>
+              </View>
+            )}
+          </TouchableOpacity>
+        )}
         <TouchableOpacity 
           style={styles.printBtn} 
           onPress={() => navigation.navigate('PrintScreen')}

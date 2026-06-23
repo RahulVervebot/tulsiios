@@ -27,6 +27,7 @@ SAVE_INVOICE: '/api/invoice/scaninvoicedata',
 FETCH_INVOICE: '/api/invoice/getsavedinvoices',
   // CREATE_INVOICE: '/api/invoice/create_data',
 UPDATE_INVOICE: '/api/invoice/updateinvoicedetails',
+UPDATE_INVOICE_CASE: '/api/invoice/product/update',
 RED_PRODUCTS: '/api/proxy/redproducts',
 UPDATE_RED_PRODUCTS: '/api/update-redproduct',
 ROWINOVICE: '/api/icms-raw-invoices-proxy',
@@ -40,6 +41,7 @@ QUANTITY_SP_COSTUPDATE: '/api/invoice/quantity_sellinprice_and_cost_update',
 SingleLinking: '/api/linkingcollectiontransfer-for-mobile/',
 PENDINGINVOICES: '/api/icms-raw-invoices/pending-jobs',
 SAVEDINVSTATUS: '/api/invoice/updatesaveinvociestatus',
+MULTIVENDORUNITCOST: '/app/getproductcost',
 };
 
 // normalize base: strip trailing slashes

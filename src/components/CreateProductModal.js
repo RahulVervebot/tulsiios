@@ -112,6 +112,8 @@ export default function CreateProductModal({
   }, []);
 
   useEffect(() => {
+    if (!visible) return;
+    
     (async () => {
       try {
         const [UOMLIST, cats, taxes] = await Promise.all([
@@ -126,7 +128,7 @@ export default function CreateProductModal({
         console.log("Failed to fetch master lists:", e?.message);
       }
     })();
-  }, []);
+  }, [visible]);
 
   // Load saved pricing method on mount
   useEffect(() => {

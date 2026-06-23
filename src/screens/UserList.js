@@ -62,6 +62,7 @@ export default function UserList() {
     is_allow_tulsi_ai: false,
     is_allow_tulsi_chat_support: false,
     is_user_setting_visible_in_app: false,
+    is_product_billing_in_app: false,
   });
 
   const fetchUsers = useCallback(async () => {
@@ -95,6 +96,7 @@ export default function UserList() {
       is_show_credit_sale: user.is_show_credit_sale || false,
       is_product_edit_permission_in_app: user.is_product_edit_permission_in_app || false,
       is_product_edit_permission_in_pos: user.is_product_edit_permission_in_pos || false,
+      is_product_billing_in_app: user.is_product_billing_in_app || false,
       allow_app_login: user.allow_app_login || false,
       is_allow_tulsi_ai: user.is_allow_tulsi_ai || false,
       is_allow_tulsi_chat_support: user.is_allow_tulsi_chat_support || false,
@@ -121,6 +123,7 @@ export default function UserList() {
     body.is_show_credit_sale = editUser.is_show_credit_sale;
     body.is_product_edit_permission_in_app = editUser.is_product_edit_permission_in_app;
     body.is_product_edit_permission_in_pos = editUser.is_product_edit_permission_in_pos;
+    body.is_product_billing_in_app = editUser.is_product_billing_in_app;
     body.allow_app_login = editUser.allow_app_login;
     body.is_allow_tulsi_ai = editUser.is_allow_tulsi_ai;
     body.is_allow_tulsi_chat_support = editUser.is_allow_tulsi_chat_support;
@@ -219,6 +222,10 @@ export default function UserList() {
           <PermissionItem
             label="Product Edit (App)"
             value={item.is_product_edit_permission_in_app}
+          />
+          <PermissionItem
+            label="App Billing"
+            value={item.is_product_billing_in_app}
           />
             <PermissionItem
             label="Product Edit (POS)"
@@ -455,6 +462,13 @@ export default function UserList() {
                 value={editUser.is_product_edit_permission_in_app}
                 onToggle={(val) =>
                   setEditUser({ ...editUser, is_product_edit_permission_in_app: val })
+                }
+              />
+              <ToggleRow
+                label="App Billing"
+                value={editUser.is_product_billing_in_app}
+                onToggle={(val) =>
+                  setEditUser({ ...editUser, is_product_billing_in_app: val })
                 }
               />
               <ToggleRow

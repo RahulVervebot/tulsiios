@@ -205,6 +205,11 @@ const handleIndividualBarcodeSearch = async (boxKey, scannedData) => {
       attempts.push(barcodeValue.slice(1, -1));
     }
 
+       // 5. if starts with 00, remove two zeros
+    if (barcodeValue.startsWith('00') && barcodeValue.length > 2) {
+      attempts.push(barcodeValue.slice(2));
+    }
+
     let item = null;
     let matchedBarcode = barcodeValue;
 

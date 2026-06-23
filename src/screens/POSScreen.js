@@ -233,6 +233,13 @@ export default function POSScreen() {
                     onPress={() => navigation.navigate('CategoryListScreen')}
                     right={null}
                   />
+                    <Row
+                    icon={TopCustumerList}
+                    label="Multi Store Product List"
+                    isChild
+                    onPress={() => navigation.navigate('MultiStoreProduct')}
+                    right={null}
+                  />
                   <Row
                     icon={CategoryList}
                     label="Deleted Product List"

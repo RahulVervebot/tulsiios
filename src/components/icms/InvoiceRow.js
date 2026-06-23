@@ -14,8 +14,7 @@ const InvoiceRow = ({ item, index, categoryMetaByDept = {}, isExpanded, selected
     if (!item.qty) {
       Invqty = (Number(item.extendedPrice) / Number(item.unitPrice)).toFixed(0);
     }
-// console.log("items for row invoice:",item);
-    // responsive sizes
+
     const base = isTablet ? 14 : 12.6;
     const labelSize = Math.max(11, base - 1 / fontScale);
     const valueSize = Math.max(12, base / fontScale);
@@ -28,9 +27,12 @@ const InvoiceRow = ({ item, index, categoryMetaByDept = {}, isExpanded, selected
     const isCentral = sourceValue && sourceValue !== isicmsstore?.toLowerCase();
     const isicmsdata = sourceValue ===  isicmsstore?.toLowerCase();
     const isStockUpdated = item?.isStockUpdated === true || item?.isStockUpdated === 'true';
+    const isPiecesEmpty = !item.pieces || item.pieces === 0 || item.pieces === '0';
     const isEven = typeof index === 'number' ? index % 2 === 0 : true;
     const baseBg = isStockUpdated
       ? '#DCFCE7'
+      : isPiecesEmpty
+      ? '#FFA500'
       : !hasBarcode
       ? '#ff0000'
       : isEven
@@ -74,8 +76,9 @@ const InvoiceRow = ({ item, index, categoryMetaByDept = {}, isExpanded, selected
       return Number(best.toFixed(2));
     };
     
-    const newcost = Number((item.unitPrice / item.pieces).toFixed(2));
-    
+ newcost = Number((item.unitPrice / item.pieces).toFixed(2));
+
+ 
     let calculatedPrice;
     if (margin !== 0) {
       // For margin: newSellingPrice = newcost / (1 - margin / 100)
@@ -104,6 +107,7 @@ const InvoiceRow = ({ item, index, categoryMetaByDept = {}, isExpanded, selected
       if (!Number.isFinite(n)) return null;
       return Number(n.toFixed(2));
     };
+
     const getDeltaMeta = (current, previous, key) => {
       const c = to2(current);
       const p = to2(previous);
@@ -116,13 +120,12 @@ const InvoiceRow = ({ item, index, categoryMetaByDept = {}, isExpanded, selected
         key,
       };
     };
+
     const piecesDelta = getDeltaMeta(item?.pieces, item?.previousPieces, 'pieces');
     const cpDelta = getDeltaMeta(item?.cp, item?.previousUnitCost, 'cp');
     const extDelta = getDeltaMeta(item?.extendedPrice, item?.previousExtendedPrice, 'extendedPrice');
     const qtyDelta = getDeltaMeta(item?.qty, item?.previousQty, 'qty');
-
-    
-
+  
     const renderValueWithDelta = (label, value, delta) => (
       <View style={styles.deltaWrap}>
         <Text
@@ -152,6 +155,7 @@ const InvoiceRow = ({ item, index, categoryMetaByDept = {}, isExpanded, selected
         ) : null}
       </View>
     );
+
     const renderCompactValueWithDelta = (value, delta) => (
       <View style={styles.compactDeltaWrap}>
         <Text style={[styles.cell, styles.compactDeltaValue, { fontSize: cellSize, color: textColor }]} numberOfLines={1}>

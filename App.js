@@ -63,7 +63,11 @@ import CartIcon from './src/assets/icons/inventory_1.svg';
 import POSIcon from './src/assets/icons/payment_2.svg';
 import ReportIcon from './src/assets/icons/Reportsicon.svg'; 
 import UserList from './src/screens/UserList.js';
+import OrderHold from './src/screens/OrderHold.js';
+import MultiVendor from './src/screens/icms/MultiVendor.js';
 import { getPosAuthStatus } from './src/functions/users/function.js';
+import MultiStoreProduct from './src/screens/MultiStoreProduct.js';
+import ProductRequests from './src/screens/ProductRequests.js';
 const Stack = createNativeStackNavigator();
 const Drawer = createDrawerNavigator();
 const Tab = createBottomTabNavigator();
@@ -385,6 +389,7 @@ export default function App() {
       <Stack.Screen name="SaleSummaryReport" component={SaleSummaryReport} />     
       <Stack.Screen name="ReportsByHours" component={ReportsByHours} />   
    <Stack.Screen name="TopSellingCategoriesReport" component={TopSellingCategoriesReport} /> 
+<Stack.Screen name="OrderHold" component={OrderHold} /> 
 <Stack.Screen name="TopSellingProductsReportScreen" component={TopSellingProductsReportScreen} /> 
 <Stack.Screen name="TopSellingCustomerReport" component={TopSellingCustomerReport} /> 
 <Stack.Screen name="SessionReports" component={SessionReports} /> 
@@ -437,6 +442,54 @@ export default function App() {
               },
             }}
           />
+  <Stack.Screen
+            name="MultiVendor"
+            component={MultiVendor}
+            options={{
+              title: 'Multi Vendor Products',
+              headerStyle: {
+                backgroundColor: '#3478F5',
+              },
+              headerTintColor: '#fff',
+              headerTitleStyle: {
+                fontWeight: 'bold',
+              },
+            }}
+          />
+
+  <Stack.Screen
+            name="MultiStoreProduct"
+            component={MultiStoreProduct}
+            options={{
+              title: 'Multi Store Products',
+              headerStyle: {
+                backgroundColor: '#3478F5',
+              },
+              headerTintColor: '#fff',
+              headerTitleStyle: {
+                fontWeight: 'bold',
+              },
+            }}
+          />
+
+  <Stack.Screen
+            name="ProductRequests"
+            component={ProductRequests}
+            options={{
+              title: 'Product Requests',
+              headerStyle: {
+                backgroundColor: '#3478F5',
+              },
+              headerTintColor: '#fff',
+              headerTitleStyle: {
+                fontWeight: 'bold',
+              },
+            }}
+          />
+
+
+          
+    
           <Stack.Screen
             name="RedProducts"
             component={RedProductsScreen}

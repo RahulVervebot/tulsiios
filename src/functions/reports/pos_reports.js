@@ -8,6 +8,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
  * @param {boolean} options.includeContentType - Whether to include Content-Type header
  * @returns {object} Headers object
  */
+
 function buildHeaders(token, options = {}) {
   const headers = {
     accept: 'application/json',
@@ -291,7 +292,6 @@ console.log("fetchurl:",fetchurl);
   return res.json(); // return raw JSON so the screen can keep its current shape handling
 }
 
-
 // top selling categories report
 
 export async function TopSellingCatgegoriesReport(startdate, enddate, numberOfCategories) {
@@ -341,6 +341,293 @@ export async function TopSellingCatgegoriesReport(startdate, enddate, numberOfCa
   console.log('[Categories Report][normalized array length]:', arr.length);
   return arr;
 }
+
+export async function OrderHoldReport(startdate, enddate) {
+  const [storeUrl, token] = await Promise.all([
+    AsyncStorage.getItem('storeurl'),
+    AsyncStorage.getItem('access_token'),
+  ]);
+
+  if (!storeUrl || !token) {
+    throw new Error('Missing store_url or access_token in AsyncStorage.');
+  }
+
+  const url = `${storeUrl}/api/pos/hold_orders?start_date=${startdate}&end_date=${enddate}`;
+  console.log('fetching with url:', url);
+
+  const res = await fetch(url, {
+    method: 'GET',
+    headers: buildHeaders(token),
+  });
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(
+      `Failed to fetch Order Hold Report (${res.status}): ${
+        text || 'No details'
+      }`
+    );
+  }
+
+  const json = await res.json();
+  console.log('[Order Hold Report][raw json]:', json);
+
+  // Normalize response
+  let orders = [];
+
+  if (Array.isArray(json)) {
+    orders = json;
+  } else if (Array.isArray(json?.orders)) {
+    orders = json.orders;
+  } else if (Array.isArray(json?.result)) {
+    orders = json.result;
+  } else {
+    const firstArray = Object.values(json || {}).find((v) => Array.isArray(v));
+    if (firstArray) orders = firstArray;
+  }
+
+  const data = {
+    orders,
+    totalOrders: json?.totalOrders ?? orders.length,
+    totalOrdersAmount: json?.totalOrdersAmount ?? 0,
+  };
+
+  console.log('[Order Hold Report][normalized data]:', data);
+
+  return data;
+}
+
+export async function OrderPaidReport(startdate, enddate) {
+  const [storeUrl, token] = await Promise.all([
+    AsyncStorage.getItem('storeurl'),
+    AsyncStorage.getItem('access_token'),
+  ]);
+
+  if (!storeUrl || !token) {
+    throw new Error('Missing store_url or access_token in AsyncStorage.');
+  }
+
+  const url = `${storeUrl}/api/pos/paid/hold_orders?start_date=${startdate}&end_date=${enddate}`;
+  console.log('fetching with url:', url);
+
+  const res = await fetch(url, {
+    method: 'GET',
+    headers: buildHeaders(token),
+  });
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(
+      `Failed to fetch Order Paid Report (${res.status}): ${
+        text || 'No details'
+      }`
+    );
+  }
+
+  const json = await res.json();
+  console.log('[Order Paid Report][raw json]:', json);
+
+  // Normalize response
+  let orders = [];
+
+  if (Array.isArray(json)) {
+    orders = json;
+  } else if (Array.isArray(json?.orders)) {
+    orders = json.orders;
+  } else if (Array.isArray(json?.result)) {
+    orders = json.result;
+  } else {
+    const firstArray = Object.values(json || {}).find((v) => Array.isArray(v));
+    if (firstArray) orders = firstArray;
+  }
+
+  const data = {
+    orders,
+    totalOrders: json?.totalOrders ?? orders.length,
+    totalOrdersAmount: json?.totalOrdersAmount ?? 0,
+  };
+
+  console.log('[Order Hold Report][normalized data]:', data);
+
+  return data;
+}
+
+
+  export async function OrderTransactions(orderId) {
+  const [storeUrl, token] = await Promise.all([
+    AsyncStorage.getItem('storeurl'),
+    AsyncStorage.getItem('access_token'),
+  ]);
+
+  if (!storeUrl || !token) {
+    throw new Error('Missing store_url or access_token in AsyncStorage.');
+  }
+
+  const url = `${storeUrl}/api/pos/hold_order/transactions?orderId=${orderId}`;
+  console.log('fetching with url:', url);
+
+  const res = await fetch(url, {
+    method: 'GET',
+    headers: buildHeaders(token),
+  });
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(
+      `Failed to fetch Order Hold Detail Report (${res.status}): ${
+        text || 'No details'
+      }`
+    );
+  }
+
+  const json = await res.json();
+  console.log('[Order Hold Detail Report][raw json]:', json);
+
+  // Normalize order detail array
+  let transactionsDetail = [];
+
+  if (Array.isArray(json)) {
+    transactionsDetail = json;
+  } else if (Array.isArray(json?.transactions)) {
+    transactionsDetail = json.transactions;
+  } else if (Array.isArray(json?.result)) {
+    transactionsDetail = json.result;
+  } else {
+    const firstArray = Object.values(json || {}).find((v) => Array.isArray(v));
+    if (firstArray) transactionsDetail = firstArray;
+  }
+
+  const data = {
+    orderNumber: json?.orderNumber ?? '',
+    orderDate: json?.orderDate ?? '',
+    totalAmount: json?.totalAmount ?? 0,
+    paidAmount: json?.paidAmount ?? 0,
+    paidOrderNumber: json?.paidOrderNumber ?? '',
+    holdOrderId: json?.holdOrderId ?? '',
+    transactionsDetail,
+  };
+
+  console.log('[Order Hold Detail Report][normalized data]:', data);
+
+  return data;
+}
+
+export async function OrderHoldDetailReport(orderId) {
+  const [storeUrl, token] = await Promise.all([
+    AsyncStorage.getItem('storeurl'),
+    AsyncStorage.getItem('access_token'),
+  ]);
+
+  if (!storeUrl || !token) {
+    throw new Error('Missing store_url or access_token in AsyncStorage.');
+  }
+
+  const url = `${storeUrl}/api/get_order_on_hold_detail?orderId=${orderId}`;
+  console.log('fetching with url:', url);
+
+  const res = await fetch(url, {
+    method: 'GET',
+    headers: buildHeaders(token),
+  });
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(
+      `Failed to fetch Order Hold Detail Report (${res.status}): ${
+        text || 'No details'
+      }`
+    );
+  }
+
+  const json = await res.json();
+  console.log('[Order Hold Detail Report][raw json]:', json);
+
+  // Normalize order detail array
+  let orderDetail = [];
+
+  if (Array.isArray(json)) {
+    orderDetail = json;
+  } else if (Array.isArray(json?.orderDetail)) {
+    orderDetail = json.orderDetail;
+  } else if (Array.isArray(json?.result)) {
+    orderDetail = json.result;
+  } else {
+    const firstArray = Object.values(json || {}).find((v) => Array.isArray(v));
+    if (firstArray) orderDetail = firstArray;
+  }
+
+  const data = {
+    orderReference: json?.orderReference ?? '',
+    orderDate: json?.orderDate ?? '',
+    totalOrderAmount: json?.totalOrderAmount ?? 0,
+    orderDetail,
+  };
+
+  console.log('[Order Hold Detail Report][normalized data]:', data);
+
+  return data;
+}
+
+
+export async function OrderPaidDetailReport(orderId) {
+  const [storeUrl, token] = await Promise.all([
+    AsyncStorage.getItem('storeurl'),
+    AsyncStorage.getItem('access_token'),
+  ]);
+
+  if (!storeUrl || !token) {
+    throw new Error('Missing store_url or access_token in AsyncStorage.');
+  }
+
+  const url = `${storeUrl}/api/get_order_on_hold_detail/paid_orders?orderId=${orderId}`;
+  console.log('fetching with url:', url);
+
+  const res = await fetch(url, {
+    method: 'GET',
+    headers: buildHeaders(token),
+  });
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(
+      `Failed to fetch Order Paid Detail Report (${res.status}): ${
+        text || 'No details'
+      }`
+    );
+  }
+
+  const json = await res.json();
+  console.log('[Order Paid Detail Report][raw json]:', json);
+
+  // Normalize order detail array
+  let orderDetail = [];
+
+  if (Array.isArray(json)) {
+    orderDetail = json;
+  } else if (Array.isArray(json?.orderDetail)) {
+    orderDetail = json.orderDetail;
+  } else if (Array.isArray(json?.result)) {
+    orderDetail = json.result;
+  } else {
+    const firstArray = Object.values(json || {}).find((v) => Array.isArray(v));
+    if (firstArray) orderDetail = firstArray;
+  }
+
+  const data = {
+    orderReference: json?.orderReference ?? '',
+    orderDate: json?.orderDate ?? '',
+    totalOrderAmount: json?.totalOrderAmount ?? 0,
+    orderDetail,
+  };
+
+  console.log('[Order Paid Detail Report][normalized data]:', data);
+
+  return data;
+}
+
+
+
+
 
 // top selling products report
 export async function TopSellingProductsReport(startdate, enddate, numberOfProducts) {

@@ -335,13 +335,13 @@ const normalize = (s) =>
       if (fileSizeBytes <= MAX_SIZE_BYTES) {
         return imageUri;
       }
-      
+
       // Calculate compression ratio needed
       let quality = Math.min(80, Math.floor((MAX_SIZE_BYTES / fileSizeBytes) * 100));
       let width = 2048; // Start with reasonable width
       let attempts = 0;
       const maxAttempts = 5;
-      
+
       while (attempts < maxAttempts) {
         console.log(`Compression attempt ${attempts + 1}: quality=${quality}, width=${width}`);
         
@@ -356,26 +356,26 @@ const normalize = (s) =>
           false,
           { mode: 'contain' }
         );
-        
+
         // Check compressed size
         const compressedInfo = await ReactNativeBlobUtil.fs.stat(
           resizedImage.uri.replace('file://', '')
         );
         const compressedSize = compressedInfo.size;
-        
+
         console.log(`Compressed size: ${(compressedSize / (1024 * 1024)).toFixed(2)} MB`);
-        
+
         if (compressedSize <= MAX_SIZE_BYTES) {
           console.log('✅ Image compressed successfully under 7MB');
           return resizedImage.uri;
         }
-        
+
         // Reduce quality and/or dimensions for next attempt
         quality = Math.max(50, quality - 15);
         width = Math.floor(width * 0.8);
         attempts++;
       }
-      
+
       // If still too large after max attempts, warn user
       Alert.alert(
         'Image Too Large',
@@ -383,7 +383,7 @@ const normalize = (s) =>
         [{ text: 'OK' }]
       );
       return null;
-      
+
     } catch (error) {
       console.error('Error compressing image:', error);
       // Return original if compression fails
@@ -820,25 +820,36 @@ const mismatch = detectInvoiceMismatch(queryResponsesByIndexLocal, 70);
     style,
     disabled = false,
     textStyle,
-  }) => (
-    <TouchableOpacity
-      style={[
-        styles.btn,
-        style,
-        (disabled || loading) && styles.btnDisabled,
-      ]}
-      onPress={onPress}
-      disabled={disabled || loading}
-      activeOpacity={0.85}
-      hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
-    >
-      {loading ? (
-        <ActivityIndicator size="small" color="#fff" />
-      ) : (
-        <Text style={[styles.btnText, textStyle]}>{label}</Text>
-      )}
-    </TouchableOpacity>
-  );
+  }) => {
+    const spinnerColor =
+      StyleSheet.flatten([styles.btnText, textStyle])?.color || '#fff';
+    return (
+      <TouchableOpacity
+        style={[
+          styles.btn,
+          style,
+          (disabled || loading) && styles.btnDisabled,
+        ]}
+        onPress={onPress}
+        disabled={disabled || loading}
+        activeOpacity={0.85}
+        hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+      >
+        {loading ? (
+          <ActivityIndicator size="small" color={spinnerColor} />
+        ) : (
+          <Text
+            style={[styles.btnText, textStyle]}
+            numberOfLines={1}
+            adjustsFontSizeToFit
+            maxFontSizeMultiplier={1.2}
+          >
+            {label}
+          </Text>
+        )}
+      </TouchableOpacity>
+    );
+  };
 
   const openModal = image => {
     setSelectedImage(image);
@@ -1139,6 +1150,7 @@ const mismatch = detectInvoiceMismatch(queryResponsesByIndexLocal, 70);
                   itemNo: '',
                   description: '',
                   qty: '',
+                  pieces: '',
                   unitPrice: '',
                   extendedPrice: '',
                   barcode: '',
@@ -1504,6 +1516,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 8,
     paddingHorizontal: 8,
+    width: '100%',
   },
   actionBtn: {
     flex: 1,

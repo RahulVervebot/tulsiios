@@ -45,12 +45,10 @@ export default function InvoiceStepperModal({
   const [continueLoading, setContinueLoading] = useState(false);
   const [icmsStore, setIcmsStore] = useState('');
   const [loadingConfirmId, setLoadingConfirmId] = useState(null);
-
   const invoiceNo = invoiceItem?.SavedInvoiceNo || '';
   const invoiceName = invoiceItem?.InvoiceName || '';
   const savedDate = invoiceItem?.SavedDate || '';
   const userEmail = invoiceItem?.UserDetailInfo?.InvoiceUpdatedby || '';
-
   const hasCompleted =
     Number(invoiceItem?.StepGuider?.currentStep || 0) === 4 &&
     invoiceItem?.StepGuider?.isCompleted === true;
@@ -487,7 +485,7 @@ export default function InvoiceStepperModal({
                             )}
                             <Text style={styles.previewMain} numberOfLines={1}>{item?.description || '-'}</Text>
                             <Text style={styles.previewSub}>Barcode: {item?.barcode || 'Not Linked'}</Text>
-                            <Text style={styles.previewSub}>Item: {item?.itemNo || '-'} • Qty: {item?.qty || '-'} • Cost: {item?.unitPrice || '-'}</Text>
+                            <Text style={styles.previewSub}>Item: {item?.itemNo || '-'} • Total Qty: {item?.qty * item?.pieces || '-'} • Cost: {item?.unitPrice || '-'}</Text>
                           </View>
                         );
                       }}

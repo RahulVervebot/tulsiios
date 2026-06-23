@@ -65,6 +65,7 @@ export default function LoginScreen({ navigation }) {
           await AsyncStorage.setItem('bottombanner', data.bottombanner);
           await AsyncStorage.setItem('topabanner', data.topabanner);
           await AsyncStorage.setItem('icms_url', data.icmsurl);
+          // await AsyncStorage.setItem('local_icms_url', data.local_icms_url);
           await AsyncStorage.setItem('tulsi_websocket', data.tulsi_websocket);
           await AsyncStorage.setItem('tulsi_ai_backend', data.tulsi_ai_backend);
           await AsyncStorage.setItem('tulsifrontendurl', data.tulsifrontendurl);
@@ -244,13 +245,15 @@ export default function LoginScreen({ navigation }) {
     const options = (domain && storeMap[domain]) ? storeMap[domain] : [];
     setStoreOptions(options);
     // auto-clear selection if domain changes
-    setSelectedStore((prev) => (prev && options.find(o => o.name === prev.name) ? prev : null));
+    setSelectedStore((prev) => (prev && options.find(o => o.name === prev.name) ? prev : null));    
+
   }, [email, storeMap]);
 
   // Save on select
   const handleSelectStore = async (store) => {
     try {
       setSelectedStore(store);
+      await AsyncStorage.setItem('storeName', store);
       await AsyncStorage.setItem('storeurl', store.storeurl);
       await AsyncStorage.setItem('dbname', store.dbname);
       await AsyncStorage.setItem('icms_store', store.icms_store ?? '');
@@ -365,7 +368,7 @@ export default function LoginScreen({ navigation }) {
         return;
       }
 
-      const { pos_role, access_token, expiry, user_full_name, user_context, is_promotion_accessible, is_show_cost_price, is_show_credit_sale, is_product_edit_permission_in_app, is_allow_tulsi_ai, is_allow_tulsi_chat_support, is_user_setting_visible_in_app } = data.result || {};
+      const { pos_role, access_token, expiry, user_full_name, user_context, is_promotion_accessible, is_show_cost_price, is_show_credit_sale, is_product_edit_permission_in_app,is_product_billing_in_app, is_allow_tulsi_ai, is_allow_tulsi_chat_support, is_user_setting_visible_in_app,enable_developer_mode_in_app,uid } = data.result || {};
       await AsyncStorage.multiSet([
         ['userRole', String(pos_role || '')],
         ['access_token', String(access_token || '')],
@@ -381,9 +384,12 @@ export default function LoginScreen({ navigation }) {
         ['is_show_cost_price', String(is_show_cost_price || 'false')],
         ['is_show_credit_sale', String(is_show_credit_sale || 'false')],
         ['is_product_edit_permission_in_app', String(is_product_edit_permission_in_app || 'false')],
+        ['is_product_billing_in_app', String(is_product_billing_in_app || 'false')],
         ['is_allow_tulsi_ai', String(is_allow_tulsi_ai || 'false')],
         ['is_allow_tulsi_chat_support', String(is_allow_tulsi_chat_support || 'false')],
         ['is_user_setting_visible_in_app', String(is_user_setting_visible_in_app || 'false')],
+        ['enable_developer_mode_in_app', String(enable_developer_mode_in_app || 'false')],
+        ['user_id', String(uid || '')],
       ]);
 
       // Register device with OneSignal using the selected store's URL

@@ -23,6 +23,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Camera, CameraType } from 'react-native-camera-kit';
 import { launchImageLibrary } from 'react-native-image-picker';
 import { request, PERMISSIONS, RESULTS } from 'react-native-permissions';
+import ImageResizer from 'react-native-image-resizer';
+import ReactNativeBlobUtil from 'react-native-blob-util';
 import SearchTableComponent from './SearchORCTable';
 import SaveInvoiceModal from './SaveInvoiceModal';
 import OCRPreviewComponent from './OCRPreviewComponent';
@@ -317,6 +319,78 @@ const normalize = (s) =>
     navigation.navigate('AddNewVendorInvoice');
   };
 
+  // Image compression helper to ensure images don't exceed 7MB
+  const compressImageIfNeeded = async (imageUri) => {
+    try {
+      const MAX_SIZE_MB = 7;
+      const MAX_SIZE_BYTES = MAX_SIZE_MB * 1024 * 1024;
+      
+      // Get file size
+      const fileInfo = await ReactNativeBlobUtil.fs.stat(imageUri.replace('file://', ''));
+      const fileSizeBytes = fileInfo.size;
+      
+      console.log(`Original image size: ${(fileSizeBytes / (1024 * 1024)).toFixed(2)} MB`);
+      
+      // If already under 7MB, return as is
+      if (fileSizeBytes <= MAX_SIZE_BYTES) {
+        return imageUri;
+      }
+
+      // Calculate compression ratio needed
+      let quality = Math.min(80, Math.floor((MAX_SIZE_BYTES / fileSizeBytes) * 100));
+      let width = 2048; // Start with reasonable width
+      let attempts = 0;
+      const maxAttempts = 5;
+
+      while (attempts < maxAttempts) {
+        console.log(`Compression attempt ${attempts + 1}: quality=${quality}, width=${width}`);
+        
+        const resizedImage = await ImageResizer.createResizedImage(
+          imageUri,
+          width,
+          width * 1.5, // height
+          'JPEG',
+          quality,
+          0,
+          null,
+          false,
+          { mode: 'contain' }
+        );
+
+        // Check compressed size
+        const compressedInfo = await ReactNativeBlobUtil.fs.stat(
+          resizedImage.uri.replace('file://', '')
+        );
+        const compressedSize = compressedInfo.size;
+
+        console.log(`Compressed size: ${(compressedSize / (1024 * 1024)).toFixed(2)} MB`);
+
+        if (compressedSize <= MAX_SIZE_BYTES) {
+          console.log('✅ Image compressed successfully under 7MB');
+          return resizedImage.uri;
+        }
+
+        // Reduce quality and/or dimensions for next attempt
+        quality = Math.max(50, quality - 15);
+        width = Math.floor(width * 0.8);
+        attempts++;
+      }
+
+      // If still too large after max attempts, warn user
+      Alert.alert(
+        'Image Too Large',
+        'Unable to compress image under 7MB. Please try a different image.',
+        [{ text: 'OK' }]
+      );
+      return null;
+
+    } catch (error) {
+      console.error('Error compressing image:', error);
+      // Return original if compression fails
+      return imageUri;
+    }
+  };
+
   const handleValueChange = itemValue => {
     setSelectedValue(itemValue);
     const found = invoiceList.find(i => i.value === itemValue);
@@ -368,23 +442,28 @@ const normalize = (s) =>
     setBtnLoading('snap', true);
     try {
       const photo = await cameraRef.current.capture();
-      // CameraKit returns { uri: 'file://...' }
-      // If you also need base64, you can read file via RNFS (optional). For now store uri.
-      setSnappedImages(prev => [...prev, { uri: photo?.uri, base64: null }]);
       
-      // Show preview for 3 seconds
-      setSnapPreview(photo?.uri);
+      // Compress image if needed before storing
+      const compressedUri = await compressImageIfNeeded(photo?.uri);
       
-      // Clear previous timeout if any
-      if (previewTimeoutRef.current) {
-        clearTimeout(previewTimeoutRef.current);
+      if (compressedUri) {
+        // CameraKit returns { uri: 'file://...' }
+        setSnappedImages(prev => [...prev, { uri: compressedUri, base64: null }]);
+        
+        // Show preview for 3 seconds
+        setSnapPreview(compressedUri);
+        
+        // Clear previous timeout if any
+        if (previewTimeoutRef.current) {
+          clearTimeout(previewTimeoutRef.current);
+        }
+        
+        // Hide preview after 3 seconds
+        previewTimeoutRef.current = setTimeout(() => {
+          setSnapPreview(null);
+          previewTimeoutRef.current = null;
+        }, 3000);
       }
-      
-      // Hide preview after 3 seconds
-      previewTimeoutRef.current = setTimeout(() => {
-        setSnapPreview(null);
-        previewTimeoutRef.current = null;
-      }, 3000);
     } catch (e) {
       console.warn('Error snapping photo:', e);
     } finally {
@@ -422,13 +501,23 @@ const normalize = (s) =>
         selectionLimit: 0,
       });
       if (res?.assets?.length) {
-        const add = res.assets.map(a => ({
-          uri: a.uri,
-          base64: a.base64 || null,
-        }));
-        setSnappedImages(prev => [...prev, ...add]);
-        setIsResponseImg(true);
-        setShowCamera(false);
+        // Compress each selected image if needed
+        const compressedAssets = [];
+        for (const asset of res.assets) {
+          const compressedUri = await compressImageIfNeeded(asset.uri);
+          if (compressedUri) {
+            compressedAssets.push({
+              uri: compressedUri,
+              base64: asset.base64 || null,
+            });
+          }
+        }
+        
+        if (compressedAssets.length > 0) {
+          setSnappedImages(prev => [...prev, ...compressedAssets]);
+          setIsResponseImg(true);
+          setShowCamera(false);
+        }
       }
     } catch (error) {
       console.warn('Gallery picker error:', error);
@@ -1050,6 +1139,7 @@ const mismatch = detectInvoiceMismatch(queryResponsesByIndexLocal, 70);
                   itemNo: '',
                   description: '',
                   qty: '',
+                  pieces: '',
                   unitPrice: '',
                   extendedPrice: '',
                   barcode: '',

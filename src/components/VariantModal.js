@@ -15,51 +15,77 @@ import Icon from "react-native-vector-icons/MaterialIcons";
 const VariantModal = forwardRef((props, ref) => {
   const [visible, setVisible] = useState(false);
   const [variants, setVariants] = useState([]);
+  const [parentProduct, setParentProduct] = useState(null);
   const [onSelectCallback, setOnSelectCallback] = useState(null);
 
   useImperativeHandle(ref, () => ({
-    open: (variantList, callback) => {
+    open: (variantList, parent, callback) => {
       setVariants(Array.isArray(variantList) ? variantList : []);
+      setParentProduct(parent || null);
       setOnSelectCallback(() => callback);
       setVisible(true);
     },
     close: () => {
       setVisible(false);
       setVariants([]);
+      setParentProduct(null);
       setOnSelectCallback(null);
     },
   }));
 
-  const handleSelect = (item) => {
+  const handleSelect = (item, isParent = false) => {
     setVisible(false);
     if (onSelectCallback) {
-      onSelectCallback(item);
+      onSelectCallback(item, isParent);
     }
     setVariants([]);
+    setParentProduct(null);
     setOnSelectCallback(null);
   };
 
   const handleClose = () => {
     setVisible(false);
     setVariants([]);
+    setParentProduct(null);
     setOnSelectCallback(null);
   };
 
-  const renderItem = ({ item }) => (
-    <TouchableOpacity
-      style={styles.variantItem}
-      activeOpacity={0.7}
-      onPress={() => handleSelect(item)}
-    >
-      <View style={styles.variantContent}>
-        <Text style={styles.variantName} numberOfLines={2}>
-          {item?.productName || "Product"}
-        </Text>
-        <Text style={styles.variantPrice}>₹{Number(item?.salePrice || 0).toFixed(2)}</Text>
-      </View>
-      <Icon name="chevron-right" size={24} color="#666" />
-    </TouchableOpacity>
-  );
+  const renderItem = ({ item }) => {
+    const isParent = item?.isParentProduct === true;
+    
+    return (
+      <TouchableOpacity
+        style={styles.variantItem}
+        activeOpacity={0.7}
+        onPress={() => handleSelect(item, isParent)}
+      >
+        <View style={styles.variantContent}>
+          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+            <Text style={styles.variantName} numberOfLines={2}>
+              {item?.productName || "Product"}
+            </Text>
+            {isParent && (
+              <View style={styles.parentBadge}>
+                <Text style={styles.parentBadgeText}>Parent</Text>
+              </View>
+            )}
+          </View>
+          <Text style={styles.variantPrice}>₹{Number(item?.salePrice || 0).toFixed(2)}</Text>
+        </View>
+        <Icon name="chevron-right" size={24} color="#666" />
+      </TouchableOpacity>
+    );
+  };
+
+  // Combine parent product with variants
+  const displayItems = React.useMemo(() => {
+    const items = [];
+    if (parentProduct) {
+      items.push({ ...parentProduct, isParentProduct: true });
+    }
+    items.push(...variants);
+    return items;
+  }, [parentProduct, variants]);
 
   return (
     <Modal
@@ -82,8 +108,12 @@ const VariantModal = forwardRef((props, ref) => {
           </View>
 
           <FlatList
-            data={variants}
-            keyExtractor={(item, index) => String(item?.product_id || index)}
+            data={displayItems}
+            keyExtractor={(item, index) => 
+              item?.isParentProduct 
+                ? `parent-${item?.product_id || index}` 
+                : String(item?.product_id || index)
+            }
             renderItem={renderItem}
             contentContainerStyle={styles.listContent}
             showsVerticalScrollIndicator={false}
@@ -161,6 +191,18 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "700",
     color: "#16A34A",
+  },
+  parentBadge: {
+    backgroundColor: "#F59E0B",
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 4,
+    marginLeft: 8,
+  },
+  parentBadgeText: {
+    color: "#fff",
+    fontSize: 10,
+    fontWeight: "600",
   },
 });
 

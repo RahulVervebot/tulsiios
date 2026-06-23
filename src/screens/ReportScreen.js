@@ -9,7 +9,6 @@ import TopSellingProducts from '../assets/icons/Top-Selling-Products.png'
 import TopSellingCategories from '../assets/icons/Top-Selling-Categories.png'
 import SessionReports from '../assets/icons/Session-report.png'
 import Orders from '../assets/icons/Orders.png'
-
 import { useNavigation } from '@react-navigation/native';
 const PANEL_RADIUS = 28;
 
@@ -55,6 +54,12 @@ export default function ReportScreen() {
             onPress={() => navigation.navigate('OrdersScreen')}
           >
             <Row icon={Orders} label="Orders" />
+          </TouchableOpacity>
+              <TouchableOpacity
+            activeOpacity={1}
+            onPress={() => navigation.navigate('OrderHold')}
+          >
+            <Row icon={Orders} label="Credit Sale Report" />
           </TouchableOpacity>
           <TouchableOpacity
             activeOpacity={1}
