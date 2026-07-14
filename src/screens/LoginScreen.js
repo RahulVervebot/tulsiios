@@ -21,8 +21,9 @@ import { useFocusEffect } from '@react-navigation/native';
 import LoginBackground from '../assets/images/Login_screen_white.png';
 import LinearGradient from 'react-native-linear-gradient';
 import { dbPromise } from '../firebaseConfig';
-import { registerDeviceWithStoreUrl, tagDeviceWithStoreUrl, tagDeviceWithUserRole } from '../config/OneSignalConfig';
+import { registerDeviceWithStoreUrl, tagDeviceWithStoreUrl, tagDeviceWithUserRole, saveUserCallProfile } from '../config/OneSignalConfig';
 import Icon from 'react-native-vector-icons/MaterialIcons';
+import { S3_ASYNC_KEYS } from '../config/S3Config';
 
 export default function LoginScreen({ navigation }) {
   const insets = useSafeAreaInsets();
@@ -71,6 +72,12 @@ export default function LoginScreen({ navigation }) {
           await AsyncStorage.setItem('tulsifrontendurl', data.tulsifrontendurl);
           await AsyncStorage.setItem('onesignalid', data.onesignalid);
           await AsyncStorage.setItem('onesignalkey', data.onesignalkey);
+          await Promise.all([
+            AsyncStorage.setItem(S3_ASYNC_KEYS.region,          data.s3_region),
+            AsyncStorage.setItem(S3_ASYNC_KEYS.bucket,          data.s3_bucket),
+            AsyncStorage.setItem(S3_ASYNC_KEYS.accessKeyId,     data.s3_accessKeyId),
+            AsyncStorage.setItem(S3_ASYNC_KEYS.secretAccessKey, data.s3_secretAccessKey),
+          ]);
         }
       } else {
         console.warn('Firestore: tulsi/storelist does not exist');
@@ -410,6 +417,8 @@ export default function LoginScreen({ navigation }) {
       } else {
         console.warn('[Login] tulsi_ai_backend missing in AsyncStorage');
       }
+      // Save OneSignal player ID to Firestore so callers can find this device
+      saveUserCallProfile(email, user_full_name).catch(() => {});
       // navigate forward
       navigation.navigate('MainDrawer');
     } catch (error) {

@@ -403,20 +403,26 @@ console.log('newRow to save:', newRow);
             const linkingCorrect = item.linkingCorrect !== false;
             const sourceValue = String(item.source ?? '').trim().toLowerCase();
             const isCentral = sourceValue && sourceValue !== icmsStore?.toLowerCase();
-            const isPiecesEmpty = !item.pieces || item.pieces === 0 || item.pieces === '0';
-            // Orange if pieces empty, Red if !hasBarcode and !linkingCorrect, otherwise white
-            const rowBg = isPiecesEmpty ? '#FFA500' : (!hasBarcode && !linkingCorrect) ? '#ff0000' : '#fff';
+            const piecesStr = String(item.pieces ?? '').trim();
+            const piecesNum = Number(piecesStr);
+            const isPiecesEmpty = !piecesStr || !Number.isFinite(piecesNum) || piecesNum === 0;
+            // Red takes priority over orange; orange if pieces empty, red if no barcode/linking issue
+            const rowBg = (!hasBarcode && !linkingCorrect) ? '#ff0000' : '#fff';
 
             return (
               <View key={`${item.itemNo}-${idx}`} style={[styles.tableRow, { backgroundColor: rowBg }]}>
                 <TouchableOpacity style={[styles.tableCell, { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 4 }]} onPress={() => openEditorForIndex(realIndex)}>
-                  {isCentral ? (
-                    <View style={styles.centralIndicator}>
-                      <Icon name="smart-toy" size={12} color="#d32f2f" />
-                    </View>
-                  ) : (
-                    <View style={{ width: 16 }} />
-                  )}
+                  <View style={{ flexDirection: 'row', gap: 2 }}>
+                    {isCentral && (
+                      <View style={styles.centralIndicator}>
+                        <Icon name="smart-toy" size={12} color="#d32f2f" />
+                      </View>
+                    )}
+                    {isPiecesEmpty && (
+                      <Icon name="warning" size={14} color="#7a4f00" />
+                    )}
+                    {!isCentral && !isPiecesEmpty && <View style={{ width: 16 }} />}
+                  </View>
                   <Text numberOfLines={1} style={[styles.cellText, { flex: 1 }]}>{item.itemNo}</Text>
                 </TouchableOpacity>
 

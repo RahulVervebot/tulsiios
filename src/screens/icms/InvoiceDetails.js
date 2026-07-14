@@ -24,6 +24,7 @@ import InvoiceRow from '../../components/icms/InvoiceRow.js';
 import { useRoute } from '@react-navigation/native';
 import LinkProductModal from '../../components/icms/LinkProduct.js';
 import API_ENDPOINTS, { initICMSBase } from '../../../icms_config/api';
+
 if (
   Platform.OS === 'android' &&
   UIManager.setLayoutAnimationEnabledExperimental
@@ -266,33 +267,6 @@ export default function InvoiceDetails() {
     });
   };
 
-  // const handleBulkUpdate = () => {
-  //   const selectedItems = itemsRef.current.filter(item =>
-  //     selectedIds.has(item.ProductId),
-  //   );
-
-  //   if (selectedItems.length === 0) {
-  //     alert('Please select at least one row.');
-  //     return;
-  //   }
-
-  //   // Example: increase cost by 10%
-  //   const updatedItems = itemsRef.current.map(item => {
-  //     if (selectedIds.has(item.ProductId)) {
-  //       return {
-  //         ...item,
-  //         unitPrice: (Number(item.unitPrice) * 1.1).toFixed(2), // increase cost
-  //         extendedPrice: (Number(item.extendedPrice) * 1.1).toFixed(2),
-  //       };
-  //     }
-  //     return item;
-  //   });
-
-  //   itemsRef.current = updatedItems;
-  //   setSelectedIds(new Set()); // clear selection
-  //   alert(`Updated ${selectedItems.length} items successfully ✅`);
-  // };
-
   const handleLinkingRemove = async () => {
     const selectedItems = itemsRef.current.filter(item =>
       selectedIds.has(item.ProductId),
@@ -505,15 +479,12 @@ export default function InvoiceDetails() {
      console.log('All items:', itemsRef.current.map(item => ({ source: item?.source, itemNo: item?.itemNo })));
      console.log('Selected IDs:', Array.from(selectedIds));
      console.log('Has selections:', selectedIds.size > 0);
-
      const tableData = itemsRef.current
-
   .filter(item => {
     const source = String(item?.source ?? '').trim().toLowerCase();
     const storeValue = String(icms_store ?? '').trim().toLowerCase();
    const isStockUpdated = item?.isStockUpdated === true || item?.isStockUpdated === 'true';
     const sourceMatches = source === storeValue && !isStockUpdated;
-
     // If rows are selected, only include selected rows
     // If no rows are selected, include all rows that match source
     if (selectedIds.size > 0) {
@@ -531,7 +502,6 @@ export default function InvoiceDetails() {
     ...item,
     tableDataCopyElement: { ...item }
   }));
-
 console.log('Filtered tableData count:', tableData.length);
 console.log('Filtered tableData:', tableData);
     const body = {
@@ -747,8 +717,10 @@ console.log('Filtered tableData:', tableData);
         </View>
 
         <View style={styles.legendItem}>
-          <View style={[styles.legendBox, { backgroundColor: '#FFA500' }]} />
-          <Text style={styles.legendText}>UICEmpty</Text>
+            <View style={[styles.legendBox, styles.legendAiBox]}>
+           <Icon name="warning" size={9} color="#7a4f00" />
+           </View>
+          <Text style={styles.legendText}>UC_Empty</Text>
         </View>
         <View style={styles.legendItem}>
           <View style={[styles.legendBox, { backgroundColor: '#16A34A' }]} />

@@ -13,13 +13,14 @@ import {
   Platform,
   ImageBackground,
   PanResponder,
-  Dimensions,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import API_ENDPOINTS, { initICMSBase } from '../../../icms_config/api';
 import tulsiBg from '../../assets/images/bg-tulsi-2.jpeg';
 import reportbg from '../../assets/images/report-bg.png';
-import invoiceView from '../../assets/images/View_invoice.gif';
+import invoiceSavedGif from '../../assets/images/invoice_saved_pending_list.gif';
+import invoiceView from '../../assets/images/View_Invoice.gif';
+import invoiceView from '../../assets/images/View_Invoice.gif';
 import invoiceSaving from '../../assets/images/Saving.gif';
 import invoiceClose from '../../assets/images/Close_screen.gif';
 import AppHeader from '../AppHeader';
@@ -41,13 +42,7 @@ const COLORS = {
 
 const THUMB_WIDTH = 112;
 
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
-const REEL_WIDTH = Math.round(SCREEN_WIDTH * 0.7);
-const REEL_HEIGHT = Math.round(REEL_WIDTH * (16 / 9));
-
 const getImageSource = (val) => (typeof val === 'number' ? val : { uri: val });
-
-const SAVE_MODAL_SLIDES = [invoiceView, invoiceSaving, invoiceClose];
 
 function moveItem(arr, from, to) {
   if (from === to || from < 0 || to < 0 || from >= arr.length || to >= arr.length) {
@@ -81,7 +76,6 @@ const AddNewVendorInvoice = () => {
   const [modalVisible, setModalVisible] = useState(false);
   const [savePopupVisible, setSavePopupVisible] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
-  const [saveSliderIndex, setSaveSliderIndex] = useState(0);
 
   const setBtnLoading = (key, value) => {
     setButtonLoading((prev) => ({ ...prev, [key]: value }));
@@ -247,7 +241,6 @@ const AddNewVendorInvoice = () => {
 
     setBtnLoading('save', true);
     setSaveSuccess(false);
-    setSaveSliderIndex(0);
     setSavePopupVisible(true);
     try {
       await initICMSBase();
@@ -551,188 +544,10 @@ const AddNewVendorInvoice = () => {
 
       <Modal visible={savePopupVisible} transparent animationType="fade" onRequestClose={() => {}}>
         <View style={styles.saveModalOverlay}>
-          {!saveSuccess ? (
-            <View style={styles.reelBox}>
-              <ScrollView
-                horizontal
-                pagingEnabled
-                showsHorizontalScrollIndicator={false}
-                decelerationRate="fast"
-                snapToInterval={REEL_WIDTH}
-                snapToAlignment="center"
-                style={styles.reelSlider}
-                onMomentumScrollEnd={(e) => {
-                  const idx = Math.round(e.nativeEvent.contentOffset.x / REEL_WIDTH);
-                  setSaveSliderIndex(idx);
-                }}
-              >
-                {SAVE_MODAL_SLIDES.map((src, idx) => (
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-                  <Image key={idx} source={src} style={styles.reelSlide} resizeMode="cover" />
-                ))}
-              </ScrollView>
-              <View style={styles.reelDotsRow}>
-                {SAVE_MODAL_SLIDES.map((_, idx) => (
-                  <View
-                    key={idx}
-                    style={[styles.reelDot, saveSliderIndex === idx && styles.reelDotActive]}
-                  />
-                ))}
-              </View>
-            </View>
-          ) : (
-            <View style={[styles.saveModalBox, styles.saveModalBoxSuccess]}>
+          <View style={[styles.saveModalBox, saveSuccess && styles.saveModalBoxSuccess]}>
+            {!saveSuccess ? (
+              <Image source={invoiceSavedGif} style={styles.saveModalGifFull} resizeMode="contain" />
+            ) : (
               <TouchableOpacity
                 style={styles.saveModalSuccessBtn}
                 onPress={handleViewPendingInvoices}
@@ -740,8 +555,8 @@ const AddNewVendorInvoice = () => {
               >
                 <Text style={styles.saveModalSuccessBtnText}>View Pending Invoices</Text>
               </TouchableOpacity>
-            </View>
-          )}
+            )}
+          </View>
         </View>
       </Modal>
 
@@ -1095,44 +910,9 @@ const styles = StyleSheet.create({
   saveModalBoxSuccess: {
     backgroundColor: '#ffffff',
   },
-  reelBox: {
-    width: REEL_WIDTH,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  reelSlider: {
-    width: REEL_WIDTH,
-    height: REEL_HEIGHT,
-    borderRadius: 18,
-    overflow: 'hidden',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2,
-    shadowRadius: 10,
-    elevation: 6,
-  },
-  reelSlide: {
-    width: REEL_WIDTH,
-    height: REEL_HEIGHT,
-  },
-  reelDotsRow: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginTop: 14,
-  },
-  reelDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    marginHorizontal: 4,
-    backgroundColor: 'rgba(255,255,255,0.4)',
-  },
-  reelDotActive: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: '#ffffff',
+  saveModalGifFull: {
+    width: '100%',
+    height: '100%',
   },
   saveModalSuccessBtn: {
     alignSelf: 'stretch',

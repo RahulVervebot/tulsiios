@@ -3,6 +3,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
 import OneSignal from 'react-native-onesignal';
+import firestore from '@react-native-firebase/firestore';
 
 const ONE_SIGNAL_APP_ID = '53886d23-f2ee-43f6-99ac-9c3ac95cdb9d';
 
@@ -305,7 +306,8 @@ export const sendNotificationToStoreUsers = async (
 
   title = 'Product Created',
   message = 'Product created successfully',
-  productName = ''
+  productName = '',
+  notificationData = null
 ) => {
   try {
 
@@ -367,6 +369,7 @@ export const sendNotificationToStoreUsers = async (
       priority: 10,
       ios_badgeType: 'Increase',
       ios_badgeCount: 1,
+      ...(notificationData ? { data: notificationData } : {}),
     };
 
     console.log('📤 Sending filter notification with payload:', JSON.stringify(payload, null, 2));
@@ -496,6 +499,98 @@ export const forceEnablePushNotifications = async () => {
     return true;
   } catch (error) {
     console.log('⚠️ Error enabling push:', error?.message);
+    return false;
+  }
+};
+
+// Saves this device's OneSignal player ID to Firestore keyed by email,
+// so other users can look it up when they want to call.
+// Retries up to 6 times (12 seconds total) to handle the case where OneSignal
+// hasn't finished initializing when login completes.
+// Saves this device's OneSignal player ID to callProfiles keyed by email.
+// Email is the stable, permanent identity. oneSignalPlayerId is refreshed on every login.
+export const saveUserCallProfile = async (email, name) => {
+  try {
+    if (!email) return;
+    let playerId = null;
+    for (let i = 0; i < 6; i++) {
+      const state = await OneSignal.getDeviceState?.();
+      playerId = state?.userId;
+      if (playerId) break;
+      console.log(`[CallProfile] no playerId yet, retrying (${i + 1}/6)...`);
+      await new Promise((r) => setTimeout(r, 2000));
+    }
+    if (!playerId) {
+      console.log('[CallProfile] could not get playerId after retries, giving up');
+      return;
+    }
+    // Store playerId locally for push delivery reference
+    await AsyncStorage.setItem('myPlayerId', playerId);
+    // Key document by email — stable across reinstalls and devices.
+    // oneSignalPlayerId is updated on every login so it always reflects the current device.
+    await firestore().collection('callProfiles').doc(email).set({
+      email,
+      name:              name || email,
+      oneSignalPlayerId: playerId,
+      updatedAt:         firestore.FieldValue.serverTimestamp(),
+    }, { merge: true });
+    console.log('[CallProfile] saved for', email, 'playerId:', playerId);
+  } catch (e) {
+    console.log('[CallProfile] save error:', e?.message);
+  }
+};
+
+// Sends a push notification to the callee so they receive the call even when
+// the app is killed or in the background.
+// targetEmail — the callee's email (= their callProfiles doc key); player ID is looked up from Firestore.
+export const sendCallPushNotification = async (targetEmail, callerName, callType, callDocId) => {
+  try {
+    if (!targetEmail) {
+      console.log('[CallPush] no targetEmail provided');
+      return false;
+    }
+    // Look up the callee's current OneSignal player ID from their call profile
+    const profileDoc = await firestore().collection('callProfiles').doc(targetEmail).get();
+    const playerId = profileDoc.data()?.oneSignalPlayerId;
+    if (!playerId) {
+      console.log('[CallPush] no player ID found for', targetEmail);
+      return false;
+    }
+    const onesignalid = await AsyncStorage.getItem('onesignalid');
+    const onesignalkey = await AsyncStorage.getItem('onesignalkey');
+    const label = callType === 'video' ? 'Video' : 'Voice';
+    const payload = {
+      app_id: onesignalid || ONE_SIGNAL_APP_ID,
+      include_player_ids: [playerId],
+      headings: { en: `Incoming ${label} Call` },
+      contents: { en: `${callerName} is calling you...` },
+      data: { type: 'incoming_call', callType, callDocId, callerName },
+      priority: 10,
+      ttl: 30,
+      ios_sound: 'default',
+      ios_badge_type: 'Increase',
+      ios_badge_count: 1,
+      android_accent_color: 'FF319241',
+      android_visibility: 1,
+      // Action buttons shown on the notification (lock screen / notification center)
+      buttons: [
+        { id: 'decline_call', text: 'Decline' },
+        { id: 'accept_call', text: 'Accept' },
+      ],
+    };
+    const response = await fetch('https://api.onesignal.com/notifications', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Key ${onesignalkey || ONE_SIGNAL_REST_API_KEY}`,
+      },
+      body: JSON.stringify(payload),
+    });
+    const data = await response.json();
+    console.log('[CallPush] sent to', targetEmail, 'playerId:', playerId, '| status:', response.status, '| id:', data?.id);
+    return response.ok && !!data?.id;
+  } catch (e) {
+    console.log('[CallPush] error:', e?.message);
     return false;
   }
 };
