@@ -57,6 +57,13 @@ const cards = [
     icon: TulsiIcon,
     target: 'ICMSScreen',
   },
+    {
+    key: 'support-team',
+    title: 'Contacts',
+    subtitle: 'Contact us via chat, voice or Video Call for Support',
+    icon: TulsiIcon,
+    target: 'SupportScreen',
+  },
 ];
 
 export default function Dashboard() {
@@ -83,7 +90,7 @@ export default function Dashboard() {
   const chatAuthInFlightRef = useRef(false);
   const [chatOpen, setChatOpen] = useState(false);
   const [developerMode, setDeveloperMode] = useState(false);
-const [localIcmsUrl, setLocalIcmsUrl] = useState('');
+  const [localIcmsUrl, setLocalIcmsUrl] = useState('');
   useEffect(() => {
     const loadHeader = async () => {
       try {
@@ -540,7 +547,7 @@ const [localIcmsUrl, setLocalIcmsUrl] = useState('');
         <View style={styles.localIcmsRow}>
           <TextInput
             style={styles.localIcmsInput}
-            placeholder="Example: 192.168.1.10:8069"
+            placeholder="Example: http://192.168.1.10:8069"
             placeholderTextColor="#9CA3AF"
             value={localIcmsUrl}
             onChangeText={setLocalIcmsUrl}
@@ -561,8 +568,7 @@ const [localIcmsUrl, setLocalIcmsUrl] = useState('');
     )}
   </View>
 )}
-        </View>
-
+      </View>
         <View style={styles.grid}>
 
           {visibleCards.map((card) => {

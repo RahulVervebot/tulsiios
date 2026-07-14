@@ -82,7 +82,12 @@ class ReactNativeDelegate: RCTDefaultReactNativeFactoryDelegate {
 
   override func bundleURL() -> URL? {
 #if DEBUG
-    RCTBundleURLProvider.sharedSettings().jsBundleURL(forBundleRoot: "index")
+    // LOCAL DEV OVERRIDE: Xcode's automatic USB tunnel to Metro wasn't resolving
+    // a packager host on this machine, so point directly at the Mac's LAN IP.
+    // Revert to RCTBundleURLProvider.sharedSettings().jsBundleURL(forBundleRoot:)
+    // once the USB tunnel is working again. Phone and Mac must be on the same Wi-Fi.
+     URL(string: "http://192.168.68.105:8081/index.bundle?platform=ios&dev=true&minify=false");
+   //  RCTBundleURLProvider.sharedSettings().jsBundleURL(forBundleRoot: "index")
 #else
     Bundle.main.url(forResource: "main", withExtension: "jsbundle")
 #endif

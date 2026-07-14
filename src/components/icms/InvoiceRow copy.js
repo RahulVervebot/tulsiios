@@ -27,6 +27,9 @@ const InvoiceRow = ({ item, index, categoryMetaByDept = {}, isExpanded, selected
     const isCentral = sourceValue && sourceValue !== isicmsstore?.toLowerCase();
     const isicmsdata = sourceValue ===  isicmsstore?.toLowerCase();
     const isStockUpdated = item?.isStockUpdated === true || item?.isStockUpdated === 'true';
+    const piecesStr = String(item.pieces ?? '').trim();
+    const piecesNum = Number(piecesStr);
+    const isPiecesEmpty = !piecesStr || !Number.isFinite(piecesNum) || piecesNum === 0;
     const isEven = typeof index === 'number' ? index % 2 === 0 : true;
     const baseBg = isStockUpdated
       ? '#DCFCE7'
@@ -208,14 +211,18 @@ const InvoiceRow = ({ item, index, categoryMetaByDept = {}, isExpanded, selected
                 {isSelected && <Text style={styles.checkboxTick}>✓</Text>}
               </View>
             </TouchableOpacity>
-          ) : isCentral ? (
-            <View style={styles.checkboxWrap}>
-              <View style={styles.aiBadge}>
-                <Icon name="smart-toy" size={12} color="#7C2D12" />
-              </View>
-            </View>
           ) : (
-            <View style={styles.checkboxSpacer} />
+            <View style={[styles.checkboxWrap, {  gap: 2, alignItems: 'center' }]}>
+              {isCentral && (
+                <View style={styles.aiBadge}>
+                  <Icon name="smart-toy" size={12} color="#7C2D12" />
+                </View>
+              )}
+              {isPiecesEmpty && (
+                <Icon name="warning" size={14} color="#7a4f00" />
+              )}
+              {!isCentral && !isPiecesEmpty && <View style={{ width: 18 }} />}
+            </View>
           )}
 
           <Text style={[styles.cell, { flex: 0.8, fontSize: cellSize, color: textColor }]} numberOfLines={1}>

@@ -34,6 +34,7 @@ import AppHeader from '../AppHeader';
 import { Picker } from '@react-native-picker/picker';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
+
 const COLORS = {
   bg: '#ffffff',
   card: '#f7f9fc',
@@ -45,6 +46,7 @@ const COLORS = {
   text: '#111',
   sub: '#777',
 };
+
 const GREEN_LIGHT = '#e6f6ec';
 const GREEN_DARK = '#256f3a';
 const GREY_LIGHT = '#eef1f4';
@@ -322,7 +324,7 @@ const normalize = (s) =>
   // Image compression helper to ensure images don't exceed 7MB
   const compressImageIfNeeded = async (imageUri) => {
     try {
-      const MAX_SIZE_MB = 7;
+      const MAX_SIZE_MB = 4.5;
       const MAX_SIZE_BYTES = MAX_SIZE_MB * 1024 * 1024;
       
       // Get file size
@@ -452,12 +454,12 @@ const normalize = (s) =>
         
         // Show preview for 3 seconds
         setSnapPreview(compressedUri);
-        
+
         // Clear previous timeout if any
         if (previewTimeoutRef.current) {
           clearTimeout(previewTimeoutRef.current);
         }
-        
+
         // Hide preview after 3 seconds
         previewTimeoutRef.current = setTimeout(() => {
           setSnapPreview(null);
@@ -666,7 +668,6 @@ const normalize = (s) =>
         acc[idx] = toRawResponseObject(ocrItem);
         return acc;
       }, {});
-
       
       setOcrJsons(tempOcrs);
 
@@ -696,9 +697,7 @@ const mismatch = detectInvoiceMismatch(queryResponsesByIndexLocal, 70);
         ]);
         return false;
       }
-    
-
-
+  
 
       await generateInvoice(tempOcrs);
       return true;
@@ -820,30 +819,42 @@ const mismatch = detectInvoiceMismatch(queryResponsesByIndexLocal, 70);
     style,
     disabled = false,
     textStyle,
-  }) => (
-    <TouchableOpacity
-      style={[
-        styles.btn,
-        style,
-        (disabled || loading) && styles.btnDisabled,
-      ]}
-      onPress={onPress}
-      disabled={disabled || loading}
-      activeOpacity={0.85}
-      hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
-    >
-      {loading ? (
-        <ActivityIndicator size="small" color="#fff" />
-      ) : (
-        <Text style={[styles.btnText, textStyle]}>{label}</Text>
-      )}
-    </TouchableOpacity>
-  );
+  }) => {
+    const spinnerColor =
+      StyleSheet.flatten([styles.btnText, textStyle])?.color || '#fff';
+    return (
+      <TouchableOpacity
+        style={[
+          styles.btn,
+          style,
+          (disabled || loading) && styles.btnDisabled,
+        ]}
+        onPress={onPress}
+        disabled={disabled || loading}
+        activeOpacity={0.85}
+        hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+      >
+        {loading ? (
+          <ActivityIndicator size="small" color={spinnerColor} />
+        ) : (
+          <Text
+            style={[styles.btnText, textStyle]}
+            numberOfLines={1}
+            adjustsFontSizeToFit
+            maxFontSizeMultiplier={1.2}
+          >
+            {label}
+          </Text>
+        )}
+      </TouchableOpacity>
+    );
+  };
 
   const openModal = image => {
     setSelectedImage(image);
     setModalVisible(true);
   };
+
   const closeModal = () => {
     setModalVisible(false);
     setSelectedImage(null);
@@ -890,6 +901,7 @@ const mismatch = detectInvoiceMismatch(queryResponsesByIndexLocal, 70);
         backgroundType="image"
         backgroundValue={reportbg}
       ></AppHeader>
+
       <ScrollView
         contentContainerStyle={styles.scrollContent}
         keyboardShouldPersistTaps="handled"
@@ -1201,7 +1213,6 @@ const mismatch = detectInvoiceMismatch(queryResponsesByIndexLocal, 70);
           )}
         </View>
       )}
-
       {/* Save modal */}
       {tableData.length > 0 && (
         <SaveInvoiceModal
@@ -1219,7 +1230,6 @@ const mismatch = detectInvoiceMismatch(queryResponsesByIndexLocal, 70);
           selectedVendor={selectedVendor}
         />
       )}
-
       {/* Preview Modal */}
       <Modal visible={previewModalVisible} transparent animationType="fade" onRequestClose={() => setPreviewModalVisible(false)}>
         <TouchableOpacity 
@@ -1505,6 +1515,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 8,
     paddingHorizontal: 8,
+    width: '100%',
   },
   actionBtn: {
     flex: 1,

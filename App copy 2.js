@@ -72,7 +72,6 @@ import SupportScreen from './src/screens/SupportScreen.js';
 import VideoCallScreen from './src/screens/VideoCallScreen.js';
 import VoiceCallScreen from './src/screens/VoiceCallScreen.js';
 import ChatScreen from './src/screens/ChatScreen.js';
-import CallLoginScreen from './src/screens/CallLoginScreen.js';
 
 const Stack = createNativeStackNavigator();
 const Drawer = createDrawerNavigator();
@@ -203,15 +202,8 @@ function MainDrawer() {
       drawerContent={(props) => <CustomDrawerContent {...props} />}
       screenOptions={{ headerShown: false }}
     >
-      <Drawer.Screen name="Profile" component={UserScreen}
-      
-       options={{ swipeEnabled: false }}
-      />
-     <Drawer.Screen
-        name="Tabs"
-        component={BottomTabs}
-        options={{ drawerItemStyle: { height: 0 }, swipeEnabled: false }}
-      />
+      <Drawer.Screen name="Profile" component={UserScreen} />
+     <Drawer.Screen name="Tabs" component={BottomTabs} />
     </Drawer.Navigator>
   );
 }
@@ -433,10 +425,10 @@ export default function App() {
           // Silent fail - not critical
         }
 
-        // Re-save call profile now that OneSignal is fully initialized so the
-        // stored playerId stays current. callUserEmail is the stable identity.
-        const email = await AsyncStorage.getItem('callUserEmail');
-        const name  = await AsyncStorage.getItem('callUserName');
+        // Re-save call profile now that OneSignal is fully initialized.
+        // Login may have called saveUserCallProfile before the player ID was ready.
+        const email = await AsyncStorage.getItem('userEmail');
+        const name = await AsyncStorage.getItem('userName');
         if (email) {
           saveUserCallProfile(email, name || email).catch(() => {});
         }
@@ -500,7 +492,6 @@ export default function App() {
     <Stack.Screen name="QuantityDiscountScreen" component={QuantityDiscountScreen} />
     <Stack.Screen name="UserList" component={UserList} />
      <Stack.Screen name="SupportScreen" component={SupportScreen} />
-      <Stack.Screen name="CallLoginScreen" component={CallLoginScreen} />
       <Stack.Screen name="VideoCallScreen" component={VideoCallScreen} />
       <Stack.Screen name="VoiceCallScreen" component={VoiceCallScreen} />
       <Stack.Screen name="ChatScreen" component={ChatScreen} options={{ headerShown: false }} />

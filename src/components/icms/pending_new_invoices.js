@@ -260,10 +260,23 @@ console.log("response notify",response);
               {item?.jobId || 'No Job ID'}
             </Text>
           </View>
-          <View style={[styles.statusPill, { backgroundColor: statusTone.bg }]}>
-            <Text style={[styles.statusText, { color: statusTone.text }]}>
-              {item?.status || '-'}
-            </Text>
+          <View style={styles.cardHeaderRight}>
+            <View style={[styles.statusPill, { backgroundColor: statusTone.bg }]}>
+              <Text style={[styles.statusText, { color: statusTone.text }]}>
+                {item?.status || '-'}
+              </Text>
+            </View>
+            <TouchableOpacity
+              style={[styles.notifyIconBtn, isNotified && styles.notifyIconBtnDisabled]}
+              onPress={() => openNotifyModal(item?.jobId)}
+              disabled={!item?.jobId || isNotified}
+            >
+              <Icon
+                name={isNotified ? 'notifications-active' : 'notifications-none'}
+                size={16}
+                color={isNotified ? '#94A3B8' : '#fff'}
+              />
+            </TouchableOpacity>
           </View>
         </View>
 
@@ -290,15 +303,6 @@ console.log("response notify",response);
               ) : (
                 <Text style={styles.progressText}>No stage error reported.</Text>
               )}
-              <TouchableOpacity
-                style={[styles.notifyBtn, isNotified && styles.notifyBtnDisabled]}
-                onPress={() => openNotifyModal(item?.jobId)}
-                disabled={!item?.jobId || isNotified}
-              >
-                <Text style={styles.notifyBtnText}>
-                  {isNotified ? 'Tulsi Team Notified' : 'Notify Tulsi Team to solve it'}
-                </Text>
-              </TouchableOpacity>
             </View>
           </View>
         ) : null}
@@ -461,6 +465,11 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#5F6F66',
   },
+  cardHeaderRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
   statusPill: {
     borderRadius: 999,
     paddingHorizontal: 12,
@@ -469,6 +478,17 @@ const styles = StyleSheet.create({
   statusText: {
     fontSize: 12,
     fontWeight: '700',
+  },
+  notifyIconBtn: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: '#0F8B65',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  notifyIconBtnDisabled: {
+    backgroundColor: '#E2E8F0',
   },
   expandedBlock: {
     marginTop: 14,
@@ -562,22 +582,6 @@ const styles = StyleSheet.create({
     borderColor: '#DCE7DE',
     padding: 12,
     gap: 6,
-  },
-  notifyBtn: {
-    marginTop: 8,
-    backgroundColor: '#0F8B65',
-    borderRadius: 10,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    alignItems: 'center',
-  },
-  notifyBtnDisabled: {
-    backgroundColor: '#94A3B8',
-  },
-  notifyBtnText: {
-    color: '#fff',
-    fontWeight: '700',
-    fontSize: 13,
   },
   progressTitle: {
     fontSize: 14,
