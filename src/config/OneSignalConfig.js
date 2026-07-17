@@ -5,7 +5,7 @@ import { Platform } from 'react-native';
 import OneSignal from 'react-native-onesignal';
 import firestore from '@react-native-firebase/firestore';
 
-export const ONE_SIGNAL_APP_ID = 'xyz';
+
 
 /*
   IMPORTANT:
@@ -13,7 +13,7 @@ export const ONE_SIGNAL_APP_ID = 'xyz';
   - Notification send API should ideally be called from your backend.
   - Below key is only shown because you asked for full file structure.
 */
-export const ONE_SIGNAL_REST_API_KEY = 'xyz';
+
 
 let isInitialized = false;
 
