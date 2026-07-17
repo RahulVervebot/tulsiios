@@ -13,8 +13,6 @@ import firestore from '@react-native-firebase/firestore';
   - Notification send API should ideally be called from your backend.
   - Below key is only shown because you asked for full file structure.
 */
-
-
 let isInitialized = false;
 
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
