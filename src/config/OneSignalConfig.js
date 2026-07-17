@@ -5,7 +5,7 @@ import { Platform } from 'react-native';
 import OneSignal from 'react-native-onesignal';
 import firestore from '@react-native-firebase/firestore';
 
-export const ONE_SIGNAL_APP_ID = '53886d23-f2ee-43f6-99ac-9c3ac95cdb9d';
+export const ONE_SIGNAL_APP_ID = 'xyz';
 
 /*
   IMPORTANT:
@@ -13,7 +13,7 @@ export const ONE_SIGNAL_APP_ID = '53886d23-f2ee-43f6-99ac-9c3ac95cdb9d';
   - Notification send API should ideally be called from your backend.
   - Below key is only shown because you asked for full file structure.
 */
-export const ONE_SIGNAL_REST_API_KEY = 'REDACTED_ONESIGNAL_KEY';
+export const ONE_SIGNAL_REST_API_KEY = 'xyz';
 
 let isInitialized = false;
 
@@ -31,7 +31,7 @@ const onesignalid = await AsyncStorage.getItem('onesignalid');
     console.log('\n🚀 ===== INITIALIZING ONESIGNAL =====');
     console.log('[OneSignal] appId from storage:', onesignalid || '(using hardcoded fallback)');
 
-    OneSignal.setAppId(onesignalid || ONE_SIGNAL_APP_ID);
+    OneSignal.setAppId(onesignalid);
 
     // Optional debug logs
     if (OneSignal.setLogLevel) {
@@ -337,7 +337,7 @@ export const sendNotificationToStoreUsers = async (
 
     console.log('✅ OneSignal tags after sync:', tags);
 
-      const onesignalid = (await AsyncStorage.getItem('onesignalid')) || ONE_SIGNAL_APP_ID;
+      const onesignalid = (await AsyncStorage.getItem('onesignalid'));
     console.log('📱 Current device state before send:', {
       subscribed: state?.isSubscribed,
       hasNotificationPermission: state?.hasNotificationPermission,
@@ -374,7 +374,7 @@ export const sendNotificationToStoreUsers = async (
     };
 
     console.log('📤 Sending filter notification with payload:', JSON.stringify(payload, null, 2));
-    const one_signal_rest_key = (await AsyncStorage.getItem('onesignalkey')) || ONE_SIGNAL_REST_API_KEY;
+    const one_signal_rest_key = (await AsyncStorage.getItem('onesignalkey'));
     const response = await fetch('https://api.onesignal.com/notifications', {
       method: 'POST',
       headers: {
@@ -596,7 +596,7 @@ export const sendCallPushNotification = async (targetEmail, callerName, callType
     const onesignalkey = await AsyncStorage.getItem('onesignalkey');
     const label = callType === 'video' ? 'Video' : 'Voice';
     const payload = {
-      app_id: onesignalid || ONE_SIGNAL_APP_ID,
+      app_id: onesignalid,
       include_player_ids: [playerId],
       headings: { en: `Incoming ${label} Call` },
       contents: { en: `${callerName} is calling you...` },
@@ -618,7 +618,7 @@ export const sendCallPushNotification = async (targetEmail, callerName, callType
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Key ${onesignalkey || ONE_SIGNAL_REST_API_KEY}`,
+        Authorization: `Key ${onesignalkey}`,
       },
       body: JSON.stringify(payload),
     });
