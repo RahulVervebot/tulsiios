@@ -18,7 +18,10 @@ import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { GoogleSignin } from '@react-native-google-signin/google-signin';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Icon from 'react-native-vector-icons/Ionicons';
-import { initializeOneSignal, debugOneSignalStatus, forceEnablePushNotifications, saveUserCallProfile } from './src/config/OneSignalConfig';
+import { initializeOneSignal, debugOneSignalStatus, forceEnablePushNotifications, saveUserCallProfile, saveVoipToken, cleanupStaleCallProfile } from './src/config/OneSignalConfig';
+import { initUploadManager } from './src/functions/chat/UploadManager';
+import { initCallKeep, setCallKeepNav, displayIncomingCall } from './src/config/CallKeepConfig';
+import VoipPushNotification from 'react-native-voip-push-notification';
 import IncomingCallOverlay from './src/components/IncomingCallOverlay';
 import LoginScreen from './src/screens/LoginScreen';
 import HomeScreen from './src/screens/HomeScreen';
@@ -236,7 +239,68 @@ export default function App() {
   const [initialRoute, setInitialRoute] = useState(null);
   const [activeRouteName, setActiveRouteName] = useState('');
   const navigationRef = useRef(null);
-  const CHAT_HIDDEN_ROUTES = new Set(['Login', 'CategoryListScreen', 'CategoryProducts', 'ProductScreen']);
+  const CHAT_HIDDEN_ROUTES = new Set(['Login', 'CategoryListScreen', 'CategoryProducts', 'ProductScreen','CallLoginScreen','ChatScreen','VideoCallScreen','VoiceCallScreen','SupportScreen']);
+
+  // ── CallKeep + VoIP push init ─────────────────────────────────────────────
+  useEffect(() => {
+    initUploadManager(); // resume any pending uploads from previous session
+  }, []);
+
+  useEffect(() => {
+    setCallKeepNav(navigationRef);
+    initCallKeep();
+
+    if (Platform.OS === 'ios') {
+      // Cache the VoIP token locally so CallLoginScreen can save it to Firestore after login
+      VoipPushNotification.addEventListener('register', async (token) => {
+        await AsyncStorage.setItem('voipToken', token);
+        const email = await AsyncStorage.getItem('callUserEmail');
+        if (email) saveVoipToken(email, token);
+      });
+
+      // When a VoIP push arrives (any app state), show the CallKit UI and
+      // watch the call doc so we can dismiss if the caller cancels first.
+      VoipPushNotification.addEventListener('notification', (notification) => {
+        const p = notification?.data ?? notification;
+        if (p?.callId) {
+          displayIncomingCall({
+            callId:      p.callId,
+            callerId:    p.callerId,
+            callerName:  p.callerName,
+            callerEmail: p.callerEmail,
+            callType:    p.callType,
+          });
+
+          // Watch this specific call doc. If the caller cancels before the
+          // callee answers, dismiss the CallKit incoming-call UI immediately.
+          // This fires even when the app is killed/backgrounded because the
+          // VoIP push woke the JS runtime before IncomingCallOverlay mounts.
+          const firestoreModule = require('@react-native-firebase/firestore').default;
+          const { endCallKeep } = require('./src/config/CallKeepConfig');
+          const unsub = firestoreModule()
+            .collection('calls')
+            .doc(p.callId)
+            .onSnapshot((snap) => {
+              const data = snap?.data();
+              if (data?.status === 'ended' || data?.status === 'rejected') {
+                try { endCallKeep(p.callId); } catch (_) {}
+                unsub();
+              }
+            }, () => { try { unsub(); } catch (_) {} });
+        }
+        VoipPushNotification.onVoipNotificationCompleted(p?.callId ?? '');
+      });
+
+      VoipPushNotification.registerVoipToken();
+    }
+
+    return () => {
+      if (Platform.OS === 'ios') {
+        VoipPushNotification.removeEventListener('register');
+        VoipPushNotification.removeEventListener('notification');
+      }
+    };
+  }, []);
   function ChatOverlay() {
     const insets = useSafeAreaInsets();
 
@@ -440,6 +504,9 @@ export default function App() {
         if (email) {
           saveUserCallProfile(email, name || email).catch(() => {});
         }
+        // Remove player ID from the Google login email's callProfiles doc if it has no PIN.
+        // This cleans up stale entries created by the old LoginScreen bug.
+        cleanupStaleCallProfile().catch(() => {});
 
         console.log('\n✅ OneSignal setup complete - App ready for notifications\n');
       } catch (error) {

@@ -51,16 +51,48 @@ function callStatusLabel(status, isOutgoing) {
 // ─── Contacts tab ─────────────────────────────────────────────────────────────
 
 function ContactsTab({ myEmail, myName, navigation }) {
-  const [users,       setUsers]       = useState([]);
-  const [loading,     setLoading]     = useState(false);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [refreshing,  setRefreshing]  = useState(false);
+  const [users,          setUsers]          = useState([]);
+  const [loading,        setLoading]        = useState(false);
+  const [searchQuery,    setSearchQuery]    = useState('');
+  const [refreshing,     setRefreshing]     = useState(false);
+  const [isAgent,        setIsAgent]        = useState(false);
+  const [storeDomains,   setStoreDomains]   = useState([]);
+  const [selectedDomain, setSelectedDomain] = useState('All');
+  const [showDropdown,   setShowDropdown]   = useState(false);
 
   const fetchUsers = useCallback(async (silent = false) => {
     try {
       if (!silent) setLoading(true);
-      const snap = await firestore().collection('callProfiles').get();
-      const contacts = snap.docs.map((doc) => ({ email: doc.id, ...doc.data() }));
+
+      const [storeDoc, profilesSnap] = await Promise.all([
+        firestore().collection('tulsi').doc('storelist').get(),
+        firestore().collection('callProfiles').get(),
+      ]);
+
+      const agentList = storeDoc.data()?.Agent || [];
+      // Use callUserEmail (myEmail prop) as identity — not the Google/device login email
+      const agent = agentList.includes(myEmail);
+
+      if (agent) await AsyncStorage.setItem('userRole', 'Agent');
+
+      // Spread data first, then enforce doc.id as email so key is always unique.
+      let contacts = profilesSnap.docs.map((doc) => ({
+        ...doc.data(),
+        email: doc.id,
+      }));
+
+      if (!agent) {
+        // Non-agents: only show agent users so they can reach support
+        contacts = contacts.filter((u) => agentList.includes(u.email));
+      }
+
+      // Build storeDomain list for the Agent dropdown (unique, sorted)
+      const uniqueStoreDomains = [...new Set(
+        contacts.map((u) => u.storeDomain).filter(Boolean)
+      )].sort();
+
+      setIsAgent(agent);
+      setStoreDomains(uniqueStoreDomains);
       setUsers(contacts);
     } catch (e) {
       console.log('SupportScreen contacts error', e);
@@ -68,12 +100,18 @@ function ContactsTab({ myEmail, myName, navigation }) {
       setLoading(false);
       setRefreshing(false);
     }
-  }, []);
+  }, [myEmail]);
 
   useEffect(() => { fetchUsers(); }, []);
 
   const filteredUsers = users
     .filter((u) => u.email !== myEmail)
+    .filter((u) => {
+      if (isAgent && selectedDomain !== 'All') {
+        return u.storeDomain === selectedDomain;
+      }
+      return true;
+    })
     .filter((u) => {
       const q = searchQuery.toLowerCase();
       return !q || u.name?.toLowerCase().includes(q) || u.email?.toLowerCase().includes(q);
@@ -116,19 +154,51 @@ function ContactsTab({ myEmail, myName, navigation }) {
 
   return (
     <>
-      <View style={styles.searchBar}>
-        <Icon name="search" size={20} color="#9CA3AF" style={{ marginRight: 8 }} />
-        <TextInput
-          style={styles.searchInput}
-          placeholder="Search by name or email..."
-          placeholderTextColor="#9CA3AF"
-          value={searchQuery}
-          onChangeText={setSearchQuery}
-        />
-        {searchQuery.length > 0 && (
-          <TouchableOpacity onPress={() => setSearchQuery('')}>
-            <Icon name="close" size={18} color="#9CA3AF" />
-          </TouchableOpacity>
+      <View style={styles.searchRow}>
+        <View style={[styles.searchBar, { flex: 1 }]}>
+          <Icon name="search" size={20} color="#9CA3AF" style={{ marginRight: 8 }} />
+          <TextInput
+            style={styles.searchInput}
+            placeholder="Search by name or email..."
+            placeholderTextColor="#9CA3AF"
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+          />
+          {searchQuery.length > 0 && (
+            <TouchableOpacity onPress={() => setSearchQuery('')}>
+              <Icon name="close" size={18} color="#9CA3AF" />
+            </TouchableOpacity>
+          )}
+        </View>
+
+        {isAgent && storeDomains.length > 0 && (
+          <View style={styles.dropdownWrap}>
+            <TouchableOpacity
+              style={styles.dropdownBtn}
+              onPress={() => setShowDropdown((v) => !v)}
+            >
+              <Text style={styles.dropdownBtnText} numberOfLines={1}>
+                {selectedDomain === 'All' ? 'All' : selectedDomain}
+              </Text>
+              <Icon name={showDropdown ? 'arrow-drop-up' : 'arrow-drop-down'} size={20} color="#319241" />
+            </TouchableOpacity>
+
+            {showDropdown && (
+              <View style={styles.dropdownMenu}>
+                {['All', ...storeDomains].map((d) => (
+                  <TouchableOpacity
+                    key={d}
+                    style={[styles.dropdownItem, selectedDomain === d && styles.dropdownItemActive]}
+                    onPress={() => { setSelectedDomain(d); setShowDropdown(false); }}
+                  >
+                    <Text style={[styles.dropdownItemText, selectedDomain === d && styles.dropdownItemTextActive]}>
+                      {d}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            )}
+          </View>
         )}
       </View>
 
@@ -162,6 +232,9 @@ function ContactsTab({ myEmail, myName, navigation }) {
               <View style={styles.userMeta}>
                 <Text style={styles.userName}>{item.name}</Text>
                 <Text style={styles.userEmail}>{item.email}</Text>
+                {!!item.storeDomain && (
+                  <Text style={styles.userStoreDomain}>{item.storeDomain}</Text>
+                )}
               </View>
               <View style={styles.callIcons}>
                 <Icon name="call"     size={20} color="#319241" style={{ marginRight: 12 }} />
@@ -328,16 +401,29 @@ export default function SupportScreen({ navigation }) {
   const [activeTab, setActiveTab] = useState(TAB_CONTACTS);
 
   useEffect(() => {
-    AsyncStorage.multiGet(['callUserEmail', 'callUserName']).then((pairs) => {
-      const email = pairs[0][1] || '';
-      const name  = pairs[1][1] || email;
+    const validateAndLoad = async () => {
+      const [[, email], [, name]] = await AsyncStorage.multiGet([
+        'callUserEmail', 'callUserName',
+      ]);
       if (!email) {
         navigation.replace('CallLoginScreen');
         return;
       }
+      // Validate profile still exists in Firestore (allow offline use on error)
+      try {
+        const doc = await firestore().collection('callProfiles').doc(email).get();
+        if (!doc.exists) {
+          await AsyncStorage.multiRemove(['callUserEmail', 'callUserName']);
+          navigation.replace('CallLoginScreen');
+          return;
+        }
+      } catch (_) {
+        // Network error — keep cached credentials so offline use isn't blocked
+      }
       setMyEmail(email);
-      setMyName(name);
-    });
+      setMyName(name || email);
+    };
+    validateAndLoad();
   }, []);
 
   return (
@@ -346,7 +432,7 @@ export default function SupportScreen({ navigation }) {
       style={styles.screen}
       resizeMode="cover"
     >
-      <AppHeader Title="Contact" backgroundType="image" backgroundValue={reportbg} />
+      <AppHeader Title="Contact Us" backgroundType="image" backgroundValue={reportbg} />
 
       <View style={styles.panel}>
         {/* Tab switcher */}
@@ -462,11 +548,17 @@ const styles = StyleSheet.create({
   },
 
   // ── search ──
-  searchBar: {
+  searchRow: {
     flexDirection: 'row',
     alignItems: 'center',
     marginHorizontal: 14,
     marginBottom: 10,
+    gap: 8,
+    zIndex: 10,
+  },
+  searchBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
     paddingHorizontal: 14,
     paddingVertical: 10,
     backgroundColor: '#fff',
@@ -479,6 +571,58 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#111827',
     padding: 0,
+  },
+
+  // ── domain dropdown ──
+  dropdownWrap: {
+    position: 'relative',
+    zIndex: 20,
+  },
+  dropdownBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#BBF7D0',
+    paddingHorizontal: 10,
+    paddingVertical: 10,
+    gap: 2,
+  },
+  dropdownBtnText: {
+    fontSize: 13,
+    color: '#319241',
+    fontWeight: '600',
+    maxWidth: 90,
+  },
+  dropdownMenu: {
+    position: 'absolute',
+    top: 46,
+    right: 0,
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    minWidth: 140,
+    ...Platform.select({
+      ios:     { shadowColor: '#000', shadowOpacity: 0.1, shadowRadius: 6, shadowOffset: { width: 0, height: 3 } },
+      android: { elevation: 6 },
+    }),
+  },
+  dropdownItem: {
+    paddingHorizontal: 14,
+    paddingVertical: 11,
+  },
+  dropdownItemActive: {
+    backgroundColor: '#F0FDF4',
+  },
+  dropdownItemText: {
+    fontSize: 13,
+    color: '#374151',
+  },
+  dropdownItemTextActive: {
+    color: '#319241',
+    fontWeight: '700',
   },
 
   // ── shared list ──
@@ -537,6 +681,12 @@ const styles = StyleSheet.create({
   userEmail: {
     fontSize: 13,
     color: '#6B7280',
+  },
+  userStoreDomain: {
+    fontSize: 11,
+    color: '#319241',
+    fontWeight: '600',
+    marginTop: 2,
   },
   callIcons: {
     flexDirection: 'row',

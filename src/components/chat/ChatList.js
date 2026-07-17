@@ -27,18 +27,25 @@ export default function ChatList({ myEmail, myName, navigation }) {
   useEffect(() => {
     if (!myEmail) return;
 
+    // No orderBy in the query — array-contains + orderBy requires a composite
+    // Firestore index that may not exist. Sort by lastMessageTime in JS instead.
     const unsub = firestore()
       .collection('chats')
       .where('participants', 'array-contains', myEmail)
-      .orderBy('lastMessageTime', 'desc')
       .onSnapshot(
         (snap) => {
-          setChats(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+          const sorted = snap.docs
+            .map((d) => ({ id: d.id, ...d.data() }))
+            .sort((a, b) => {
+              const ta = a.lastMessageTime?.toMillis?.() ?? 0;
+              const tb = b.lastMessageTime?.toMillis?.() ?? 0;
+              return tb - ta;
+            });
+          setChats(sorted);
           setLoading(false);
           setRefreshing(false);
         },
         (err) => {
-          // Likely missing composite index — log the URL in the error to create it
           console.log('[ChatList] snapshot error:', err?.message);
           setLoading(false);
           setRefreshing(false);
@@ -83,7 +90,7 @@ export default function ChatList({ myEmail, myName, navigation }) {
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
-            onRefresh={() => setRefreshing(true)}
+            onRefresh={() => {}}
             tintColor="#319241"
           />
         }

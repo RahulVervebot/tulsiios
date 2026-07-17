@@ -40,6 +40,7 @@ export default function LoginScreen({ navigation }) {
   // store picker state
   const [storeMap, setStoreMap] = useState(null); // { [domain]: [{ name, storeurl, dbname }] }
   const [storeOptions, setStoreOptions] = useState([]); // options for current email domain
+  const [storeDomain, setStoreDomain] = useState(''); // current email domain
   const [selectedStore, setSelectedStore] = useState(null);
   const [storeModalVisible, setStoreModalVisible] = useState(false);
 
@@ -249,6 +250,7 @@ export default function LoginScreen({ navigation }) {
   useEffect(() => {
     if (!storeMap) return;
     const domain = email.includes('@') ? email.split('@')[1].toLowerCase().trim() : '';
+    setStoreDomain(domain);
     const options = (domain && storeMap[domain]) ? storeMap[domain] : [];
     setStoreOptions(options);
     // auto-clear selection if domain changes
@@ -257,9 +259,10 @@ export default function LoginScreen({ navigation }) {
   }, [email, storeMap]);
 
   // Save on select
-  const handleSelectStore = async (store) => {
+  const handleSelectStore = async (store) => { 
     try {
       setSelectedStore(store);
+      await AsyncStorage.setItem('storeDomain', storeDomain);
       await AsyncStorage.setItem('storeName', store.name ?? '');
       await AsyncStorage.setItem('storeurl', store.storeurl);
       await AsyncStorage.setItem('dbname', store.dbname);
@@ -417,8 +420,8 @@ export default function LoginScreen({ navigation }) {
       } else {
         console.warn('[Login] tulsi_ai_backend missing in AsyncStorage');
       }
-      // Save OneSignal player ID to Firestore so callers can find this device
-      saveUserCallProfile(email, user_full_name).catch(() => {});
+      // NOTE: callProfiles is keyed by callUserEmail (set in CallLoginScreen), NOT the Google login email.
+      // Player ID is saved there after call login, so no saveUserCallProfile call here.
       // navigate forward
       navigation.navigate('MainDrawer');
     } catch (error) {

@@ -21,6 +21,13 @@ import Icon from 'react-native-vector-icons/MaterialIcons';
 import InCallManager from 'react-native-incall-manager';
 import AppHeader from '../components/AppHeader';
 import { sendCallPushNotification } from '../config/OneSignalConfig';
+import { endCallKeep, reportCallActive } from '../config/CallKeepConfig';
+
+const makeUUID = () =>
+  'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    return (c === 'x' ? r : (r & 0x3) | 0x8).toString(16);
+  });
 
 const ICE_SERVERS = [
   { urls: 'stun:stun.l.google.com:19302' },
@@ -80,9 +87,10 @@ export default function VoiceCallScreen({ route, navigation }) {
     resolve();
   }, []);
 
+  // Run fetchUsers only after myEmail is loaded so the self-filter works correctly
   useEffect(() => {
-    fetchUsers();
-  }, []);
+    if (myEmail) fetchUsers();
+  }, [myEmail]);
 
   // Auto-start outgoing call when navigated from SupportScreen with a target user
   useEffect(() => {
@@ -93,10 +101,17 @@ export default function VoiceCallScreen({ route, navigation }) {
     }
   }, [myEmail]);
 
-  // Auto-answer when navigated here from IncomingCallOverlay
+  // Auto-answer when navigated here from CallKeep (incomingCall only has callId/callerName)
+  // Must fetch offer + full data from Firestore before calling answerCall.
   useEffect(() => {
     const call = route?.params?.incomingCall;
-    if (call) answerCall(call);
+    if (!call?.callId) return;
+    firestore().collection('calls').doc(call.callId).get()
+      .then((snap) => {
+        const data = snap.data();
+        if (data) answerCall({ id: call.callId, ...data });
+      })
+      .catch((e) => Alert.alert('Error', 'Could not load call: ' + e.message));
   }, []);
 
   // Fetch call data when opened from a push notification (app was killed/backgrounded)
@@ -139,7 +154,7 @@ export default function VoiceCallScreen({ route, navigation }) {
     try {
       setLoadingUsers(true);
       const snap = await firestore().collection('callProfiles').get();
-      const all = snap.docs.map((d) => ({ email: d.id, ...d.data() }));
+      const all = snap.docs.map((d) => ({ ...d.data(), email: d.id }));
       setUsers(all.filter((u) => u.email !== myEmail));
     } catch (e) {
       console.log('VoiceCall: fetch users error', e);
@@ -158,6 +173,7 @@ export default function VoiceCallScreen({ route, navigation }) {
       }
       if (pc.connectionState === 'connected') {
         setStatus(STATUS.CONNECTED);
+        if (callDocRef.current?.id) reportCallActive(callDocRef.current.id);
       }
     };
     return pc;
@@ -190,7 +206,7 @@ export default function VoiceCallScreen({ route, navigation }) {
       const pc = buildPC();
       stream.getTracks().forEach((t) => pc.addTrack(t, stream));
 
-      const callId = `vc_${Date.now()}`;
+      const callId = makeUUID();
       const callRef = firestore().collection('calls').doc(callId);
       callDocRef.current = callRef;
 
@@ -298,6 +314,7 @@ export default function VoiceCallScreen({ route, navigation }) {
   };
 
   const endCall = async (updateDb = true) => {
+    if (callDocRef.current?.id) endCallKeep(callDocRef.current.id);
     if (updateDb && callDocRef.current) {
       try { await callDocRef.current.update({ status: 'ended' }); } catch (_) {}
     }
@@ -305,11 +322,7 @@ export default function VoiceCallScreen({ route, navigation }) {
     try { InCallManager?.stopRingback?.(); } catch (_) {}
     try { InCallManager?.stopRingtone?.(); } catch (_) {}
     try { InCallManager?.stop(); } catch (_) {}
-    if (navigation.canGoBack()) {
-      navigation.goBack();
-    } else {
-      navigation.navigate('SupportScreen');
-    }
+    navigation.reset({ index: 0, routes: [{ name: 'MainDrawer' }] });
   };
 
   const cleanup = () => {

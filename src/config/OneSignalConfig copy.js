@@ -3,6 +3,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
 import OneSignal from 'react-native-onesignal';
+import firestore from '@react-native-firebase/firestore';
 
 const ONE_SIGNAL_APP_ID = '53886d23-f2ee-43f6-99ac-9c3ac95cdb9d';
 
@@ -119,18 +120,28 @@ export const removeOneSignalTagsOnLogout = async () => {
   try {
     console.log('\n🧹 ===== REMOVING ONESIGNAL TAGS ON LOGOUT =====');
 
-    // deleteTag only syncs to the server when device is subscribed — check first
+    // Check current subscription/device state
     let state = await OneSignal.getDeviceState?.();
-    console.log('📱 Subscription state:', { subscribed: state?.subscribed, pushToken: state?.pushToken ? '✅' : '❌' });
+    console.log('📱 Subscription state:', {
+      subscribed: state?.subscribed,
+      pushToken: state?.pushToken ? '✅' : '❌',
+    });
 
+    // Wait a bit if device is not yet subscribed
     if (!state?.subscribed || !state?.pushToken) {
       console.log('⏳ Device not subscribed — waiting up to 10s before deleting tags...');
       let waitedMs = 0;
+
       while ((!state?.subscribed || !state?.pushToken) && waitedMs < 10000) {
         await wait(2000);
         waitedMs += 2000;
+
         state = await OneSignal.getDeviceState?.();
-        console.log(`   [${waitedMs}ms] subscribed: ${state?.subscribed}, token: ${state?.pushToken ? '✅' : '❌'}`);
+        console.log(
+          `   [${waitedMs}ms] subscribed: ${state?.subscribed}, token: ${
+            state?.pushToken ? '✅' : '❌'
+          }`
+        );
       }
     }
 
@@ -138,31 +149,42 @@ export const removeOneSignalTagsOnLogout = async () => {
       console.log('⚠️ Device not subscribed — tags may not sync to server immediately. Deleting anyway...');
     }
 
-    const tagsToRemove = ['storeurl', 'userrole', 'app_user', 'device_type'];
+    // Include all possible tag keys that may exist
+    const tagsToRemove = [
+      'storeurl',
+      'userrole',
+      'app_user',
+      'device_type',
+      'storeuserrole', // malformed/old combined tag
+    ];
 
-    // deleteTags batch is more reliable than individual deleteTag calls
+    // Delete from OneSignal
     OneSignal.deleteTags(tagsToRemove);
     console.log('🗑️ deleteTags called for:', tagsToRemove.join(', '));
 
-    // Clear locally stored values
-    await AsyncStorage.multiRemove(['storeurl', 'userrole']);
-    console.log('🗑️ Cleared storeurl & userrole from AsyncStorage');
+    // Give SDK time to sync
+    await wait(2000);
 
-    // Give OneSignal time to sync the removals to the server
-    await wait(3000);
-
-    // Confirm tags are gone
+    // Check remaining tags
     const remainingTags = await new Promise((resolve) => {
       OneSignal.getTags((tags) => resolve(tags || {}));
     });
 
-    const remaining = Object.keys(remainingTags).filter(k => tagsToRemove.includes(k));
-    if (remaining.length === 0) {
-      console.log('✅ All tags successfully removed from device');
+    const remainingTargetTags = Object.keys(remainingTags).filter((key) =>
+      tagsToRemove.includes(key)
+    );
+
+    if (remainingTargetTags.length === 0) {
+      console.log('✅ Target tags successfully removed from device');
     } else {
-      console.log('⚠️ Tags still present after removal (may still sync):', remaining);
+      console.log('⚠️ Some target tags are still present:', remainingTargetTags);
     }
-    console.log('📋 All remaining tags:', JSON.stringify(remainingTags));
+
+    console.log('📋 All remaining tags on device:', JSON.stringify(remainingTags));
+
+    if (Object.keys(remainingTags).length > 0) {
+      console.log('⚠️ Other tags still exist on device:', Object.keys(remainingTags).join(', '));
+    }
 
     console.log('🧹 ===== TAGS REMOVED =====\n');
     return true;
@@ -172,18 +194,23 @@ export const removeOneSignalTagsOnLogout = async () => {
   }
 };
 
-export const tagDeviceWithStoreUrl = async (storeUrl) => {
+export const tagDeviceWithStoreUrl = async (storeUrl, storeRole) => {
   try {
     if (!storeUrl) {
       console.log('❌ storeUrl missing');
       return false;
     }
+       if (!storeRole) {
+      console.log('❌ storeRole missing');
+      return false;
+    }
 
     const normalizedStoreUrl = normalizeStoreUrl(storeUrl);
-
+   const normalizedStoreRole = normalizeStoreUrl(storeRole);
     console.log('\n🏷️ ===== TAGGING DEVICE =====');
     console.log('Original storeUrl:', storeUrl);
     console.log('Normalized storeUrl:', normalizedStoreUrl);
+    console.log('Original storeRole:', normalizedStoreRole);
 
     const state = await OneSignal.getDeviceState?.();
     console.log('📱 State before tagging:', {
@@ -195,15 +222,22 @@ export const tagDeviceWithStoreUrl = async (storeUrl) => {
 
     // Save locally
     await AsyncStorage.setItem('storeurl', normalizedStoreUrl);
-
-    // Send SDK tags
-    OneSignal.sendTag('storeurl', normalizedStoreUrl);
-    OneSignal.sendTag('app_user', 'true');
-    OneSignal.sendTag('device_type', Platform.OS);
-
+   await AsyncStorage.setItem('userrole', normalizedStoreRole);
+const storeuserrole = normalizedStoreUrl+normalizedStoreRole
+OneSignal.sendTags({
+ storeuserrole: storeuserrole,
+  app_user: 'true',
+  device_type: Platform.OS.toLowerCase(),
+});
     // Give OneSignal some time to sync tags
     await wait(5000);
+    const tags = await new Promise((resolve) => {
+      OneSignal.getTags((t) => resolve(t || {}));
+    });
 
+    console.log('✅ OneSignal tags after sync:', tags);
+    console.log('MATCH storeurl:', tags?.storeurl === normalizedStoreUrl);
+    console.log('MATCH userrole:', tags?.userrole === normalizedStoreRole);
     console.log('✅ Tags sent successfully');
     console.log('🏷️ ===== TAGGING COMPLETE =====\n');
     return true;
@@ -213,44 +247,7 @@ export const tagDeviceWithStoreUrl = async (storeUrl) => {
   }
 };
 
-export const tagDeviceWithUserRole = async (userRole) => {
-  try {
-    if (!userRole) {
-      console.log('❌ userRole missing');
-      return false;
-    }
 
-    const normalizedUserRole = String(userRole || '').trim().toLowerCase();
-
-    console.log('\n🏷️ ===== TAGGING USER ROLE =====');
-    console.log('Original userRole:', userRole);
-    console.log('Normalized userRole:', normalizedUserRole);
-
-    const state = await OneSignal.getDeviceState?.();
-    console.log('📱 State before tagging:', {
-      subscribed: state?.subscribed,
-      hasNotificationPermission: state?.hasNotificationPermission,
-      pushToken: state?.pushToken,
-      userId: state?.userId,
-    });
-
-    // Save locally
-    await AsyncStorage.setItem('userrole', normalizedUserRole);
-
-    // Send SDK tags
-    OneSignal.sendTag('userrole', normalizedUserRole);
-
-    // Give OneSignal some time to sync tags
-    await wait(5000);
-
-    console.log('✅ User role tag sent successfully');
-    console.log('🏷️ ===== TAGGING COMPLETE =====\n');
-    return true;
-  } catch (error) {
-    console.log('❌ tagDeviceWithUserRole error:', error?.message || error);
-    return false;
-  }
-};
 
 // Optional helper if you have a real stable app user id
 export const setExternalUserId = async (externalUserId) => {
@@ -309,21 +306,36 @@ export const sendNotificationToStoreUsers = async (
 
   title = 'Product Created',
   message = 'Product created successfully',
-  productName = ''
+  productName = '',
+  notificationData = null
 ) => {
   try {
 
     console.log('\n📢 ===== SEND STORE FILTER NOTIFICATION =====');
 
     const storeUrl = await AsyncStorage.getItem('storeurl');
+        const userRole = await AsyncStorage.getItem('userRole');
     if (!storeUrl) {
       console.log('❌ No storeurl found in AsyncStorage');
       return false;
     }
+    if(!userRole){
+      console.log('❌ No userRole found in AsyncStorage');
+      return false;
+    }
+    const normalizedUserRole = String(userRole || '').trim().toLowerCase();
 
     const normalizedStoreUrl = normalizeStoreUrl(storeUrl);
 
     const state = await OneSignal.getDeviceState?.();
+   const storeuserrole = normalizedStoreUrl+normalizedUserRole
+
+   const tags = await new Promise((resolve) => {
+      OneSignal.getTags((t) => resolve(t || {}));
+    });
+
+    console.log('✅ OneSignal tags after sync:', tags);
+
       const onesignalid = await AsyncStorage.getItem('onesignalid');
     console.log('📱 Current device state before send:', {
       subscribed: state?.isSubscribed,
@@ -343,10 +355,10 @@ export const sendNotificationToStoreUsers = async (
       filters: [
         {
           field: 'tag',
-          key: 'storeurl',
+          key: 'storeuserrole',
           relation: '=',
-          value: normalizedStoreUrl,
-        },
+          value: storeuserrole,
+        }
       ],
       headings: {
         en: title || 'Product Created',
@@ -357,6 +369,7 @@ export const sendNotificationToStoreUsers = async (
       priority: 10,
       ios_badgeType: 'Increase',
       ios_badgeCount: 1,
+      ...(notificationData ? { data: notificationData } : {}),
     };
 
     console.log('📤 Sending filter notification with payload:', JSON.stringify(payload, null, 2));
@@ -400,116 +413,6 @@ export const sendNotificationToStoreUsers = async (
   }
 };
 
-export const sendNotificationToAdministrators = async (
-  title = 'Administrator Alert',
-  message = 'New alert for administrators',
-  productName = ''
-) => {
-  try {
-
-    console.log('\n📢 ===== SEND ADMIN FILTER NOTIFICATION =====');
-
-    const storeUrl = await AsyncStorage.getItem('storeurl');
-    const userRole = await AsyncStorage.getItem('userrole');
-
-    if (!storeUrl) {
-      console.log('❌ No storeurl found in AsyncStorage');
-      return false;
-    }
-
-    if (!userRole || userRole.toLowerCase() !== 'administrator') {
-      console.log('❌ User is not an administrator');
-      return false;
-    }
-
-    const normalizedStoreUrl = normalizeStoreUrl(storeUrl);
-    const normalizedUserRole = String(userRole || '').trim().toLowerCase();
-
-    const state = await OneSignal.getDeviceState?.();
-    const onesignaid = await AsyncStorage.getItem('onesignalid')
-    console.log('📱 Current device state before send:', {
-      subscribed: state?.isSubscribed,
-      hasNotificationPermission: state?.hasNotificationPermission,
-      pushToken: state?.pushToken,
-      userId: state?.userId,
-    });
-
-    if (!state?.isSubscribed || !state?.hasNotificationPermission || !state?.pushToken) {
-      console.log('❌ Current device is not fully subscribed');
-      console.log('   Fix notification permission / token / subscription first');
-      return false;
-    }
-
-    const payload = {
-      app_id: onesignaid,
-      filters: [
-        {
-          field: 'tag',
-          key: 'storeurl',
-          relation: '=',
-          value: normalizedStoreUrl,
-        },
-        {
-          operator: 'AND'
-        },
-        {
-          field: 'tag',
-          key: 'userrole',
-          relation: '=',
-          value: normalizedUserRole,
-        },
-      ],
-      headings: {
-        en: title || 'Administrator Alert',
-      },
-      contents: {
-        en: message || `${productName || 'Alert'} for administrators`,
-      },
-      priority: 10,
-      ios_badgeType: 'Increase',
-      ios_badgeCount: 1,
-    };
-
-    console.log('📤 Sending admin filter notification with payload:', JSON.stringify(payload, null, 2));
-    const one_signal_rest_key = await AsyncStorage.getItem('onesignalkey');
-    const response = await fetch('https://api.onesignal.com/notifications', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Key ${one_signal_rest_key}`,
-      },
-      body: JSON.stringify(payload),
-    });
-
-    const responseText = await response.text();
-    console.log('📡 Admin filter send status:', response.status);
-    console.log('📄 Admin filter send response:', responseText);
-
-    let data = {};
-    try {
-      data = responseText ? JSON.parse(responseText) : {};
-    } catch (e) {
-      console.log('⚠️ Response JSON parse failed');
-    }
-
-    if (response.ok && data.id) {
-      console.log('✅ Administrator filtered notification sent successfully');
-      console.log('📢 ===== SEND COMPLETE =====\n');
-      return true;
-    }
-
-    if (data?.errors?.length) {
-      console.log('❌ OneSignal error:', data.errors[0]);
-    }
-
-    console.log('❌ Administrator filtered notification failed');
-    console.log('📢 ===== SEND FAILED =====\n');
-    return false;
-  } catch (error) {
-    console.log('❌ sendNotificationToAdministrators error:', error?.message || error);
-    return false;
-  }
-};
 
 export const forceEnablePushNotifications = async () => {
   try {
@@ -596,6 +499,98 @@ export const forceEnablePushNotifications = async () => {
     return true;
   } catch (error) {
     console.log('⚠️ Error enabling push:', error?.message);
+    return false;
+  }
+};
+
+// Saves this device's OneSignal player ID to Firestore keyed by email,
+// so other users can look it up when they want to call.
+// Retries up to 6 times (12 seconds total) to handle the case where OneSignal
+// hasn't finished initializing when login completes.
+// Saves this device's OneSignal player ID to callProfiles keyed by email.
+// Email is the stable, permanent identity. oneSignalPlayerId is refreshed on every login.
+export const saveUserCallProfile = async (email, name) => {
+  try {
+    if (!email) return;
+    let playerId = null;
+    for (let i = 0; i < 6; i++) {
+      const state = await OneSignal.getDeviceState?.();
+      playerId = state?.userId;
+      if (playerId) break;
+      console.log(`[CallProfile] no playerId yet, retrying (${i + 1}/6)...`);
+      await new Promise((r) => setTimeout(r, 2000));
+    }
+    if (!playerId) {
+      console.log('[CallProfile] could not get playerId after retries, giving up');
+      return;
+    }
+    // Store playerId locally for push delivery reference
+    await AsyncStorage.setItem('myPlayerId', playerId);
+    // Key document by email — stable across reinstalls and devices.
+    // oneSignalPlayerId is updated on every login so it always reflects the current device.
+    await firestore().collection('callProfiles').doc(email).set({
+      email,
+      name:              name || email,
+      oneSignalPlayerId: playerId,
+      updatedAt:         firestore.FieldValue.serverTimestamp(),
+    }, { merge: true });
+    console.log('[CallProfile] saved for', email, 'playerId:', playerId);
+  } catch (e) {
+    console.log('[CallProfile] save error:', e?.message);
+  }
+};
+
+// Sends a push notification to the callee so they receive the call even when
+// the app is killed or in the background.
+// targetEmail — the callee's email (= their callProfiles doc key); player ID is looked up from Firestore.
+export const sendCallPushNotification = async (targetEmail, callerName, callType, callDocId) => {
+  try {
+    if (!targetEmail) {
+      console.log('[CallPush] no targetEmail provided');
+      return false;
+    }
+    // Look up the callee's current OneSignal player ID from their call profile
+    const profileDoc = await firestore().collection('callProfiles').doc(targetEmail).get();
+    const playerId = profileDoc.data()?.oneSignalPlayerId;
+    if (!playerId) {
+      console.log('[CallPush] no player ID found for', targetEmail);
+      return false;
+    }
+    const onesignalid = await AsyncStorage.getItem('onesignalid');
+    const onesignalkey = await AsyncStorage.getItem('onesignalkey');
+    const label = callType === 'video' ? 'Video' : 'Voice';
+    const payload = {
+      app_id: onesignalid || ONE_SIGNAL_APP_ID,
+      include_player_ids: [playerId],
+      headings: { en: `Incoming ${label} Call` },
+      contents: { en: `${callerName} is calling you...` },
+      data: { type: 'incoming_call', callType, callDocId, callerName },
+      priority: 10,
+      ttl: 30,
+      ios_sound: 'default',
+      ios_badge_type: 'Increase',
+      ios_badge_count: 1,
+      android_accent_color: 'FF319241',
+      android_visibility: 1,
+      // Action buttons shown on the notification (lock screen / notification center)
+      buttons: [
+        { id: 'decline_call', text: 'Decline' },
+        { id: 'accept_call', text: 'Accept' },
+      ],
+    };
+    const response = await fetch('https://api.onesignal.com/notifications', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Key ${onesignalkey || ONE_SIGNAL_REST_API_KEY}`,
+      },
+      body: JSON.stringify(payload),
+    });
+    const data = await response.json();
+    console.log('[CallPush] sent to', targetEmail, 'playerId:', playerId, '| status:', response.status, '| id:', data?.id);
+    return response.ok && !!data?.id;
+  } catch (e) {
+    console.log('[CallPush] error:', e?.message);
     return false;
   }
 };

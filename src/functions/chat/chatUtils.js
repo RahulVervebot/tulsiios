@@ -1,5 +1,6 @@
 import firestore from '@react-native-firebase/firestore';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { ONE_SIGNAL_APP_ID, ONE_SIGNAL_REST_API_KEY } from '../../config/OneSignalConfig';
 
 // Find or create a 1-on-1 chat; participants keyed by email (stable across reinstalls)
 export const getOrCreateDirectChat = async (myEmail, myName, otherEmail, otherName) => {
@@ -31,11 +32,11 @@ export const getOrCreateDirectChat = async (myEmail, myName, otherEmail, otherNa
 
 // Send a push notification for a new chat message.
 // participants[] are emails; player IDs are looked up from callProfiles.
+
 export const sendChatPushNotification = async (chatId, chatName, senderName, messageText, participants, senderEmail, chatType = 'direct') => {
   try {
-    const onesignalid  = await AsyncStorage.getItem('onesignalid');
-    const onesignalkey = await AsyncStorage.getItem('onesignalkey');
-    if (!onesignalid || !onesignalkey) return;
+    const appId  = (await AsyncStorage.getItem('onesignalid'))  || ONE_SIGNAL_APP_ID;
+    const apiKey = (await AsyncStorage.getItem('onesignalkey')) || ONE_SIGNAL_REST_API_KEY;
 
     const recipients = participants.filter((e) => e !== senderEmail);
     const playerIds  = [];
@@ -45,15 +46,21 @@ export const sendChatPushNotification = async (chatId, chatName, senderName, mes
         try {
           const snap = await firestore().collection('callProfiles').doc(email).get();
           const pid  = snap.data()?.oneSignalPlayerId;
+          console.log(`[ChatPush] playerId for ${email}:`, pid ?? 'MISSING');
           if (pid) playerIds.push(pid);
-        } catch (_) {}
+        } catch (e) {
+          console.log(`[ChatPush] lookup error for ${email}:`, e?.message);
+        }
       }),
     );
 
-    if (playerIds.length === 0) return;
+    if (playerIds.length === 0) {
+      console.log('[ChatPush] No player IDs found — notification not sent');
+      return;
+    }
 
     const payload = {
-      app_id:             onesignalid,
+      app_id:             appId,
       include_player_ids: playerIds,
       headings:           { en: chatName || senderName },
       contents:           { en: `${senderName}: ${messageText}` },
@@ -65,14 +72,13 @@ export const sendChatPushNotification = async (chatId, chatName, senderName, mes
       ios_badge_count:    1,
     };
 
-    await fetch('https://onesignal.com/api/v1/notifications', {
+    const res = await fetch('https://api.onesignal.com/notifications', {
       method:  'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization:  `Basic ${onesignalkey}`,
-      },
-      body: JSON.stringify(payload),
+      headers: { 'Content-Type': 'application/json', Authorization: `Key ${apiKey}` },
+      body:    JSON.stringify(payload),
     });
+    const data = await res.json();
+    console.log('[ChatPush] status:', res.status, '| id:', data?.id, '| errors:', data?.errors);
   } catch (e) {
     console.log('[ChatPush] error:', e?.message);
   }

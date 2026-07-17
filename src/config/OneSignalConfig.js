@@ -5,7 +5,7 @@ import { Platform } from 'react-native';
 import OneSignal from 'react-native-onesignal';
 import firestore from '@react-native-firebase/firestore';
 
-const ONE_SIGNAL_APP_ID = '53886d23-f2ee-43f6-99ac-9c3ac95cdb9d';
+export const ONE_SIGNAL_APP_ID = '53886d23-f2ee-43f6-99ac-9c3ac95cdb9d';
 
 /*
   IMPORTANT:
@@ -13,7 +13,7 @@ const ONE_SIGNAL_APP_ID = '53886d23-f2ee-43f6-99ac-9c3ac95cdb9d';
   - Notification send API should ideally be called from your backend.
   - Below key is only shown because you asked for full file structure.
 */
-const ONE_SIGNAL_REST_API_KEY = 'REDACTED_ONESIGNAL_KEY';
+export const ONE_SIGNAL_REST_API_KEY = 'REDACTED_ONESIGNAL_KEY';
 
 let isInitialized = false;
 
@@ -29,8 +29,9 @@ export const initializeOneSignal = async () => {
     }
 const onesignalid = await AsyncStorage.getItem('onesignalid');
     console.log('\n🚀 ===== INITIALIZING ONESIGNAL =====');
+    console.log('[OneSignal] appId from storage:', onesignalid || '(using hardcoded fallback)');
 
-    OneSignal.setAppId(onesignalid || '');
+    OneSignal.setAppId(onesignalid || ONE_SIGNAL_APP_ID);
 
     // Optional debug logs
     if (OneSignal.setLogLevel) {
@@ -336,7 +337,7 @@ export const sendNotificationToStoreUsers = async (
 
     console.log('✅ OneSignal tags after sync:', tags);
 
-      const onesignalid = await AsyncStorage.getItem('onesignalid');
+      const onesignalid = (await AsyncStorage.getItem('onesignalid')) || ONE_SIGNAL_APP_ID;
     console.log('📱 Current device state before send:', {
       subscribed: state?.isSubscribed,
       hasNotificationPermission: state?.hasNotificationPermission,
@@ -373,7 +374,7 @@ export const sendNotificationToStoreUsers = async (
     };
 
     console.log('📤 Sending filter notification with payload:', JSON.stringify(payload, null, 2));
-    const one_signal_rest_key = await AsyncStorage.getItem('onesignalkey');
+    const one_signal_rest_key = (await AsyncStorage.getItem('onesignalkey')) || ONE_SIGNAL_REST_API_KEY;
     const response = await fetch('https://api.onesignal.com/notifications', {
       method: 'POST',
       headers: {
@@ -412,7 +413,6 @@ export const sendNotificationToStoreUsers = async (
     return false;
   }
 };
-
 
 export const forceEnablePushNotifications = async () => {
   try {
@@ -500,6 +500,42 @@ export const forceEnablePushNotifications = async () => {
   } catch (error) {
     console.log('⚠️ Error enabling push:', error?.message);
     return false;
+  }
+};
+
+// Removes the oneSignalPlayerId from the Google/device login email's callProfiles doc if it
+// has no PIN — meaning it was created by the old LoginScreen bug, not by the call login system.
+// Call this on every app startup to clean up stale routing entries.
+export const cleanupStaleCallProfile = async () => {
+  try {
+    const userEmail = await AsyncStorage.getItem('userEmail');
+    const callEmail = await AsyncStorage.getItem('callUserEmail');
+    if (!userEmail || userEmail === callEmail) return;
+    const doc = await firestore().collection('callProfiles').doc(userEmail).get();
+    if (!doc.exists) return;
+    const data = doc.data();
+    if (!data?.pin && data?.oneSignalPlayerId) {
+      await firestore().collection('callProfiles').doc(userEmail).update({
+        oneSignalPlayerId: firestore.FieldValue.delete(),
+      });
+      console.log('[CallProfile] Removed stale player ID from Google email profile:', userEmail);
+    }
+  } catch (e) {
+    console.log('[CallProfile] cleanupStaleCallProfile error:', e?.message);
+  }
+};
+
+// Saves the iOS VoIP push token to callProfiles so the Firebase Function can deliver VoIP pushes.
+export const saveVoipToken = async (email, voipToken) => {
+  try {
+    if (!email || !voipToken) return;
+    await firestore().collection('callProfiles').doc(email).set(
+      { voipToken, updatedAt: firestore.FieldValue.serverTimestamp() },
+      { merge: true },
+    );
+    console.log('[VoIP] token saved for', email);
+  } catch (e) {
+    console.log('[VoIP] saveVoipToken error:', e?.message);
   }
 };
 

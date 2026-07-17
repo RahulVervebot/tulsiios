@@ -147,7 +147,9 @@ export const getPresignedDownloadUrl = async (s3Key) => {
 };
 
 // Upload a local file. Returns s3Key (permanent reference stored in Firestore).
-export const uploadToS3 = async (fileUri, s3Key, mimeType, onProgress) => {
+// onTask(task) is called synchronously with the RNBlobUtil task so the caller
+// can cancel it via task.cancel().
+export const uploadToS3 = async (fileUri, s3Key, mimeType, onProgress, onTask) => {
   const cfg          = await getConfig();
   const presignedUrl = buildPresignedUrl('PUT', s3Key, UPLOAD_URL_TTL, cfg, mimeType);
   const cleanUri     = fileUri.replace('file://', '');
@@ -158,12 +160,15 @@ export const uploadToS3 = async (fileUri, s3Key, mimeType, onProgress) => {
 
   let res;
   try {
-    res = await RNBlobUtil
-      .config({ timeout: 120000 })
+    const task = RNBlobUtil
+      .config({ timeout: 120000, IOSBackgroundTask: true })
       .fetch('PUT', presignedUrl, { 'Content-Type': mimeType }, RNBlobUtil.wrap(cleanUri))
       .uploadProgress({ interval: 250 }, (written, total) => {
         onProgress?.(written / total);
       });
+
+    onTask?.(task); // expose task handle for mid-upload cancellation
+    res = await task;
   } catch (fetchErr) {
     console.log('[S3] network error:', fetchErr?.message, fetchErr?.code);
     throw fetchErr;

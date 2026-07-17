@@ -3,20 +3,29 @@ import {
   View, Text, TextInput, TouchableOpacity, FlatList, StyleSheet,
   KeyboardAvoidingView, Platform, Image, ActivityIndicator, Alert,
   ActionSheetIOS, StatusBar, Modal, Dimensions, SectionList,
-  ScrollView, Linking,
+  ScrollView, Linking, NativeModules,
 } from 'react-native';
+
+const { PHAssetHelper } = NativeModules;
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import firestore from '@react-native-firebase/firestore';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Icon from 'react-native-vector-icons/MaterialIcons';
-import { launchImageLibrary, launchCamera } from 'react-native-image-picker';
+import { launchCamera, launchImageLibrary } from 'react-native-image-picker';
+import DocumentPicker from 'react-native-document-picker';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import {
-  uploadToS3, downloadFromS3, isFileDownloaded,
+  downloadFromS3, isFileDownloaded,
   deleteLocalFile, getLocalPath, getPresignedDownloadUrl,
 } from '../config/S3Config';
 import {
   sendChatPushNotification, markChatAsRead, incrementUnread,
 } from '../functions/chat/chatUtils';
+import {
+  addToUploadQueue, persistFileForQueue,
+} from '../functions/chat/uploadQueue';
+import { startUploadManager, subscribeUpload, cancelUpload } from '../functions/chat/UploadManager';
+import AddMembersModal from '../components/chat/AddMembersModal';
 
 const { width: SCREEN_W } = Dimensions.get('window');
 
@@ -36,24 +45,81 @@ const formatMsgTime = (ts) => {
 };
 
 const formatDayLabel = (ts) => {
-  if (!ts) return '';
+  // Pending serverTimestamp arrives as null — treat as Today.
+  if (!ts) return 'Today';
   const d   = ts?.toDate ? ts.toDate() : new Date(ts);
-  const now = new Date();
-  const diff = now.setHours(0, 0, 0, 0) - new Date(d).setHours(0, 0, 0, 0);
+  if (isNaN(d.getTime())) return 'Today';
+  const now  = new Date();
+  const diff = new Date(now).setHours(0, 0, 0, 0) - new Date(d).setHours(0, 0, 0, 0);
   if (diff === 0) return 'Today';
   if (diff === 86_400_000) return 'Yesterday';
   return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
 };
 
-const s3KeyFor = (chatId, fileName) =>
-  `chat/${chatId}/${Date.now()}_${fileName.replace(/\s+/g, '_')}`;
+const formatSize = (bytes) => {
+  if (!bytes || bytes === 0) return '';
+  if (bytes < 1024)        return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+};
+
+const s3KeyFor = (chatId, fileName) => {
+  const now  = new Date();
+  const dd   = String(now.getDate()).padStart(2, '0');
+  const mo   = String(now.getMonth() + 1).padStart(2, '0');
+  const yyyy = now.getFullYear();
+  const HH   = String(now.getHours()).padStart(2, '0');
+  const mi   = String(now.getMinutes()).padStart(2, '0');
+  const ss   = String(now.getSeconds()).padStart(2, '0');
+  const stamp = `${dd}${mo}${yyyy}_${HH}${mi}${ss}`;
+
+  const dot  = fileName.lastIndexOf('.');
+  const base = (dot > 0 ? fileName.slice(0, dot) : fileName)
+    .replace(/\s+/g, '_')
+    .replace(/[^a-zA-Z0-9_-]/g, '') || 'file';
+  const ext  = dot > 0 ? fileName.slice(dot) : '';
+
+  return `chat/${chatId}/${base}_${stamp}${ext}`;
+};
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const TEMP_RE = /rn_image_picker_lib_temp|^rn_|^tmp_/i;
+
+// Extract the last path component from a file:// URI or path string, without query params.
+const nameFromPath = (p) => (p || '').split('/').pop()?.split('?')[0] || '';
+
+// Returns true if the base name (without extension) looks like a UUID or temp name.
+const isTempName = (name) => {
+  const base = name.replace(/\.[^.]+$/, '');
+  return !name || TEMP_RE.test(name) || UUID_RE.test(base);
+};
 
 const assetToAttachment = (asset) => {
   const isVideo = asset.type?.startsWith('video');
+
+  // Log everything iOS returns so we know which fields carry the real name.
+  console.log('[Asset raw]', JSON.stringify({
+    fileName: asset.fileName,
+    originalPath: asset.originalPath,
+    uri: asset.uri,
+    id: asset.id,
+    type: asset.type,
+  }));
+
+  // Try each source in order until we find a non-temp name.
+  const sources = [
+    asset.originalPath && nameFromPath(asset.originalPath),  // real Photos/Files path
+    asset.fileName,                                           // picker-provided name
+    nameFromPath(asset.uri),                                  // last URI segment
+  ];
+
+  const fileName = sources.find((n) => n && !isTempName(n))
+    ?? (isVideo ? 'video.mp4' : 'photo.jpg');
+
   return {
     uri:      asset.uri,
     type:     isVideo ? 'video' : 'image',
-    fileName: asset.fileName || `media.${isVideo ? 'mp4' : 'jpg'}`,
+    fileName,
     fileSize: asset.fileSize || 0,
     mimeType: asset.type || (isVideo ? 'video/mp4' : 'image/jpeg'),
   };
@@ -65,6 +131,7 @@ const assetToAttachment = (asset) => {
 
 function AttachmentPreviewModal({ attachments, onAddCamera, onAddGallery, onRemove, onSend, onCancel, sending }) {
   const [activeIdx, setActiveIdx] = useState(0);
+  const [caption,   setCaption]   = useState('');
 
   useEffect(() => {
     if (activeIdx >= attachments.length && attachments.length > 0) {
@@ -74,10 +141,14 @@ function AttachmentPreviewModal({ attachments, onAddCamera, onAddGallery, onRemo
 
   if (!attachments || attachments.length === 0) return null;
   const active = attachments[Math.min(activeIdx, attachments.length - 1)];
+  const activeSize = formatSize(active.fileSize);
 
   return (
     <Modal visible animationType="fade" transparent onRequestClose={onCancel}>
-      <View style={pStyles.overlay}>
+      <KeyboardAvoidingView
+        style={pStyles.overlay}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      >
         {/* Header */}
         <View style={pStyles.header}>
           <TouchableOpacity onPress={onCancel} style={pStyles.headerBtn}>
@@ -86,7 +157,7 @@ function AttachmentPreviewModal({ attachments, onAddCamera, onAddGallery, onRemo
           <Text style={pStyles.headerTitle}>
             {attachments.length} {attachments.length === 1 ? 'item' : 'items'}
           </Text>
-          <TouchableOpacity onPress={onSend} disabled={sending} style={pStyles.sendBtn}>
+          <TouchableOpacity onPress={() => onSend(caption)} disabled={sending} style={pStyles.sendBtn}>
             {sending
               ? <ActivityIndicator size="small" color="#fff" />
               : <Icon name="send" size={20} color="#fff" />}
@@ -96,17 +167,38 @@ function AttachmentPreviewModal({ attachments, onAddCamera, onAddGallery, onRemo
         {/* Large preview */}
         <View style={pStyles.body}>
           {active.type === 'image' ? (
-            <Image
-              source={{ uri: active.uri }}
-              style={pStyles.previewImage}
-              resizeMode="contain"
-            />
+            <>
+              <Image
+                source={{ uri: active.uri }}
+                style={pStyles.previewImage}
+                resizeMode="contain"
+              />
+              {!!activeSize && (
+                <View style={pStyles.sizeOverlay}>
+                  <Text style={pStyles.sizeOverlayTxt}>{activeSize}</Text>
+                </View>
+              )}
+            </>
           ) : (
             <View style={pStyles.filePlaceholder}>
-              <Icon name="videocam" size={80} color="#4B5563" />
-              <Text style={pStyles.fileNameTxt}>{active.fileName}</Text>
+              <Icon name={active.type === 'video' ? 'videocam' : 'insert-drive-file'} size={72} color="#4B5563" />
+              <Text style={pStyles.fileNameTxt} numberOfLines={2}>{active.fileName}</Text>
+              {!!activeSize && <Text style={pStyles.fileSizeTxt}>{activeSize}</Text>}
             </View>
           )}
+        </View>
+
+        {/* Caption input */}
+        <View style={pStyles.captionRow}>
+          <TextInput
+            style={pStyles.captionInput}
+            placeholder="Add a caption..."
+            placeholderTextColor="#9CA3AF"
+            value={caption}
+            onChangeText={setCaption}
+            multiline
+            maxLength={500}
+          />
         </View>
 
         {/* Thumbnail strip + Add more */}
@@ -126,7 +218,7 @@ function AttachmentPreviewModal({ attachments, onAddCamera, onAddGallery, onRemo
                   <Image source={{ uri: item.uri }} style={pStyles.thumbImg} resizeMode="cover" />
                 ) : (
                   <View style={pStyles.thumbFile}>
-                    <Icon name="videocam" size={22} color="#9CA3AF" />
+                    <Icon name={item.type === 'video' ? 'videocam' : 'insert-drive-file'} size={22} color="#9CA3AF" />
                   </View>
                 )}
                 <TouchableOpacity
@@ -154,7 +246,7 @@ function AttachmentPreviewModal({ attachments, onAddCamera, onAddGallery, onRemo
             </TouchableOpacity>
           </ScrollView>
         </View>
-      </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }
@@ -178,8 +270,27 @@ const pStyles = StyleSheet.create({
   },
   body:          { flex: 1, justifyContent: 'center', alignItems: 'center' },
   previewImage:  { width: SCREEN_W, height: '100%' },
-  filePlaceholder: { alignItems: 'center', gap: 12 },
-  fileNameTxt:   { color: '#fff', fontSize: 15, fontWeight: '600' },
+  filePlaceholder: { alignItems: 'center', gap: 10 },
+  fileNameTxt:   { color: '#fff', fontSize: 14, fontWeight: '600', textAlign: 'center', paddingHorizontal: 24 },
+  fileSizeTxt:   { color: '#9CA3AF', fontSize: 12 },
+
+  sizeOverlay: {
+    position: 'absolute', bottom: 8, right: 12,
+    backgroundColor: 'rgba(0,0,0,0.5)', borderRadius: 10,
+    paddingHorizontal: 8, paddingVertical: 3,
+  },
+  sizeOverlayTxt: { color: '#fff', fontSize: 11, fontWeight: '600' },
+
+  captionRow: {
+    backgroundColor: 'rgba(0,0,0,0.7)',
+    paddingHorizontal: 14, paddingVertical: 8,
+  },
+  captionInput: {
+    color: '#fff', fontSize: 14,
+    minHeight: 36, maxHeight: 80,
+    borderBottomWidth: 1, borderBottomColor: '#4B5563',
+    paddingVertical: 4,
+  },
 
   // Thumbnail strip
   strip: {
@@ -333,6 +444,13 @@ const vStyles = StyleSheet.create({
 
 // ─── Shared Media Library ─────────────────────────────────────────────────────
 
+const TYPE_FILTERS = [
+  { key: 'all',   label: 'All',       icon: 'perm-media'       },
+  { key: 'image', label: 'Photos',    icon: 'photo'            },
+  { key: 'video', label: 'Videos',    icon: 'videocam'         },
+  { key: 'file',  label: 'Documents', icon: 'insert-drive-file'},
+];
+
 const DATE_FILTERS = [
   { key: 'all',    label: 'All' },
   { key: 'today',  label: 'Today' },
@@ -356,10 +474,20 @@ function PresignedThumb({ mediaKey }) {
       </View>;
 }
 
+const SORT_OPTIONS = [
+  { key: 'date', label: 'Date', icon: 'schedule' },
+  { key: 'name', label: 'Name', icon: 'sort-by-alpha' },
+  { key: 'size', label: 'Size', icon: 'data-usage' },
+];
+
 function SharedMediaModal({ messages, myEmail, onClose, onViewImage }) {
+  const [typeFilter,    setTypeFilter]    = useState('all');
   const [dateFilter,    setDateFilter]    = useState('all');
-  const [customFrom,    setCustomFrom]    = useState(null);   // Date | null
-  const [customTo,      setCustomTo]      = useState(null);   // Date | null
+  const [sortBy,        setSortBy]        = useState('date');
+  const [sortDir,       setSortDir]       = useState('desc');
+  const [showSortSheet, setShowSortSheet] = useState(false);
+  const [customFrom,    setCustomFrom]    = useState(null);
+  const [customTo,      setCustomTo]      = useState(null);
   const [pickerTarget,  setPickerTarget]  = useState(null);   // 'from' | 'to'
   const [showPicker,    setShowPicker]    = useState(false);
   const [selectMode,    setSelectMode]    = useState(false);
@@ -389,18 +517,23 @@ function SharedMediaModal({ messages, myEmail, onClose, onViewImage }) {
     })();
   }, [messages]);
 
-  // canDelete: only received + downloaded items
-  const canDelete = (msg) => msg.senderId !== myEmail && !!downloadedMap[msg.mediaKey];
+  // Any media item can be deleted from local device storage.
+  // Sent items have no persistent local cache, so deleteLocalFile is a no-op for them.
+  const canDelete = () => true;
 
-  // Filter messages by date
+  // Filter messages by type then date
   const filteredMedia = useMemo(() => {
     const media = messages.filter(
-      (m) => m.type === 'image' || m.type === 'video' || m.type === 'file',
+      (m) => (m.type === 'image' || m.type === 'video' || m.type === 'file')
+          && (m.senderId === myEmail || !!downloadedMap[m.mediaKey])
+          && (typeFilter === 'all' || m.type === typeFilter),
     );
     if (dateFilter === 'all') return media;
     const now = new Date();
     return media.filter((m) => {
-      const d = m.timestamp?.toDate ? m.timestamp.toDate() : new Date(m.timestamp || 0);
+      if (!m.timestamp) return true; // pending serverTimestamp — show under any filter
+      const d = m.timestamp?.toDate ? m.timestamp.toDate() : new Date(m.timestamp);
+      if (isNaN(d.getTime())) return true;
       if (dateFilter === 'today') return d.toDateString() === now.toDateString();
       if (dateFilter === 'week')  return d >= new Date(now - 7 * 24 * 60 * 60 * 1000);
       if (dateFilter === 'month') {
@@ -415,9 +548,26 @@ function SharedMediaModal({ messages, myEmail, onClose, onViewImage }) {
       }
       return true;
     });
-  }, [messages, dateFilter, customFrom, customTo]);
+  }, [messages, typeFilter, dateFilter, customFrom, customTo, downloadedMap]);
 
-  // Group into sections
+  // Flat list sorted by name or size (used when sortBy !== 'date')
+  const sortedFlatList = useMemo(() => {
+    const arr = [...filteredMedia];
+    if (sortBy === 'name') {
+      arr.sort((a, b) => {
+        const cmp = (a.fileName || '').toLowerCase().localeCompare((b.fileName || '').toLowerCase());
+        return sortDir === 'asc' ? cmp : -cmp;
+      });
+    } else if (sortBy === 'size') {
+      arr.sort((a, b) => {
+        const cmp = (b.fileSize || 0) - (a.fileSize || 0);
+        return sortDir === 'desc' ? cmp : -cmp;
+      });
+    }
+    return arr;
+  }, [filteredMedia, sortBy, sortDir]);
+
+  // Date-grouped sections (used when sortBy === 'date')
   const sections = useMemo(() => {
     const groups = {};
     filteredMedia.forEach((m) => {
@@ -426,15 +576,15 @@ function SharedMediaModal({ messages, myEmail, onClose, onViewImage }) {
       groups[label].data.push(m);
     });
     return Object.values(groups).sort((a, b) => {
-      const ta = a.ts?.toDate ? a.ts.toDate() : new Date(a.ts || 0);
-      const tb = b.ts?.toDate ? b.ts.toDate() : new Date(b.ts || 0);
-      return tb - ta;
+      const ta = a.ts ? (a.ts.toDate ? a.ts.toDate() : new Date(a.ts)) : new Date();
+      const tb = b.ts ? (b.ts.toDate ? b.ts.toDate() : new Date(b.ts)) : new Date();
+      return sortDir === 'desc' ? tb - ta : ta - tb;
     });
-  }, [filteredMedia]);
+  }, [filteredMedia, typeFilter, sortDir]);
 
   const deletableKeys = useMemo(
-    () => filteredMedia.filter(canDelete).map((m) => m.mediaKey),
-    [filteredMedia, downloadedMap],
+    () => filteredMedia.map((m) => m.mediaKey).filter(Boolean),
+    [filteredMedia],
   );
 
   const imageMessages = useMemo(
@@ -503,8 +653,20 @@ function SharedMediaModal({ messages, myEmail, onClose, onViewImage }) {
         onPress={() => {
           if (selectMode) {
             if (deletable) toggleSelect(msg.mediaKey);
-          } else if (isImage) {
-            onViewImage(msg, imageMessages);
+            return;
+          }
+          if (isImage) { onViewImage(msg, imageMessages); return; }
+          if (isVideo) {
+            if (isMe) {
+              getPresignedDownloadUrl(msg.mediaKey)
+                .then((url) => Linking.openURL(url))
+                .catch(() => Alert.alert('Cannot play video'));
+            } else if (dl) {
+              Linking.openURL('file://' + getLocalPath(msg.mediaKey))
+                .catch(() => Alert.alert('Cannot play video'));
+            } else {
+              Alert.alert('Not downloaded', 'Download this video first to play it.');
+            }
           }
         }}
         style={[mStyles.item, selectMode && checked && mStyles.itemSelected]}
@@ -540,6 +702,7 @@ function SharedMediaModal({ messages, myEmail, onClose, onViewImage }) {
             {isMe ? 'You' : (msg.senderName || msg.senderId)}
             {'  ·  '}
             {formatMsgTime(msg.timestamp)}
+            {msg.fileSize ? `  ·  ${formatSize(msg.fileSize)}` : ''}
           </Text>
           {!isMe && (
             <Text style={[mStyles.itemStatus, { color: dl ? '#319241' : '#9CA3AF' }]}>
@@ -550,29 +713,27 @@ function SharedMediaModal({ messages, myEmail, onClose, onViewImage }) {
 
         {/* Select checkbox OR delete button */}
         {selectMode ? (
-          <View style={[mStyles.checkbox, deletable && checked && mStyles.checkboxChecked, !deletable && mStyles.checkboxDisabled]}>
+          <View style={[mStyles.checkbox, checked && mStyles.checkboxChecked]}>
             {checked && <Icon name="check" size={14} color="#fff" />}
           </View>
         ) : (
-          !isMe && dl && (
-            <TouchableOpacity
-              style={mStyles.deleteBtn}
-              onPress={() => {
-                Alert.alert('Delete from device?', 'File stays on S3.', [
-                  { text: 'Cancel', style: 'cancel' },
-                  {
-                    text: 'Delete', style: 'destructive',
-                    onPress: async () => {
-                      await deleteLocalFile(msg.mediaKey);
-                      setDownloadedMap((prev) => ({ ...prev, [msg.mediaKey]: false }));
-                    },
+          <TouchableOpacity
+            style={mStyles.deleteBtn}
+            onPress={() => {
+              Alert.alert('Delete from device?', 'This removes the local copy. The file stays on the server.', [
+                { text: 'Cancel', style: 'cancel' },
+                {
+                  text: 'Delete', style: 'destructive',
+                  onPress: async () => {
+                    await deleteLocalFile(msg.mediaKey);
+                    setDownloadedMap((prev) => ({ ...prev, [msg.mediaKey]: false }));
                   },
-                ]);
-              }}
-            >
-              <Icon name="delete-outline" size={22} color="#DC2626" />
-            </TouchableOpacity>
-          )
+                },
+              ]);
+            }}
+          >
+            <Icon name="delete-outline" size={22} color="#DC2626" />
+          </TouchableOpacity>
         )}
       </TouchableOpacity>
     );
@@ -615,7 +776,13 @@ function SharedMediaModal({ messages, myEmail, onClose, onViewImage }) {
           ) : (
             <>
               <Text style={mStyles.headerTitle}>Shared Media</Text>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <TouchableOpacity
+                  style={[mStyles.iconBtn, sortBy !== 'date' && mStyles.iconBtnActive]}
+                  onPress={() => setShowSortSheet(true)}
+                >
+                  <Icon name="filter-list" size={20} color={sortBy !== 'date' ? '#319241' : '#6B7280'} />
+                </TouchableOpacity>
                 {deletableKeys.length > 0 && (
                   <TouchableOpacity
                     style={mStyles.headerAction}
@@ -624,12 +791,31 @@ function SharedMediaModal({ messages, myEmail, onClose, onViewImage }) {
                     <Text style={mStyles.headerActionTxt}>Select</Text>
                   </TouchableOpacity>
                 )}
-                <TouchableOpacity onPress={onClose} style={{ padding: 8 }}>
+                <TouchableOpacity onPress={onClose} style={{ padding: 6 }}>
                   <Icon name="close" size={22} color="#111827" />
                 </TouchableOpacity>
               </View>
             </>
           )}
+        </View>
+
+        {/* Type filter tabs */}
+        <View style={mStyles.typeBar}>
+          {TYPE_FILTERS.map((f) => {
+            const active = typeFilter === f.key;
+            return (
+              <TouchableOpacity
+                key={f.key}
+                style={[mStyles.typeTab, active && mStyles.typeTabActive]}
+                onPress={() => setTypeFilter(f.key)}
+              >
+                <Icon name={f.icon} size={16} color={active ? '#319241' : '#9CA3AF'} />
+                <Text style={[mStyles.typeTabTxt, active && mStyles.typeTabTxtActive]}>
+                  {f.label}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
         </View>
 
         {/* Date filter chips */}
@@ -722,13 +908,22 @@ function SharedMediaModal({ messages, myEmail, onClose, onViewImage }) {
           />
         )}
 
-        {sections.length === 0 ? (
+        {filteredMedia.length === 0 ? (
           <View style={mStyles.empty}>
-            <Icon name="perm-media" size={56} color="#D1D5DB" />
-            <Text style={mStyles.emptyText}>No media found</Text>
+            <Icon
+              name={TYPE_FILTERS.find((f) => f.key === typeFilter)?.icon ?? 'perm-media'}
+              size={56}
+              color="#D1D5DB"
+            />
+            <Text style={mStyles.emptyText}>
+              {typeFilter === 'all' ? 'No media found' :
+               typeFilter === 'image' ? 'No photos found' :
+               typeFilter === 'video' ? 'No videos found' : 'No documents found'}
+            </Text>
           </View>
-        ) : (
+        ) : sortBy === 'date' ? (
           <SectionList
+            style={{ flex: 1 }}
             sections={sections}
             keyExtractor={(item) => item.id}
             renderItem={renderItem}
@@ -739,6 +934,73 @@ function SharedMediaModal({ messages, myEmail, onClose, onViewImage }) {
             )}
             contentContainerStyle={{ paddingBottom: 40 }}
           />
+        ) : (
+          <FlatList
+            style={{ flex: 1 }}
+            data={sortedFlatList}
+            keyExtractor={(item) => item.id}
+            renderItem={renderItem}
+            contentContainerStyle={{ paddingBottom: 40 }}
+          />
+        )}
+
+        {/* Sort sheet */}
+        {showSortSheet && (
+          <Modal visible transparent animationType="slide" onRequestClose={() => setShowSortSheet(false)}>
+            <TouchableOpacity
+              style={mStyles.sortOverlay}
+              activeOpacity={1}
+              onPress={() => setShowSortSheet(false)}
+            >
+              <TouchableOpacity activeOpacity={1} style={mStyles.sortSheet}>
+                <View style={mStyles.sortHandle} />
+                <Text style={mStyles.sortTitle}>Sort by</Text>
+                {SORT_OPTIONS.map((opt) => {
+                  const active = sortBy === opt.key;
+                  return (
+                    <TouchableOpacity
+                      key={opt.key}
+                      style={[mStyles.sortOpt, active && mStyles.sortOptActive]}
+                      onPress={() => {
+                        if (active) {
+                          setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
+                        } else {
+                          setSortBy(opt.key);
+                          setSortDir(opt.key === 'size' ? 'desc' : 'asc');
+                        }
+                      }}
+                    >
+                      <Icon name={opt.icon} size={22} color={active ? '#319241' : '#6B7280'} />
+                      <Text style={[mStyles.sortOptTxt, active && mStyles.sortOptTxtActive]}>
+                        {opt.label}
+                      </Text>
+                      <View style={{ flex: 1 }} />
+                      {active ? (
+                        <View style={mStyles.dirBadge}>
+                          <Icon
+                            name={sortDir === 'asc' ? 'arrow-upward' : 'arrow-downward'}
+                            size={14}
+                            color="#319241"
+                          />
+                          <Text style={mStyles.dirBadgeTxt}>
+                            {sortDir === 'asc' ? 'Ascending' : 'Descending'}
+                          </Text>
+                        </View>
+                      ) : (
+                        <Icon name="chevron-right" size={20} color="#D1D5DB" />
+                      )}
+                    </TouchableOpacity>
+                  );
+                })}
+                <TouchableOpacity
+                  style={mStyles.sortDoneBtn}
+                  onPress={() => setShowSortSheet(false)}
+                >
+                  <Text style={mStyles.sortDoneTxt}>Done</Text>
+                </TouchableOpacity>
+              </TouchableOpacity>
+            </TouchableOpacity>
+          </Modal>
         )}
       </View>
     </Modal>
@@ -764,9 +1026,29 @@ const mStyles = StyleSheet.create({
   },
   deleteActionTxt: { fontSize: 13, fontWeight: '600', color: '#fff' },
 
-  // Filter chips
-  filterBar:     { flexGrow: 0, borderBottomWidth: 1, borderBottomColor: '#F3F4F6' },
-  filterContent: { paddingHorizontal: 16, paddingVertical: 10, gap: 8 },
+  // Type filter tabs
+  typeBar: {
+    flexDirection: 'row',
+    borderBottomWidth: 1,
+    borderBottomColor: '#E5E7EB',
+  },
+  typeTab: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 10,
+    gap: 5,
+    borderBottomWidth: 2,
+    borderBottomColor: 'transparent',
+  },
+  typeTabActive:   { borderBottomColor: '#319241' },
+  typeTabTxt:      { fontSize: 12, fontWeight: '600', color: '#9CA3AF' },
+  typeTabTxtActive:{ color: '#319241' },
+
+  // Date filter chips
+  filterBar:     { flexGrow: 0, flexShrink: 0, borderBottomWidth: 1, borderBottomColor: '#F3F4F6' },
+  filterContent: { paddingHorizontal: 14, paddingVertical: 10, gap: 8 },
   chip: {
     paddingHorizontal: 14, paddingVertical: 6, borderRadius: 20,
     backgroundColor: '#F3F4F6',
@@ -774,6 +1056,50 @@ const mStyles = StyleSheet.create({
   chipActive:    { backgroundColor: '#319241' },
   chipTxt:       { fontSize: 13, fontWeight: '600', color: '#6B7280' },
   chipTxtActive: { color: '#fff' },
+
+  // Sort icon button (header)
+  iconBtn: {
+    width: 34, height: 34, borderRadius: 17,
+    backgroundColor: '#F3F4F6', alignItems: 'center', justifyContent: 'center',
+  },
+  iconBtnActive: { backgroundColor: '#EDF7EF', borderWidth: 1, borderColor: '#A7D7AD' },
+
+  // Sort bottom sheet
+  sortOverlay:  { flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'flex-end' },
+  sortSheet: {
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 22, borderTopRightRadius: 22,
+    paddingBottom: 40,
+  },
+  sortHandle: {
+    width: 40, height: 4, borderRadius: 2,
+    backgroundColor: '#D1D5DB', alignSelf: 'center', marginTop: 10, marginBottom: 4,
+  },
+  sortTitle: {
+    fontSize: 16, fontWeight: '700', color: '#111827',
+    paddingHorizontal: 20, paddingTop: 10, paddingBottom: 4,
+  },
+  sortOpt: {
+    flexDirection: 'row', alignItems: 'center', gap: 14,
+    paddingHorizontal: 20, paddingVertical: 15,
+    borderBottomWidth: 1, borderBottomColor: '#F9FAFB',
+  },
+  sortOptActive:    { backgroundColor: '#F0FDF4' },
+  sortOptTxt:       { fontSize: 15, fontWeight: '500', color: '#374151' },
+  sortOptTxtActive: { fontSize: 15, fontWeight: '700', color: '#319241' },
+  dirBadge: {
+    flexDirection: 'row', alignItems: 'center', gap: 4,
+    backgroundColor: '#EDF7EF', borderRadius: 12,
+    paddingHorizontal: 10, paddingVertical: 4,
+    borderWidth: 1, borderColor: '#A7D7AD',
+  },
+  dirBadgeTxt:  { fontSize: 12, fontWeight: '600', color: '#319241' },
+  sortDoneBtn: {
+    marginHorizontal: 20, marginTop: 14,
+    backgroundColor: '#319241', borderRadius: 12,
+    paddingVertical: 13, alignItems: 'center',
+  },
+  sortDoneTxt:  { fontSize: 15, fontWeight: '700', color: '#fff' },
 
   // Section
   sectionHeader: {
@@ -865,8 +1191,11 @@ function MediaBubble({ message, isMe, onTap }) {
   const [progress,     setProgress]     = useState(0);
   const [busy,         setBusy]         = useState(false);
 
+  const isUploading = message.status === 'uploading';
+
   useEffect(() => {
-    if (!message.mediaKey) return;
+    // Skip while file is still uploading — it doesn't exist on S3 yet
+    if (!message.mediaKey || isUploading) return;
     if (isMe) {
       getPresignedDownloadUrl(message.mediaKey).then(setPresignedUri).catch(() => {});
     } else {
@@ -875,7 +1204,7 @@ function MediaBubble({ message, isMe, onTap }) {
         if (yes) setLocalUri('file://' + getLocalPath(message.mediaKey));
       });
     }
-  }, [message.mediaKey, isMe]);
+  }, [message.mediaKey, isMe, isUploading]); // isUploading in deps → re-fetches when upload finishes
 
   const download = async () => {
     if (busy) return;
@@ -917,17 +1246,39 @@ function MediaBubble({ message, isMe, onTap }) {
     try { await Linking.openURL(localUri); } catch { Alert.alert('Cannot open file'); }
   };
 
-  const isImage = message.type === 'image';
-  const isVideo = message.type === 'video';
+  const openVideo = async () => {
+    const uri = isMe ? presignedUri : localUri;
+    if (!uri) {
+      if (!isMe && !downloaded) Alert.alert('Not downloaded', 'Download the video first to play it.');
+      return;
+    }
+    try { await Linking.openURL(uri); } catch { Alert.alert('Cannot play video', 'No video player found.'); }
+  };
+
+  const isImage    = message.type === 'image';
+  const isVideo    = message.type === 'video';
   const displayUri  = isMe ? presignedUri : localUri;
   const showPreview = !!displayUri;
+
+  // File is still uploading — show a placeholder so neither side tries to open/download it
+  if (isUploading) {
+    return (
+      <View style={styles.uploadingOverlay}>
+        <ActivityIndicator size="small" color="rgba(255,255,255,0.85)" />
+        <Text style={styles.uploadingText}>{isMe ? 'Sending…' : 'File pending…'}</Text>
+      </View>
+    );
+  }
 
   return (
     <View>
       {(isImage || isVideo) && (
         <TouchableOpacity
-          onPress={() => isImage && onTap?.(message)}
-          activeOpacity={isImage ? 0.8 : 1}
+          onPress={() => {
+            if (isImage) onTap?.(message);
+            else if (isVideo) openVideo();
+          }}
+          activeOpacity={0.8}
         >
           <View style={styles.mediaThumbnailWrap}>
             {showPreview
@@ -982,8 +1333,12 @@ function MediaBubble({ message, isMe, onTap }) {
 // ─── Message bubble ───────────────────────────────────────────────────────────
 
 function MessageBubble({ message, isMe, isGroup, onMediaTap }) {
-  if (message.type === 'image' || message.type === 'video' || message.type === 'file') {
-    // media messages always shown
+  if (message.type === 'system') {
+    return (
+      <View style={styles.systemNotice}>
+        <Text style={styles.systemNoticeText}>{message.text}</Text>
+      </View>
+    );
   }
 
   return (
@@ -997,7 +1352,14 @@ function MessageBubble({ message, isMe, isGroup, onMediaTap }) {
             {message.text}
           </Text>
         ) : (
-          <MediaBubble message={message} isMe={isMe} onTap={onMediaTap} />
+          <>
+            <MediaBubble message={message} isMe={isMe} onTap={onMediaTap} />
+            {!!message.text && (
+              <Text style={[styles.bubbleText, isMe && styles.bubbleTextMe, { marginTop: 6 }]}>
+                {message.text}
+              </Text>
+            )}
+          </>
         )}
         <Text style={[styles.bubbleTime, isMe && styles.bubbleTimeMe]}>
           {formatMsgTime(message.timestamp)}
@@ -1023,6 +1385,7 @@ function DateSeparator({ timestamp }) {
 
 export default function ChatScreen({ route, navigation }) {
   const { chatId, chatName, chatType } = route.params;
+  const insets = useSafeAreaInsets();
 
   const [myEmail,  setMyEmail]  = useState('');
   const [myName,   setMyName]   = useState('');
@@ -1030,15 +1393,14 @@ export default function ChatScreen({ route, navigation }) {
   const [chatMeta,         setChatMeta]         = useState(null);
   const [inputText,        setInputText]        = useState('');
   const [sending,          setSending]          = useState(false);
-  const [uploading,        setUploading]        = useState(false);
-  const [uploadProg,       setUploadProg]       = useState(0);
-  const [uploadIdx,        setUploadIdx]        = useState(0);
-  const [uploadTotal,      setUploadTotal]      = useState(0);
+  const [uploading,  setUploading]  = useState(false);
+  const [uploadProg, setUploadProg] = useState(0);
   const [pendingAttachments, setPendingAttachments] = useState([]); // preview before send
   const [viewerImages,     setViewerImages]     = useState([]);
   const [viewerIndex,      setViewerIndex]      = useState(0);
   const [showViewer,       setShowViewer]       = useState(false);
   const [showMediaLib,     setShowMediaLib]     = useState(false);
+  const [showAddMembers, setShowAddMembers] = useState(false);
 
   const listRef = useRef(null);
 
@@ -1076,6 +1438,17 @@ export default function ChatScreen({ route, navigation }) {
     markChatAsRead(chatId, myEmail);
   }, [chatId, myEmail, messages.length]);
 
+  // Mirror global upload state into local component state for the progress bar
+  useEffect(() => {
+    const unsub = subscribeUpload(({ running, progress }) => {
+      setUploading(running);
+      setUploadProg(progress);
+    });
+    // Kick off any uploads that were queued while on another screen
+    startUploadManager();
+    return unsub;
+  }, []);
+
   useEffect(() => {
     navigation.setOptions({
       headerShown: true,
@@ -1083,16 +1456,37 @@ export default function ChatScreen({ route, navigation }) {
       headerStyle: { backgroundColor: '#319241' },
       headerTintColor: '#fff',
       headerTitleStyle: { fontWeight: '700' },
-      headerRight: () => (
+      // Custom back button — prevents iOS from showing the previous screen name as label
+      // and ensures the tap handler works reliably on all devices.
+      headerLeft: () => (
         <TouchableOpacity
-          onPress={() => setShowMediaLib(true)}
-          style={{ padding: 10, marginRight: 6 }}
+          onPress={() => navigation.goBack()}
+          style={{ paddingHorizontal: 8, paddingVertical: 6 }}
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
         >
-          <Icon name="photo-library" size={22} color="#fff" />
+          <Icon name="arrow-back-ios" size={22} color="#fff" />
         </TouchableOpacity>
       ),
+      headerRight: () => (
+        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+          {chatType === 'group' && (
+            <TouchableOpacity
+              onPress={() => setShowAddMembers(true)}
+              style={{ padding: 8 }}
+            >
+              <Icon name="group-add" size={22} color="#fff" />
+            </TouchableOpacity>
+          )}
+          <TouchableOpacity
+            onPress={() => setShowMediaLib(true)}
+            style={{ padding: 8, marginRight: 4 }}
+          >
+            <Icon name="photo-library" size={22} color="#fff" />
+          </TouchableOpacity>
+        </View>
+      ),
     });
-  }, [navigation, chatName]);
+  }, [navigation, chatName, chatType]);
 
   const sendMessage = useCallback(async (type, payload) => {
     if (!myEmail) return;
@@ -1140,29 +1534,70 @@ export default function ChatScreen({ route, navigation }) {
     setSending(false);
   };
 
-  // Upload all pending attachments sequentially, send each as a message
-  const handleSendAttachments = async () => {
+
+  // When user taps Send:
+  //  1. Write every message to Firestore immediately (status:'uploading') so it appears in chat
+  //  2. Copy the local file to a persistent path so it survives app restarts
+  //  3. Push the upload job to AsyncStorage queue
+  //  4. Start processing the queue in the background
+  const handleSendAttachments = async (caption) => {
     if (!pendingAttachments.length || uploading) return;
     const items = [...pendingAttachments];
-    setPendingAttachments([]);
-    setUploading(true);
-    setUploadTotal(items.length);
+    setPendingAttachments([]);   // close preview modal right away
 
-    for (let i = 0; i < items.length; i++) {
-      const { uri, type, fileName, fileSize, mimeType } = items[i];
-      const key = s3KeyFor(chatId, fileName);
-      setUploadIdx(i + 1);
-      setUploadProg(0);
-      try {
-        await uploadToS3(uri, key, mimeType, (p) => setUploadProg(p));
-        await sendMessage(type, { mediaUrl: key, mediaKey: key, fileName, fileSize: fileSize || 0, mimeType });
-      } catch {
-        Alert.alert(`Upload failed (${fileName})`, 'Could not upload. Check your S3 configuration.');
-      }
+    const trimmedCaption = (caption || '').trim();
+
+    for (const { uri, type, fileName, fileSize, mimeType } of items) {
+      const s3Key       = s3KeyFor(chatId, fileName);
+      const displayName = s3Key.split('/').pop();
+
+      // Pre-allocate a Firestore doc ID so we can update it after upload
+      const msgRef = firestore()
+        .collection('chats').doc(chatId)
+        .collection('messages').doc();
+
+      const msgData = {
+        senderId:   myEmail,
+        senderName: myName,
+        type,
+        timestamp:  firestore.FieldValue.serverTimestamp(),
+        readBy:     [myEmail],
+        mediaKey:   s3Key,
+        mediaUrl:   s3Key,
+        fileName:   displayName,
+        fileSize:   fileSize || 0,
+        mimeType,
+        status:     'uploading',
+        ...(trimmedCaption ? { text: trimmedCaption } : {}),
+      };
+
+      // Write to Firestore first — message shows in chat immediately
+      await msgRef.set(msgData);
+
+      const preview =
+        type === 'image' ? '📷 Photo' :
+        type === 'video' ? '🎬 Video' : '📎 File';
+
+      await firestore().collection('chats').doc(chatId).update({
+        lastMessage:     { ...msgData, text: preview, id: msgRef.id },
+        lastMessageTime: firestore.FieldValue.serverTimestamp(),
+      });
+
+      // Copy file to a persistent path so the queue survives app restarts
+      const localUri = await persistFileForQueue(uri, displayName);
+
+      // Notification params are stored in the queue and fired AFTER upload completes
+      await addToUploadQueue({
+        msgId: msgRef.id, chatId, localUri, s3Key, mimeType, type,
+        notif: chatMeta?.participants ? {
+          chatId, chatName, senderName: myName, preview,
+          participants: chatMeta.participants, senderEmail: myEmail, chatType,
+        } : null,
+      });
     }
-    setUploading(false);
-    setUploadIdx(0);
-    setUploadTotal(0);
+
+    // Hand off to the global manager — continues even if user leaves this screen
+    startUploadManager();
   };
 
   const addAssetsToPreview = useCallback((resp) => {
@@ -1172,30 +1607,127 @@ export default function ChatScreen({ route, navigation }) {
     setPendingAttachments((prev) => [...prev, ...assets.map(assetToAttachment)]);
   }, []);
 
-  const openCamera = useCallback(() => {
-    launchCamera({ mediaType: 'photo', quality: 0.85, saveToPhotos: false }, addAssetsToPreview);
+  const openCamera = useCallback((mediaType = 'photo', isHD = false) => {
+    const opts = { mediaType, saveToPhotos: false };
+    if (mediaType === 'video') {
+      opts.videoQuality = isHD ? 'high' : 'low';
+    } else {
+      opts.quality = isHD ? 1.0 : 0.3;
+    }
+    launchCamera(opts, addAssetsToPreview);
   }, [addAssetsToPreview]);
+
+  const showQualityPicker = useCallback((mediaType) => {
+    const label = mediaType === 'photo' ? 'Photo Quality' : 'Video Quality';
+    if (Platform.OS === 'ios') {
+      setTimeout(() => {
+        ActionSheetIOS.showActionSheetWithOptions(
+          { title: label, options: ['Cancel', 'Low Quality (Default)', 'HD'], cancelButtonIndex: 0 },
+          (idx) => {
+            if (idx === 0) return;
+            openCamera(mediaType, idx === 2);
+          },
+        );
+      }, 350);
+    } else {
+      Alert.alert(label, 'Choose quality', [
+        { text: 'Low Quality (Default)', onPress: () => openCamera(mediaType, false) },
+        { text: 'HD',                    onPress: () => openCamera(mediaType, true) },
+        { text: 'Cancel', style: 'cancel' },
+      ]);
+    }
+  }, [openCamera]);
+
+  const openCameraWithOptions = useCallback(() => {
+    if (Platform.OS === 'ios') {
+      ActionSheetIOS.showActionSheetWithOptions(
+        { options: ['Cancel', 'Photo', 'Video'], cancelButtonIndex: 0 },
+        (idx) => {
+          if (idx === 1) showQualityPicker('photo');
+          if (idx === 2) showQualityPicker('video');
+        },
+      );
+    } else {
+      Alert.alert('Camera', 'What do you want to capture?', [
+        { text: 'Photo - Low Quality', onPress: () => openCamera('photo', false) },
+        { text: 'Photo - HD',          onPress: () => openCamera('photo', true) },
+        { text: 'Video - Low Quality', onPress: () => openCamera('video', false) },
+        { text: 'Video - HD',          onPress: () => openCamera('video', true) },
+        { text: 'Cancel', style: 'cancel' },
+      ]);
+    }
+  }, [showQualityPicker, openCamera]);
 
   const openGallery = useCallback(() => {
     launchImageLibrary(
-      { mediaType: 'mixed', quality: 0.8, selectionLimit: 0 },
-      addAssetsToPreview,
+      { mediaType: 'mixed', quality: 0.8, selectionLimit: 0, includeExtra: true },
+      async (resp) => {
+        if (resp.didCancel || resp.errorCode) return;
+        const assets = resp.assets || [];
+        if (!assets.length) return;
+
+        // Resolve the real PHAsset filename for any UUID/temp-named asset.
+        const resolved = await Promise.all(
+          assets.map(async (asset) => {
+            const raw      = (asset.fileName || '').trim();
+            const nameBase = raw.replace(/\.[^.]+$/, '');
+            const needsReal = !raw || TEMP_RE.test(raw) || UUID_RE.test(nameBase);
+            if (needsReal && PHAssetHelper && asset.id) {
+              try {
+                const real = await PHAssetHelper.getFilename(asset.id);
+                if (real && !isTempName(real)) {
+                  return { ...asset, fileName: real };
+                }
+              } catch (_) {}
+            }
+            return asset;
+          }),
+        );
+
+        setPendingAttachments((prev) => [
+          ...prev,
+          ...resolved.map(assetToAttachment),
+        ]);
+      },
     );
-  }, [addAssetsToPreview]);
+  }, []);
+
+  const openDocumentPicker = useCallback(async () => {
+    try {
+      const results = await DocumentPicker.pick({
+        type: [DocumentPicker.types.allFiles],
+        allowMultiSelection: true,
+      });
+      const docs = results.map((doc) => ({
+        uri:      doc.uri,
+        type:     'file',
+        fileName: doc.name || 'document',
+        fileSize: doc.size || 0,
+        mimeType: doc.type || 'application/octet-stream',
+      }));
+      setPendingAttachments((prev) => [...prev, ...docs]);
+    } catch (e) {
+      if (!DocumentPicker.isCancel(e)) {
+        Alert.alert('Error', 'Could not open document picker.');
+      }
+    }
+  }, []);
 
   const handlePickMedia = () => {
     if (Platform.OS === 'ios') {
       ActionSheetIOS.showActionSheetWithOptions(
-        { options: ['Cancel', 'Camera', 'Photo / Video'], cancelButtonIndex: 0 },
+        { options: ['Cancel', 'Camera', 'Photo / Video', 'Document'], cancelButtonIndex: 0 },
         (idx) => {
-          if (idx === 1) openCamera();
+          if (idx === 1) openCameraWithOptions();
           if (idx === 2) openGallery();
+          if (idx === 3) openDocumentPicker();
         },
       );
     } else {
       Alert.alert('Attach', 'Choose source', [
-        { text: 'Camera',        onPress: openCamera },
+        { text: 'Camera',        onPress: openCameraWithOptions },
         { text: 'Photo / Video', onPress: openGallery },
+        { text: 'Document',      onPress: openDocumentPicker },
         { text: 'Cancel',        style: 'cancel' },
       ]);
     }
@@ -1216,7 +1748,7 @@ export default function ChatScreen({ route, navigation }) {
       {/* Attachment preview before send */}
       <AttachmentPreviewModal
         attachments={pendingAttachments}
-        onAddCamera={openCamera}
+        onAddCamera={openCameraWithOptions}
         onAddGallery={openGallery}
         onRemove={(idx) => setPendingAttachments((prev) => prev.filter((_, i) => i !== idx))}
         onSend={handleSendAttachments}
@@ -1247,6 +1779,32 @@ export default function ChatScreen({ route, navigation }) {
         />
       )}
 
+      {/* Manage group members (add + remove) */}
+      <AddMembersModal
+        visible={showAddMembers}
+        chatId={chatId}
+        currentParticipants={chatMeta?.participants || []}
+        participantNames={chatMeta?.participantNames || {}}
+        myEmail={myEmail}
+        myName={myName}
+        onClose={() => setShowAddMembers(false)}
+        onConfirm={(toAdd, toRemove, actorName) => {
+          setShowAddMembers(false);
+          // Send system notice into the chat
+          const addedNames   = toAdd.map((u) => u.name || u.email).join(', ');
+          const removedNames = toRemove.map((u) => u.name || u.email).join(', ');
+          let noticeText = '';
+          if (toAdd.length && toRemove.length) {
+            noticeText = `${actorName} added ${addedNames} and removed ${removedNames}`;
+          } else if (toAdd.length) {
+            noticeText = `${actorName} added ${addedNames} to the group`;
+          } else {
+            noticeText = `${actorName} removed ${removedNames} from the group`;
+          }
+          sendMessage('system', { text: noticeText });
+        }}
+      />
+
       <KeyboardAvoidingView
         style={{ flex: 1 }}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
@@ -1256,15 +1814,29 @@ export default function ChatScreen({ route, navigation }) {
           <View style={styles.uploadBar}>
             <ActivityIndicator size="small" color="#fff" style={{ marginRight: 8 }} />
             <Text style={styles.uploadText}>
-              Uploading {uploadTotal > 1 ? `${uploadIdx}/${uploadTotal}  ` : ''}
-              {Math.round(uploadProg * 100)}%…
+              Uploading {Math.round(uploadProg * 100)}%…
             </Text>
+            <TouchableOpacity
+              style={styles.uploadCancelBtn}
+              onPress={() =>
+                Alert.alert(
+                  'Cancel Upload?',
+                  'The file will not be sent. This cannot be undone.',
+                  [
+                    { text: 'Keep Uploading', style: 'cancel' },
+                    { text: 'Cancel Upload', style: 'destructive', onPress: () => cancelUpload() },
+                  ],
+                )
+              }
+            >
+              <Icon name="close" size={18} color="#fff" />
+            </TouchableOpacity>
           </View>
         )}
 
         <FlatList
           ref={listRef}
-          data={messages}
+          data={messages.filter((m) => m.senderId === myEmail || m.status !== 'uploading')}
           keyExtractor={(m) => m.id}
           inverted
           showsVerticalScrollIndicator={false}
@@ -1294,7 +1866,7 @@ export default function ChatScreen({ route, navigation }) {
           }
         />
 
-        <View style={styles.inputRow}>
+        <View style={[styles.inputRow, { paddingBottom: 8 + insets.bottom }]}>
           <TouchableOpacity style={styles.attachBtn} onPress={handlePickMedia}>
             <Icon name="attach-file" size={24} color="#319241" />
           </TouchableOpacity>
@@ -1329,7 +1901,21 @@ const styles = StyleSheet.create({
     flexDirection: 'row', alignItems: 'center',
     backgroundColor: '#319241', paddingHorizontal: 16, paddingVertical: 8,
   },
-  uploadText: { color: '#fff', fontSize: 13 },
+  uploadText: { color: '#fff', fontSize: 13, flex: 1 },
+  uploadCancelBtn: {
+    padding: 4,
+    marginLeft: 8,
+    backgroundColor: 'rgba(0,0,0,0.25)',
+    borderRadius: 12,
+  },
+
+  uploadingOverlay: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    backgroundColor: 'rgba(0,0,0,0.45)', borderRadius: 10,
+    paddingHorizontal: 10, paddingVertical: 6, alignSelf: 'flex-start',
+    marginBottom: 4,
+  },
+  uploadingText: { color: '#fff', fontSize: 12, fontWeight: '600' },
 
   msgList: {
     paddingHorizontal: 12, paddingTop: 12, paddingBottom: 8,
@@ -1381,6 +1967,19 @@ const styles = StyleSheet.create({
   dateLabel: {
     fontSize: 11, fontWeight: '600', color: '#9CA3AF',
     marginHorizontal: 10, backgroundColor: '#F0FDF4', paddingHorizontal: 6,
+  },
+
+  systemNotice: {
+    alignSelf: 'center',
+    backgroundColor: '#F3F4F6',
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 5,
+    marginVertical: 6,
+    maxWidth: '80%',
+  },
+  systemNoticeText: {
+    fontSize: 12, color: '#6B7280', textAlign: 'center', fontStyle: 'italic',
   },
 
   inputRow: {

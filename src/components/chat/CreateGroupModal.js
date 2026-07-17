@@ -4,6 +4,7 @@ import {
   StyleSheet, ActivityIndicator, KeyboardAvoidingView, Platform,
 } from 'react-native';
 import firestore from '@react-native-firebase/firestore';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import Icon from 'react-native-vector-icons/MaterialIcons';
 
 export default function CreateGroupModal({ visible, myEmail, myName, onClose, onCreated }) {
@@ -20,17 +21,23 @@ export default function CreateGroupModal({ visible, myEmail, myName, onClose, on
     setSearch('');
     setSelected([]);
     setLoading(true);
-    firestore()
-      .collection('callProfiles')
-      .get()
-      .then((snap) => {
-        const contacts = snap.docs
-          .map((d) => ({ email: d.id, ...d.data() }))
-          .filter((u) => u.email !== myEmail);
-        setUsers(contacts);
-      })
-      .catch(() => {})
-      .finally(() => setLoading(false));
+    AsyncStorage.getItem('storeDomain').then((myStoreDomain) => {
+      firestore()
+        .collection('callProfiles')
+        .get()
+        .then((snap) => {
+          const contacts = snap.docs
+            .map((d) => ({ ...d.data(), email: d.id }))
+            .filter((u) => {
+              if (u.email === myEmail) return false;
+              if (myStoreDomain) return u.storeDomain === myStoreDomain;
+              return true;
+            });
+          setUsers(contacts);
+        })
+        .catch(() => {})
+        .finally(() => setLoading(false));
+    }).catch(() => setLoading(false));
   }, [visible, myEmail]);
 
   const filtered = users.filter((u) => {

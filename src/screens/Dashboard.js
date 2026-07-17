@@ -59,7 +59,7 @@ const cards = [
   },
     {
     key: 'support-team',
-    title: 'Contacts',
+    title: 'Contact Us',
     subtitle: 'Contact us via chat, voice or Video Call for Support',
     icon: TulsiIcon,
     target: 'SupportScreen',

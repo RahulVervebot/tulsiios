@@ -9,6 +9,7 @@ import {
   TextInput,
   Alert,
   StatusBar,
+  DeviceEventEmitter,
 } from 'react-native';
 import {
   RTCPeerConnection,
@@ -23,6 +24,13 @@ import Icon from 'react-native-vector-icons/MaterialIcons';
 import InCallManager from 'react-native-incall-manager';
 import AppHeader from '../components/AppHeader';
 import { sendCallPushNotification } from '../config/OneSignalConfig';
+import { endCallKeep, reportCallActive } from '../config/CallKeepConfig';
+
+const makeUUID = () =>
+  'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    return (c === 'x' ? r : (r & 0x3) | 0x8).toString(16);
+  });
 
 const ICE_SERVERS = [
   { urls: 'stun:stun.l.google.com:19302' },
@@ -52,6 +60,7 @@ export default function VideoCallScreen({ route, navigation }) {
   const [notifCall, setNotifCall] = useState(null);
   const [cameraOff, setCameraOff] = useState(false);
   const [callDuration, setCallDuration] = useState(0);
+  const [speakerOn, setSpeakerOn] = useState(true);
   const [localStream, setLocalStream] = useState(null);
   const [remoteStream, setRemoteStream] = useState(null);
   const [iceState, setIceState] = useState('');
@@ -83,9 +92,10 @@ export default function VideoCallScreen({ route, navigation }) {
     resolve();
   }, []);
 
+  // Run fetchUsers only after myEmail is loaded so the self-filter works correctly
   useEffect(() => {
-    fetchUsers();
-  }, []);
+    if (myEmail) fetchUsers();
+  }, [myEmail]);
 
   // Auto-start outgoing call when navigated from SupportScreen with a target user
   useEffect(() => {
@@ -96,10 +106,17 @@ export default function VideoCallScreen({ route, navigation }) {
     }
   }, [myEmail]);
 
-  // Auto-answer when navigated here from IncomingCallOverlay
+  // Auto-answer when navigated here from CallKeep (incomingCall only has callId/callerName)
+  // Must fetch offer + full data from Firestore before calling answerCall.
   useEffect(() => {
     const call = route?.params?.incomingCall;
-    if (call) answerCall(call);
+    if (!call?.callId) return;
+    firestore().collection('calls').doc(call.callId).get()
+      .then((snap) => {
+        const data = snap.data();
+        if (data) answerCall({ id: call.callId, ...data });
+      })
+      .catch((e) => Alert.alert('Error', 'Could not load call: ' + e.message));
   }, []);
 
   // Fetch call data when opened from a push notification (app was killed/backgrounded)
@@ -134,6 +151,31 @@ export default function VideoCallScreen({ route, navigation }) {
     return () => clearInterval(timerRef.current);
   }, [callStatus]);
 
+  // Start InCallManager for video audio routing; default speaker on
+  useEffect(() => {
+    if (callStatus === STATUS.IDLE) return;
+    try {
+      InCallManager.start({ media: 'video', auto: false });
+      InCallManager.setSpeakerphoneOn(true);
+      InCallManager.setForceSpeakerphoneOn(true);
+    } catch (_) {}
+    setSpeakerOn(true);
+  }, [callStatus === STATUS.IDLE]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Auto-adjust speaker when wired headset is plugged/unplugged
+  useEffect(() => {
+    const sub = DeviceEventEmitter.addListener('WiredHeadset', (event) => {
+      const isPlugged = event?.isPlugged ?? false;
+      const next = !isPlugged;
+      setSpeakerOn(next);
+      try {
+        InCallManager.setSpeakerphoneOn(next);
+        InCallManager.setForceSpeakerphoneOn(next);
+      } catch (_) {}
+    });
+    return () => sub?.remove?.();
+  }, []);
+
   useEffect(() => {
     return () => cleanup();
   }, []);
@@ -142,7 +184,7 @@ export default function VideoCallScreen({ route, navigation }) {
     try {
       setLoadingUsers(true);
       const snap = await firestore().collection('callProfiles').get();
-      const all = snap.docs.map((d) => ({ email: d.id, ...d.data() }));
+      const all = snap.docs.map((d) => ({ ...d.data(), email: d.id }));
       setUsers(all.filter((u) => u.email !== myEmail));
     } catch (e) {
       console.log('VideoCall: fetch users error', e);
@@ -166,6 +208,7 @@ export default function VideoCallScreen({ route, navigation }) {
       }
       if (pc.connectionState === 'connected') {
         setStatus(STATUS.CONNECTED);
+        if (callDocRef.current?.id) reportCallActive(callDocRef.current.id);
       }
     };
     return pc;
@@ -198,7 +241,7 @@ export default function VideoCallScreen({ route, navigation }) {
       const pc = buildPC();
       stream.getTracks().forEach((t) => pc.addTrack(t, stream));
 
-      const callId = `vid_${Date.now()}`;
+      const callId = makeUUID();
       const callRef = firestore().collection('calls').doc(callId);
       callDocRef.current = callRef;
 
@@ -308,16 +351,13 @@ export default function VideoCallScreen({ route, navigation }) {
   };
 
   const endCall = async (updateDb = true) => {
+    if (callDocRef.current?.id) endCallKeep(callDocRef.current.id);
     if (updateDb && callDocRef.current) {
       try { await callDocRef.current.update({ status: 'ended' }); } catch (_) {}
     }
     cleanup();
     try { InCallManager?.stopRingtone?.(); } catch (_) {}
-    if (navigation.canGoBack()) {
-      navigation.goBack();
-    } else {
-      navigation.navigate('SupportScreen');
-    }
+    navigation.reset({ index: 0, routes: [{ name: 'MainDrawer' }] });
   };
 
   const cleanup = () => {
@@ -328,6 +368,7 @@ export default function VideoCallScreen({ route, navigation }) {
     pcRef.current?.close();
     pcRef.current = null;
     callDocRef.current = null;
+    try { InCallManager.stop(); } catch (_) {}
   };
 
   const acceptNotifCall = () => {
@@ -366,6 +407,17 @@ export default function VideoCallScreen({ route, navigation }) {
   const flipCamera = () => {
     localStreamRef.current?.getVideoTracks().forEach((t) => {
       t._switchCamera?.();
+    });
+  };
+
+  const toggleSpeaker = () => {
+    setSpeakerOn((prev) => {
+      const next = !prev;
+      try {
+        InCallManager.setSpeakerphoneOn(next);
+        InCallManager.setForceSpeakerphoneOn(next);
+      } catch (_) {}
+      return next;
     });
   };
 
@@ -465,6 +517,14 @@ export default function VideoCallScreen({ route, navigation }) {
           >
             <Icon name={muted ? 'mic-off' : 'mic'} size={24} color="#fff" />
             <Text style={styles.controlLabel}>{muted ? 'Unmute' : 'Mute'}</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.controlBtn, !speakerOn && styles.controlBtnOn]}
+            onPress={toggleSpeaker}
+          >
+            <Icon name={speakerOn ? 'volume-up' : 'hearing'} size={24} color="#fff" />
+            <Text style={styles.controlLabel}>{speakerOn ? 'Speaker' : 'Earpiece'}</Text>
           </TouchableOpacity>
 
           <TouchableOpacity style={styles.endBtn} onPress={() => endCall()}>
