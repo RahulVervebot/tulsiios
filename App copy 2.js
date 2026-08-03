@@ -7,18 +7,24 @@ import {
   StyleSheet,
   ActivityIndicator,
   FlatList,
-  Platform
+  Platform,
+  Alert
 } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createDrawerNavigator, DrawerContentScrollView, DrawerItemList } from '@react-navigation/drawer';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
-
 import { GoogleSignin } from '@react-native-google-signin/google-signin';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Icon from 'react-native-vector-icons/Ionicons';
-import { initializeOneSignal, debugOneSignalStatus, forceEnablePushNotifications } from './src/config/OneSignalConfig';
+import { initializeOneSignal, debugOneSignalStatus, forceEnablePushNotifications, saveUserCallProfile, saveVoipToken, cleanupStaleCallProfile } from './src/config/OneSignalConfig';
+import { initUploadManager } from './src/functions/chat/UploadManager';
+import { initCallKeep, setCallKeepNav, displayIncomingCall, getAndClearKilledAppPending } from './src/config/CallKeepConfig';
+import { NativeModules } from 'react-native';
+const { PendingCallModule } = NativeModules;
+import VoipPushNotification from 'react-native-voip-push-notification';
+import IncomingCallOverlay from './src/components/IncomingCallOverlay';
 import LoginScreen from './src/screens/LoginScreen';
 import HomeScreen from './src/screens/HomeScreen';
 import Dashboard from './src/screens/Dashboard';
@@ -33,6 +39,7 @@ import CategoryListScreen from './src/components/CategoryListScreen';
 import SaleSummaryReport from './src/screens/SalesSummaryReport';
 import PrintScreen from './src/screens/PrintScreen';
 import AppProviders from './src/context/AppProviders';
+import { useActiveCall } from './src/context/ActiveCallContext';
 import OcrScreen from './src/components/icms/OcrCameraScreen';
 import AddNewVendorInvoice from './src/components/icms/AddNewVendorInvoice';
 import SettingScreen from './src/screens/SettingScreen';
@@ -62,7 +69,17 @@ import CartIcon from './src/assets/icons/inventory_1.svg';
 import POSIcon from './src/assets/icons/payment_2.svg';
 import ReportIcon from './src/assets/icons/Reportsicon.svg'; 
 import UserList from './src/screens/UserList.js';
+import OrderHold from './src/screens/OrderHold.js';
+import MultiVendor from './src/screens/icms/MultiVendor.js';
 import { getPosAuthStatus } from './src/functions/users/function.js';
+import MultiStoreProduct from './src/screens/MultiStoreProduct.js';
+import ProductRequests from './src/screens/ProductRequests.js';
+import SupportScreen from './src/screens/SupportScreen.js';
+import VideoCallScreen from './src/screens/VideoCallScreen.js';
+import VoiceCallScreen from './src/screens/VoiceCallScreen.js';
+import ConferenceCallScreen from './src/screens/ConferenceCallScreen.js';
+import ChatScreen from './src/screens/ChatScreen.js';
+import CallLoginScreen from './src/screens/CallLoginScreen.js';
 const Stack = createNativeStackNavigator();
 const Drawer = createDrawerNavigator();
 const Tab = createBottomTabNavigator();
@@ -96,10 +113,10 @@ function CustomDrawerContent(props) {
 }
 
 // ---------- Bottom Tabs ----------
+
 function BottomTabs() {
   const insets = useSafeAreaInsets();
   const [isAllowIcms, setIsAllowIcms] = useState(false);
-
   useEffect(() => {
     const loadIcmsPermission = async () => {
       try {
@@ -183,8 +200,8 @@ function BottomTabs() {
   );
 }
 
-
 // ---------- Drawer (kept same, Tabs inside) ----------
+
 function MainDrawer() {
   return (
     <Drawer.Navigator
@@ -192,16 +209,46 @@ function MainDrawer() {
       drawerContent={(props) => <CustomDrawerContent {...props} />}
       screenOptions={{ headerShown: false }}
     >
-      <Drawer.Screen name="Profile" component={UserScreen} />
-     <Drawer.Screen name="Tabs" component={BottomTabs} />
+      <Drawer.Screen name="Profile" component={UserScreen}
+      
+       options={{ swipeEnabled: false }}
+      />
+     <Drawer.Screen
+        name="Tabs"
+        component={BottomTabs}
+        options={{ drawerItemStyle: { height: 0 }, swipeEnabled: false }}
+      />
     </Drawer.Navigator>
   );
 }
-// function ChatOverlay() {
-//   const insets = useSafeAreaInsets();
-//   return <Chat style={{ bottom: 70 + insets.bottom, right: 16 }} />;
-// }
 
+const CALL_SCREENS = new Set(['VideoCallScreen', 'VoiceCallScreen', 'ConferenceCallScreen']);
+
+function ReturnToCallBar({ navigationRef, activeRouteName }) {
+  const { activeCall } = useActiveCall();
+  if (!activeCall) return null;
+  if (CALL_SCREENS.has(activeRouteName)) return null;
+
+  const handlePress = () => {
+    if (!navigationRef.current?.isReady?.()) return;
+    // Navigate without params so React Navigation goes back to the existing
+    // mounted instance instead of re-mounting with fresh/empty state.
+    navigationRef.current.navigate(activeCall.screen);
+  };
+
+  return (
+    <TouchableOpacity
+      style={styles.returnToCallBar}
+      onPress={handlePress}
+      activeOpacity={0.85}
+    >
+      <View style={styles.returnToCallPulse} />
+      <Icon name={activeCall.screen === 'VoiceCallScreen' ? 'call' : 'videocam'} size={18} color="#fff" style={{ marginRight: 8 }} />
+      <Text style={styles.returnToCallText}>{activeCall.label || 'Return to Call'}</Text>
+      <Text style={styles.returnToCallArrow}>›</Text>
+    </TouchableOpacity>
+  );
+}
 
 function getActiveRouteName(state) {
   if (!state || !state.routes || state.index == null) return '';
@@ -216,9 +263,56 @@ export default function App() {
   const [isAllowTulsiChatSupport, setIsAllowTulsiChatSupport] = useState(false);
 
   const [initialRoute, setInitialRoute] = useState(null);
+  const [initialParams, setInitialParams] = useState({});
   const [activeRouteName, setActiveRouteName] = useState('');
   const navigationRef = useRef(null);
-  const CHAT_HIDDEN_ROUTES = new Set(['Login', 'CategoryListScreen', 'CategoryProducts', 'ProductScreen']);
+  const CHAT_HIDDEN_ROUTES = new Set(['Login', 'CategoryListScreen', 'CategoryProducts', 'ProductScreen','CallLoginScreen','ChatScreen','VideoCallScreen','VoiceCallScreen','ConferenceCallScreen','SupportScreen']);
+
+  useEffect(() => {
+    initUploadManager(); // resume any pending uploads from previous session
+  }, []);
+
+  // Init CallKeep so answerCall / endCall events from the native CallKit UI
+  // are handled. We use CallKit to ring when the app is killed (iOS requires it),
+  // but immediately dismiss the native screen and show our own in-app UI.
+  useEffect(() => {
+    setCallKeepNav(navigationRef);
+    initCallKeep();
+
+    if (Platform.OS === 'ios') {
+      VoipPushNotification.addEventListener('register', async (token) => {
+        await AsyncStorage.setItem('voipToken', token);
+        const email = await AsyncStorage.getItem('callUserEmail');
+        if (email) saveVoipToken(email, token);
+      });
+
+      VoipPushNotification.addEventListener('notification', (notification) => {
+        const p = notification?.data ?? notification;
+        // Mark this callId as handled by CallKit so IncomingCallOverlay's Firestore
+        // listener does not show a second in-app modal on top of the native screen.
+        if (p?.callId) {
+          displayIncomingCall({
+            callId:      p.callId,
+            callerId:    p.callerId,
+            callerName:  p.callerName,
+            callerEmail: p.callerEmail,
+            callType:    p.callType,
+          });
+        }
+        VoipPushNotification.onVoipNotificationCompleted(p?.callId ?? '');
+      });
+
+      VoipPushNotification.registerVoipToken();
+    }
+
+    return () => {
+      if (Platform.OS === 'ios') {
+        VoipPushNotification.removeEventListener('register');
+        VoipPushNotification.removeEventListener('notification');
+      }
+    };
+  }, []);
+
   function ChatOverlay() {
     const insets = useSafeAreaInsets();
 
@@ -271,6 +365,7 @@ export default function App() {
         // Check if it's a 401 error
         if (error?.status === 401) {
           console.log('Unauthorized - navigating to Login');
+          Alert.alert('Session Expired', 'Your session has expired. Please log in again.');
           // Clear stored credentials
           await AsyncStorage.removeItem('access_token');
           await AsyncStorage.removeItem('userId');
@@ -297,13 +392,116 @@ export default function App() {
   useEffect(() => {
     const checkLogin = async () => {
       try {
+        // Check JS-layer flag first (synchronous — set by _onAnswer before any await)
+        const jsPending = getAndClearKilledAppPending();
+
         const access_token = await AsyncStorage.getItem('access_token');
-        setInitialRoute(access_token ? 'MainDrawer' : 'Login');
+        if (!access_token) { setInitialRoute('Login'); return; }
+
+        // JS flag was set — _onAnswer already fired before nav was ready
+        if (jsPending?.callUUID) {
+          const screen = jsPending.callType === 'video' ? 'VideoCallScreen' : 'VoiceCallScreen';
+          setInitialRoute(screen);
+          setInitialParams({ incomingCallId: jsPending.callUUID });
+          return;
+        }
+
+        // Fallback: check native UserDefaults in case _onAnswer fires after first await
+        if (Platform.OS === 'ios' && PendingCallModule?.getPendingAcceptedCall) {
+          try {
+            const pending = await PendingCallModule.getPendingAcceptedCall();
+            if (pending?.callId) {
+              const screen = pending.callType === 'video' ? 'VideoCallScreen' : 'VoiceCallScreen';
+              setInitialRoute(screen);
+              setInitialParams({ incomingCallId: pending.callId });
+              return;
+            }
+          } catch (_) {}
+        }
+
+        setInitialRoute('MainDrawer');
       } catch (e) {
         setInitialRoute('Login');
       }
     };
     checkLogin();
+  }, []);
+
+  // Handle notification tap when app is killed or backgrounded
+  useEffect(() => {
+    const OneSignal = require('react-native-onesignal').default || require('react-native-onesignal');
+    if (OneSignal?.setNotificationOpenedHandler) {
+      OneSignal.setNotificationOpenedHandler(async (event) => {
+        const data = event?.notification?.additionalData;
+        const actionId = event?.action?.actionId;
+
+        // User tapped Decline button directly on the notification — reject without opening app
+        if (actionId === 'decline_call' && data?.callDocId) {
+          try {
+            const firestore = require('@react-native-firebase/firestore').default;
+            await firestore().collection('calls').doc(data.callDocId).update({ status: 'rejected' });
+          } catch (_) {}
+          return;
+        }
+
+        // User tapped Accept button or the notification body → open call screen.
+        if (data?.type === 'incoming_call') {
+          const isConference = data.callType === 'conference_video' || data.callType === 'conference_voice';
+          const screen = isConference
+            ? 'ConferenceCallScreen'
+            : data.callType === 'video' ? 'VideoCallScreen' : 'VoiceCallScreen';
+          const params = isConference
+            ? { roomId: data.callDocId, isCreator: false, callType: data.callType === 'conference_video' ? 'video' : 'voice' }
+            : { incomingCallId: data.callDocId };
+          const tryNavigate = () => {
+            if (!navigationRef.current?.isReady?.()) {
+              setTimeout(tryNavigate, 300);
+              return;
+            }
+            // Only navigate if user is logged in
+            AsyncStorage.getItem('access_token').then((token) => {
+              if (!token) return;
+              navigationRef.current.navigate(screen, params);
+            });
+          };
+          tryNavigate();
+        }
+
+        // User tapped an invoice-saved notification → open pending invoices list
+        if (data?.type === 'invoice_saved') {
+          const tryNavigate = () => {
+            if (!navigationRef.current?.isReady?.()) {
+              setTimeout(tryNavigate, 300);
+              return;
+            }
+            AsyncStorage.getItem('access_token').then((token) => {
+              if (!token) return;
+              navigationRef.current.navigate('PendingNewInvoices');
+            });
+          };
+          tryNavigate();
+        }
+
+        // User tapped a chat message notification → open that chat
+        if (data?.type === 'chat_message' && data?.chatId) {
+          const tryNavigate = () => {
+            if (!navigationRef.current?.isReady?.()) {
+              setTimeout(tryNavigate, 300);
+              return;
+            }
+            AsyncStorage.getItem('access_token').then((token) => {
+              if (!token) return;
+              navigationRef.current.navigate('ChatScreen', {
+                chatId:   data.chatId,
+                chatName: data.chatName || 'Chat',
+                chatType: data.chatType || 'direct',
+              });
+            });
+          };
+          tryNavigate();
+        }
+      });
+    }
   }, []);
 
   useEffect(() => {
@@ -324,7 +522,7 @@ export default function App() {
         if (debugOneSignalStatus && typeof debugOneSignalStatus === 'function') {
           await debugOneSignalStatus();
         }
-        
+
         // Check if device is subscribed - if not, try to force enable
         try {
           const OneSignal = require('react-native-onesignal');
@@ -340,7 +538,18 @@ export default function App() {
         } catch (e) {
           // Silent fail - not critical
         }
-        
+
+        // Re-save call profile now that OneSignal is fully initialized so the
+        // stored playerId stays current. callUserEmail is the stable identity.
+        const email = await AsyncStorage.getItem('callUserEmail');
+        const name  = await AsyncStorage.getItem('callUserName');
+        if (email) {
+          saveUserCallProfile(email, name || email).catch(() => {});
+        }
+        // Remove player ID from the Google login email's callProfiles doc if it has no PIN.
+        // This cleans up stale entries created by the old LoginScreen bug.
+        cleanupStaleCallProfile().catch(() => {});
+
         console.log('\n✅ OneSignal setup complete - App ready for notifications\n');
       } catch (error) {
         console.log('⚠️ OneSignal setup warning (non-fatal):', error?.message);
@@ -366,7 +575,6 @@ export default function App() {
           onReady={() => {
             const rootState = navigationRef.current?.getRootState?.();
             const current = getActiveRouteName(rootState);
-            console.log('[Navigation] onReady route:', current, 'state:', JSON.stringify(rootState));
             if (current) setActiveRouteName(current);
           }}
           onStateChange={(state) => {
@@ -383,6 +591,7 @@ export default function App() {
       <Stack.Screen name="SaleSummaryReport" component={SaleSummaryReport} />     
       <Stack.Screen name="ReportsByHours" component={ReportsByHours} />   
    <Stack.Screen name="TopSellingCategoriesReport" component={TopSellingCategoriesReport} /> 
+<Stack.Screen name="OrderHold" component={OrderHold} /> 
 <Stack.Screen name="TopSellingProductsReportScreen" component={TopSellingProductsReportScreen} /> 
 <Stack.Screen name="TopSellingCustomerReport" component={TopSellingCustomerReport} /> 
 <Stack.Screen name="SessionReports" component={SessionReports} /> 
@@ -398,6 +607,15 @@ export default function App() {
     <Stack.Screen name="MixMatchQuantityBasedOfferScreen" component={MixMatchQuantityBasedOfferScreen} />
     <Stack.Screen name="QuantityDiscountScreen" component={QuantityDiscountScreen} />
     <Stack.Screen name="UserList" component={UserList} />
+     <Stack.Screen name="SupportScreen" component={SupportScreen} />
+      <Stack.Screen name="CallLoginScreen" component={CallLoginScreen} />
+      <Stack.Screen name="VideoCallScreen" component={VideoCallScreen}
+        initialParams={initialRoute === 'VideoCallScreen' ? initialParams : undefined} />
+      <Stack.Screen name="VoiceCallScreen" component={VoiceCallScreen}
+        initialParams={initialRoute === 'VoiceCallScreen' ? initialParams : undefined} />
+      <Stack.Screen name="ConferenceCallScreen" component={ConferenceCallScreen} options={{ headerShown: false }} />
+      <Stack.Screen name="ChatScreen" component={ChatScreen} options={{ headerShown: false }} />
+
      
       <Stack.Screen name="SignupScreen" component={SignupScreen} />
 
@@ -435,6 +653,51 @@ export default function App() {
               },
             }}
           />
+  <Stack.Screen
+            name="MultiVendor"
+            component={MultiVendor}
+            options={{
+              title: 'Multi Vendor Products',
+              headerStyle: {
+                backgroundColor: '#3478F5',
+              },
+              headerTintColor: '#fff',
+              headerTitleStyle: {
+                fontWeight: 'bold',
+              },
+            }}
+          />
+
+  <Stack.Screen
+            name="MultiStoreProduct"
+            component={MultiStoreProduct}
+            options={{
+              title: 'Multi Store Products',
+              headerStyle: {
+                backgroundColor: '#3478F5',
+              },
+              headerTintColor: '#fff',
+              headerTitleStyle: {
+                fontWeight: 'bold',
+              },
+            }}
+          />
+
+           <Stack.Screen
+            name="ProductRequests"
+            component={ProductRequests}
+            options={{
+              title: 'Product Requests',
+              headerStyle: {
+                backgroundColor: '#3478F5',
+              },
+              headerTintColor: '#fff',
+              headerTitleStyle: {
+                fontWeight: 'bold',
+              },
+            }}
+           />
+
           <Stack.Screen
             name="RedProducts"
             component={RedProductsScreen}
@@ -453,12 +716,18 @@ export default function App() {
           </Stack.Navigator>
 
           {!CHAT_HIDDEN_ROUTES.has(activeRouteName) && isAllowTulsiChatSupport && <ChatOverlay />}
+          {initialRoute === 'MainDrawer' || activeRouteName !== 'Login'
+            ? <IncomingCallOverlay navigationRef={navigationRef} />
+            : null}
+          <ReturnToCallBar navigationRef={navigationRef} activeRouteName={activeRouteName} />
         </View>
         </NavigationContainer>
       </SafeAreaProvider>
     </AppProviders>
   );
+
 }
+
 const styles = StyleSheet.create({
   center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   // Header
@@ -501,5 +770,41 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 16,
     fontWeight: '600',
+  },
+  returnToCallBar: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: '#1a7a2e',
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingTop: 48,
+    paddingBottom: 12,
+    elevation: 20,
+    zIndex: 9999,
+    shadowColor: '#000',
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 2 },
+  },
+  returnToCallPulse: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#6EE7B7',
+    marginRight: 8,
+  },
+  returnToCallText: {
+    flex: 1,
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  returnToCallArrow: {
+    color: '#fff',
+    fontSize: 22,
+    fontWeight: '300',
   },
 });

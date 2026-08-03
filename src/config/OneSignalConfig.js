@@ -5,14 +5,6 @@ import { Platform } from 'react-native';
 import OneSignal from 'react-native-onesignal';
 import firestore from '@react-native-firebase/firestore';
 
-
-
-/*
-  IMPORTANT:
-  - Do NOT keep your REST API key in mobile app code in production.
-  - Notification send API should ideally be called from your backend.
-  - Below key is only shown because you asked for full file structure.
-*/
 let isInitialized = false;
 
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -25,12 +17,11 @@ export const initializeOneSignal = async () => {
       console.log('ℹ️ OneSignal already initialized');
       return true;
     }
-const onesignalid = await AsyncStorage.getItem('onesignalid');
+   const onesignalid = await AsyncStorage.getItem('onesignalid');
     console.log('\n🚀 ===== INITIALIZING ONESIGNAL =====');
     console.log('[OneSignal] appId from storage:', onesignalid || '(using hardcoded fallback)');
 
     OneSignal.setAppId(onesignalid);
-
     // Optional debug logs
     if (OneSignal.setLogLevel) {
       OneSignal.setLogLevel(6, 0);
@@ -245,8 +236,6 @@ OneSignal.sendTags({
     return false;
   }
 };
-
-
 
 // Optional helper if you have a real stable app user id
 export const setExternalUserId = async (externalUserId) => {
@@ -592,7 +581,11 @@ export const sendCallPushNotification = async (targetEmail, callerName, callType
     }
     const onesignalid = await AsyncStorage.getItem('onesignalid');
     const onesignalkey = await AsyncStorage.getItem('onesignalkey');
-    const label = callType === 'video' ? 'Video' : 'Voice';
+    const isConference = callType === 'conference_video' || callType === 'conference_voice';
+    const label = callType === 'video' ? 'Video'
+                : callType === 'conference_video' ? 'Group Video'
+                : callType === 'conference_voice' ? 'Group Voice'
+                : 'Voice';
     const payload = {
       app_id: onesignalid,
       include_player_ids: [playerId],
@@ -600,7 +593,7 @@ export const sendCallPushNotification = async (targetEmail, callerName, callType
       contents: { en: `${callerName} is calling you...` },
       data: { type: 'incoming_call', callType, callDocId, callerName },
       priority: 10,
-      ttl: 30,
+      ttl: 45,
       ios_sound: 'default',
       ios_badge_type: 'Increase',
       ios_badge_count: 1,

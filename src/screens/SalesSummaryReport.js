@@ -49,6 +49,8 @@ import {
   SaleSummaryDepartmentAllianceReport,
 } from '../functions/reports/pos_reports';
 
+import { exportSalesSummaryToExcel } from '../functions/reports/exportReportsExcel';
+
 const PANEL_RADIUS = 28;
 
 const DEFAULT_REFUND = { total_refunds: 0, total_refunds_count: 0, refund_data: [] };
@@ -157,6 +159,19 @@ export default function SaleSummaryReport() {
 
   const getImageSource = (val) => (typeof val === 'number' ? val : { uri: val });
 
+  const handleDownloadReport = useCallback(() => {
+    return exportSalesSummaryToExcel({
+      apiData: {
+        'POS Payment Collection': paymentTypeReport || [],
+        'Cash In & Out': cashInOutReport || {},
+        'Refund Report': refundReport || DEFAULT_REFUND,
+        'Tax Report': taxReport || {},
+        'Department Wise Report': departmentReport || {},
+      },
+      fileName: `Sales_Summary_Report_${fmtDateOnly(range.start)}_to_${fmtDateOnly(range.end)}.xlsx`,
+    });
+  }, [paymentTypeReport, cashInOutReport, refundReport, taxReport, departmentReport, range]);
+
   return (
     <ImageBackground source={getImageSource(reportbg)} style={styles.screen} resizeMode="cover">
       <AppHeader Title="SALES SUMMARY REPORT" backgroundType="image" backgroundValue={reportbg} />
@@ -225,6 +240,7 @@ export default function SaleSummaryReport() {
             'Department Wise Report': deptLoading,
           }}
           onTabChange={(tab) => console.log('Active tab: ', tab)}
+          onDownload={handleDownloadReport}
         />
       </View>
 

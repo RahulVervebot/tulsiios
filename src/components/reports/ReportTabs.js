@@ -1,6 +1,6 @@
 import React, { useState, useCallback, useMemo } from "react";
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Platform } from "react-native";
-import Svg, { Circle } from "react-native-svg";
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Platform, ActivityIndicator, Alert } from "react-native";
+import Svg, { Circle, Path } from "react-native-svg";
 
 const ACTIVE_ICON = "#2e7d32";
 const INACTIVE_ICON = "#000";
@@ -14,8 +14,24 @@ function DefaultTabIcon({ active }) {
   );
 }
 
-export default function ReportTabs({ tabs = [], apiData = {}, loadingByTab = {}, initialTab, onTabChange }) {
+function DownloadIcon({ color = "#2e7d32" }) {
+  return (
+    <Svg width={20} height={20} viewBox="0 0 24 24">
+      <Path
+        d="M12 3v10m0 0l-4-4m4 4l4-4M5 19h14"
+        stroke={color}
+        strokeWidth={2}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        fill="none"
+      />
+    </Svg>
+  );
+}
+
+export default function ReportTabs({ tabs = [], apiData = {}, loadingByTab = {}, initialTab, onTabChange, onDownload }) {
   const [activeKey, setActiveKey] = useState(initialTab || tabs?.[0]?.key);
+  const [downloading, setDownloading] = useState(false);
   const active = useMemo(() => tabs.find((t) => t.key === activeKey), [tabs, activeKey]);
   const ActiveComp = active?.component;
 
@@ -26,6 +42,19 @@ export default function ReportTabs({ tabs = [], apiData = {}, loadingByTab = {},
     },
     [onTabChange]
   );
+
+  const handleDownload = useCallback(async () => {
+    if (!onDownload || downloading) return;
+    setDownloading(true);
+    try {
+      await onDownload();
+    } catch (error) {
+      console.warn('Report export failed:', error);
+      Alert.alert('Export failed', 'Could not generate the Excel file. Please try again.');
+    } finally {
+      setDownloading(false);
+    }
+  }, [onDownload, downloading]);
 
   const renderIcon = (t, isActive) => {
     const color = isActive ? ACTIVE_ICON : INACTIVE_ICON;
@@ -53,8 +82,26 @@ export default function ReportTabs({ tabs = [], apiData = {}, loadingByTab = {},
     <View style={styles.wrap}>
       {/* Header */}
       <View style={styles.header}>
-        <Text style={styles.title}>{activeKey}</Text>
-        <Text style={styles.subtitle}>Interactive report view</Text>
+        <View style={styles.headerRow}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.title}>{activeKey}</Text>
+            <Text style={styles.subtitle}>Interactive report view</Text>
+          </View>
+          {onDownload && (
+            <TouchableOpacity
+              style={styles.downloadBtn}
+              onPress={handleDownload}
+              disabled={downloading}
+              activeOpacity={0.75}
+            >
+              {downloading ? (
+                <ActivityIndicator size="small" color="#2e7d32" />
+              ) : (
+                <DownloadIcon />
+              )}
+            </TouchableOpacity>
+          )}
+        </View>
       </View>
 
       {/* Body + Fixed Footer (no shadow, no borders) */}
@@ -101,8 +148,19 @@ const styles = StyleSheet.create({
   wrap: { flex: 1, backgroundColor: "#F7F7F8" },
 
   header: { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 6 },
+  headerRow: { flexDirection: "row", alignItems: "center", gap: 12 },
   title: { fontSize: 18, fontWeight: "800", color: "#111" },
   subtitle: { fontSize: 12, color: "#555", marginTop: 2 },
+  downloadBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#E8F5E9",
+    borderWidth: 1,
+    borderColor: "#C8E6C9",
+  },
 
   bodyContainer: { flex: 1 },
 

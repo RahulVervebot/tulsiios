@@ -90,19 +90,24 @@ export const markChatAsRead = async (chatId, myEmail) => {
     await firestore()
       .collection('chats')
       .doc(chatId)
-      .update({ [`unread.${myEmail}`]: 0 });
+      .set({ unread: { [myEmail]: 0 } }, { merge: true });
   } catch (_) {}
 };
 
-// Increment unread count for all participants except sender
+// Increment unread count for all participants except sender.
+// Uses set+merge so it works even on legacy docs without an `unread` map.
 export const incrementUnread = async (chatId, participants, senderEmail) => {
   try {
-    const updates = {};
+    const unread = {};
     participants
       .filter((e) => e !== senderEmail)
       .forEach((e) => {
-        updates[`unread.${e}`] = firestore.FieldValue.increment(1);
+        unread[e] = firestore.FieldValue.increment(1);
       });
-    await firestore().collection('chats').doc(chatId).update(updates);
+    if (Object.keys(unread).length === 0) return;
+    await firestore()
+      .collection('chats')
+      .doc(chatId)
+      .set({ unread }, { merge: true });
   } catch (_) {}
 };

@@ -2,19 +2,13 @@ const { onDocumentCreated } = require('firebase-functions/v2/firestore');
 const { defineString, defineSecret } = require('firebase-functions/params');
 const { initializeApp } = require('firebase-admin/app');
 const { getFirestore } = require('firebase-admin/firestore');
+
 const nodemailer = require('nodemailer');
 
 const http2 = require('http2');
 const crypto = require('crypto');
 
 initializeApp();
-
-// String params are loaded from functions/.env automatically.
-// The p8 key is stored as a Firebase Secret (never in a file):
-//   base64 -i AuthKey_FST66VR84V.p8 | tr -d '\n'   ← copy output
-//   firebase functions:secrets:set APNS_KEY_P8_BASE64   ← paste when prompted
-// IMPORTANT: argument is the SECRET NAME only — Firebase fetches the actual p8 value at runtime.
-// Do NOT replace this string with the base64 key content.
 
 const APNS_KEY_P8_BASE64 = defineSecret('APNS_KEY_P8_BASE64');
 const APNS_KEY_ID        = defineString('APNS_KEY_ID');
@@ -181,6 +175,7 @@ exports.sendVoipPushOnCall = onDocumentCreated(
 //        firebase functions:secrets:set GMAIL_PASS  (Gmail app password — NOT your login password)
 //        cd functions && npm install   (installs nodemailer)
 //        firebase deploy --only functions
+
 exports.sendCallOtpEmail = onDocumentCreated(
   {
     document: 'callOtpRequests/{requestId}',

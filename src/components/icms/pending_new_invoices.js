@@ -8,6 +8,7 @@ import {
   TouchableOpacity,
   TextInput,
   Modal,
+  Alert,
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -61,6 +62,12 @@ export default function PendingNewInvoices() {
   const [notifyModalVisible, setNotifyModalVisible] = useState(false);
   const [pendingNotifyJobId, setPendingNotifyJobId] = useState('');
   const [notifiedJobIds, setNotifiedJobIds] = useState(new Set());
+  const [previewModalVisible, setPreviewModalVisible] = useState(false);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewError, setPreviewError] = useState('');
+  const [previewData, setPreviewData] = useState(null);
+  const [previewJobId, setPreviewJobId] = useState('');
+  const [previewActionLoading, setPreviewActionLoading] = useState(false);
 
   useEffect(() => {
     const loadHeader = async () => {
@@ -88,7 +95,7 @@ export default function PendingNewInvoices() {
       const token = await AsyncStorage.getItem('access_token');
       const icmsStore = await AsyncStorage.getItem('icms_store');
       const storeurl = await AsyncStorage.getItem('storeurl');
-      console.log('Fetching pending invoices with:', { API_ENDPOINTS, icmsStore, storeurl });
+      console.log('Fetching pending invoices with:', { API_ENDPOINTS, icmsStore, storeurl,token });
       const response = await fetch(API_ENDPOINTS.PENDINGINVOICES, {
         method: 'GET',
         headers: {
@@ -179,6 +186,131 @@ console.log("response notify",response);
       setPendingNotifyJobId('');
     }
   }, [pendingNotifyJobId]);
+
+  const getIcmsHeaders = useCallback(async () => {
+    await initICMSBase();
+    const token = await AsyncStorage.getItem('access_token');
+    const icmsStore = await AsyncStorage.getItem('icms_store');
+    const storeurl = await AsyncStorage.getItem('storeurl');
+    return {
+      'Content-Type': 'application/json',
+      access_token: token ?? '',
+      mode: 'MOBILE',
+      store: icmsStore ?? '',
+      app_url: storeurl ?? '',
+    };
+  }, []);
+
+  const loadPreview = useCallback(async (jobId) => {
+
+    const normalizedJobId = String(jobId || '').trim();
+    if (!normalizedJobId) return;
+
+    setPreviewLoading(true);
+    setPreviewError('');
+
+    try {
+      const headers = await getIcmsHeaders();
+      const response = await fetch(API_ENDPOINTS.AUTO_REGEX_PREVIEW, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ jobId: normalizedJobId }),
+      });
+      const data = await response.json().catch(() => ({}));
+      console.log('AUTO_REGEX_PREVIEW response:', data);
+      if (!response.ok || data?.success === false) {
+        throw new Error(data?.message || `Request failed (${response.status})`);
+      }
+      setPreviewData(data);
+    } catch (error) {
+      console.log('Auto regex preview error:', error?.message || error);
+      setPreviewError(error?.message || 'Unable to load preview.');
+    } finally {
+      setPreviewLoading(false);
+    }
+  }, [getIcmsHeaders]);
+
+  const handlePreview = useCallback(async (jobId) => {
+    const normalizedJobId = String(jobId || '').trim();
+    if (!normalizedJobId) return;
+
+    setPreviewJobId(normalizedJobId);
+    setPreviewModalVisible(true);
+    setPreviewData(null);
+    await loadPreview(normalizedJobId);
+  }, [loadPreview]);
+
+  const closePreviewModal = useCallback(() => {
+    setPreviewModalVisible(false);
+    setPreviewData(null);
+    setPreviewError('');
+    setPreviewJobId('');
+  }, []);
+
+  const handleApprove = useCallback(async () => {
+    const normalizedJobId = String(previewJobId || '').trim();
+    if (!normalizedJobId) return;
+
+    setPreviewActionLoading(true);
+    try {
+      const headers = await getIcmsHeaders();
+      const response = await fetch(API_ENDPOINTS.AUTO_REGEX_APPROVE, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ jobId: normalizedJobId }),
+      });
+
+      const data = await response.json().catch(() => ({}));
+      console.log('AUTO_REGEX_APPROVE response:', data);
+      if (response.status === 200) {
+        Alert.alert('Approved successfully');
+        closePreviewModal();
+        fetchPendingJobs();
+      } else {
+        Alert.alert(data?.status || data?.message || `Request failed (${response.status})`);
+      }
+    } catch (error) {
+      console.log('Auto regex approve error:', error?.message || error);
+      Alert.alert(error?.message || 'Unable to approve.');
+    } finally {
+      setPreviewActionLoading(false);
+    }
+  }, [previewJobId, getIcmsHeaders, closePreviewModal, fetchPendingJobs]);
+
+  const handleRegenerate = useCallback(async () => {
+    const normalizedJobId = String(previewJobId || '').trim();
+    if (!normalizedJobId) return;
+
+    setPreviewActionLoading(true);
+    try {
+      const headers = await getIcmsHeaders();
+      const response = await fetch(API_ENDPOINTS.AUTO_REGEX, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          jobId: normalizedJobId,
+          userPrompt: 'The first numeric column is a serial number, ignore it.',
+        }),
+      });
+
+      const data = await response.json().catch(() => ({}));
+      console.log('AUTO_REGEX response:', data);
+      if (!response.ok) {
+        throw new Error(data?.message || `Request failed (${response.status})`);
+      }
+
+      if (data?.status === 'waiting_for_review') {
+        await loadPreview(normalizedJobId);
+      } else {
+        Alert.alert(data?.status || 'Regenerate status unknown');
+      }
+    } catch (error) {
+      console.log('Auto regex regenerate error:', error?.message || error);
+      Alert.alert(error?.message || 'Unable to regenerate.');
+    } finally {
+      setPreviewActionLoading(false);
+    }
+  }, [previewJobId, getIcmsHeaders, loadPreview]);
 
   const sortedJobs = useMemo(() => {
     const normalizedQuery = searchQuery.trim().toLowerCase();
@@ -295,17 +427,22 @@ console.log("response notify",response);
 
             {renderStepper(stageNumber)}
 
-            <View style={styles.progressCard}>
-              <Text style={styles.progressTitle}>{`Progress: Stage ${stageNumber || 0} of ${STAGE_COUNT}`}</Text>
-              <Text style={styles.progressText}>{`Status: ${item?.status || '-'}`}</Text>
-              {item?.stageCode ? (
-                <Text style={styles.errorText}>{item.stageCode}</Text>
-              ) : (
-                <Text style={styles.progressText}>No stage error reported.</Text>
-              )}
-            </View>
+            {String(item?.stageCode || '').toLowerCase() === 'waiting_for_review' ? (
+              <View style={styles.progressCard}>
+                <View style={styles.progressCardHeader}>
+                  <TouchableOpacity
+                    style={styles.previewBtn}
+                    onPress={() => handlePreview(item?.jobId)}
+                    disabled={!item?.jobId}
+                  >
+                    <Text style={styles.previewBtnText}>Preview</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            ) : null}
           </View>
         ) : null}
+
       </TouchableOpacity>
     );
   };
@@ -388,6 +525,100 @@ console.log("response notify",response);
                 <Text style={styles.modalBtnGhostText}>Cancel</Text>
               </TouchableOpacity>
             </View>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal visible={previewModalVisible} transparent animationType="fade">
+        <View style={styles.modalBackdrop}>
+          <TouchableOpacity style={styles.modalBackdropTouch} onPress={closePreviewModal} />
+          <View style={styles.previewModalCard}>
+            <Text style={styles.modalTitle}>Invoice Preview</Text>
+
+            {previewLoading ? (
+              <View style={styles.previewCenterState}>
+                <ActivityIndicator size="large" color="#319241" />
+                <Text style={styles.stateText}>Loading preview...</Text>
+              </View>
+            ) : previewError ? (
+              <View style={styles.previewCenterState}>
+                <Text style={styles.errorText}>{previewError}</Text>
+              </View>
+            ) : previewData ? (
+              <>
+                <Text style={styles.previewSummary}>
+                  {`Total Rows: ${previewData?.totalRowCount ?? 0}`}
+                </Text>
+                <FlatList
+                  style={styles.previewTableScroll}
+                  data={
+                    Array.isArray(previewData?.invoiceData) ? previewData.invoiceData : []
+                  }
+                  keyExtractor={(row, index) => String(row?.SerialNoInInv ?? index)}
+                  ListHeaderComponent={
+                    <View style={[styles.previewRow, styles.previewHeaderRow]}>
+                      <Text style={[styles.previewCell, styles.previewHeaderCell, styles.previewCellNo]}>#</Text>
+                      <Text style={[styles.previewCell, styles.previewHeaderCell]}>Item No</Text>
+                      <Text style={[styles.previewCell, styles.previewHeaderCell, styles.previewCellWide]}>Description</Text>
+                      <Text style={[styles.previewCell, styles.previewHeaderCell]}>Qty</Text>
+                      <Text style={[styles.previewCell, styles.previewHeaderCell]}>Unit Price</Text>
+                      <Text style={[styles.previewCell, styles.previewHeaderCell]}>Ext Price</Text>
+                    </View>
+                  }
+                  renderItem={({ item: row, index }) => (
+                    <View
+                      style={[
+                        styles.previewRow,
+                        index % 2 === 1 && styles.previewRowAlt,
+                      ]}
+                    >
+                      <Text style={[styles.previewCell, styles.previewCellNo]}>
+                        {row?.SerialNoInInv ?? index + 1}
+                      </Text>
+                      <Text style={styles.previewCell}>{row?.itemNo || '-'}</Text>
+                      <Text style={[styles.previewCell, styles.previewCellWide]}>{row?.description || '-'}</Text>
+                      <Text style={styles.previewCell}>{row?.qty || '-'}</Text>
+                      <Text style={styles.previewCell}>{row?.unitPrice || '-'}</Text>
+                      <Text style={styles.previewCell}>{row?.extendedPrice || '-'}</Text>
+                    </View>
+                  )}
+                  ListEmptyComponent={
+                    <Text style={styles.stateText}>No rows found in preview.</Text>
+                  }
+                />
+              </>
+            ) : null}
+
+            <View style={styles.previewModalActions}>
+              {previewData ? (
+                <>
+                  <TouchableOpacity
+                    style={[styles.modalBtn, styles.modalBtnApprove]}
+                    onPress={handleApprove}
+                    disabled={previewActionLoading || previewLoading}
+                  >
+                    <Text style={styles.modalBtnText}>Approve</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.modalBtn, styles.modalBtnRegenerate]}
+                    onPress={handleRegenerate}
+                    disabled={previewActionLoading || previewLoading}
+                  >
+                    <Text style={styles.modalBtnText}>Regenerate</Text>
+                  </TouchableOpacity>
+                </>
+              ) : null}
+              <TouchableOpacity
+                style={[styles.modalBtn, styles.modalBtnGhost]}
+                onPress={closePreviewModal}
+                disabled={previewActionLoading}
+              >
+                <Text style={styles.modalBtnGhostText}>Close</Text>
+              </TouchableOpacity>
+            </View>
+            {previewActionLoading ? (
+              <ActivityIndicator style={styles.previewActionLoader} size="small" color="#319241" />
+            ) : null}
           </View>
         </View>
       </Modal>
@@ -583,10 +814,28 @@ const styles = StyleSheet.create({
     padding: 12,
     gap: 6,
   },
+  progressCardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+  },
   progressTitle: {
+    flex: 1,
     fontSize: 14,
     fontWeight: '700',
     color: '#0F172A',
+  },
+  previewBtn: {
+    backgroundColor: '#319241',
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+  },
+  previewBtnText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '700',
   },
   progressText: {
     fontSize: 13,
@@ -678,5 +927,74 @@ const styles = StyleSheet.create({
   modalBtnGhostText: {
     color: '#334155',
     fontWeight: '700',
+  },
+  previewModalCard: {
+    width: '100%',
+    maxWidth: 480,
+    maxHeight: '80%',
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    padding: 18,
+  },
+  previewCenterState: {
+    paddingVertical: 30,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  previewSummary: {
+    marginTop: 10,
+    marginBottom: 8,
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#10261A',
+  },
+  previewTableScroll: {
+    maxHeight: 320,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    borderRadius: 8,
+  },
+  previewRow: {
+    flexDirection: 'row',
+    borderBottomWidth: 1,
+    borderBottomColor: '#E2E8F0',
+    paddingVertical: 8,
+    paddingHorizontal: 6,
+  },
+  previewHeaderRow: {
+    backgroundColor: '#EAF5ED',
+  },
+  previewRowAlt: {
+    backgroundColor: '#F8FAFB',
+  },
+  previewCell: {
+    flex: 1,
+    fontSize: 11,
+    color: '#334155',
+    paddingHorizontal: 2,
+  },
+  previewHeaderCell: {
+    fontWeight: '700',
+    color: '#10261A',
+  },
+  previewCellNo: {
+    flex: 0.4,
+  },
+  previewCellWide: {
+    flex: 1.6,
+  },
+  previewModalActions: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 16,
+  },
+  modalBtnApprove: {
+    backgroundColor: '#0F8B65',
+  },
+  modalBtnRegenerate: {
+    backgroundColor: '#D97706',
+  },
+  previewActionLoader: {
+    marginTop: 10,
   },
 });

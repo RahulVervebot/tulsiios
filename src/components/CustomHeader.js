@@ -104,7 +104,7 @@ const renderContent = () => {
   
     <View style={[styles.content, isCompact && styles.contentCompact]}>
       {/* Left */}
-    
+
       <View style={[styles.logo, isCompact && styles.logoCompact]}  onTouchStart={() => navigation.navigate('Profile')} >
         <TulsiWhiteLogo width={styles.rowIcon.width} height={styles.rowIcon.height}  />
         <View style={styles.logoTextWrap}>
@@ -157,9 +157,6 @@ const renderContent = () => {
             </View>
           )}
         </TouchableOpacity>
-        {/* <TouchableOpacity style={styles.profileBtn} onPress={() => navigation.navigate('Profile')}>
-          <Profile width={iconSize} height={iconSize} />
-        </TouchableOpacity> */}
       </View>
     </View>
   );
@@ -279,12 +276,7 @@ const getStyles = ({ isCompact, isTablet }) => {
       fontWeight: '700',
       lineHeight: 14,
     },
-    profileBtn: {
-      alignItems: 'center',
-      justifyContent: 'center',
-      minWidth: iconSize,
-      minHeight: iconSize,
-    },
+
 
     // ⬇️ Absolute centered title
     titleOverlay: {

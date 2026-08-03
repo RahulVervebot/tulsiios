@@ -11,6 +11,8 @@
 		761780ED2CA45674006654EE /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 761780EC2CA45674006654EE /* AppDelegate.swift */; };
 		7A55AA0F2D667A3D00A11001 /* IOSLocalNotification.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A55AA0D2D667A3D00A11001 /* IOSLocalNotification.swift */; };
 		7A55AA102D667A3D00A11001 /* IOSLocalNotificationBridge.m in Sources */ = {isa = PBXBuildFile; fileRef = 7A55AA0E2D667A3D00A11001 /* IOSLocalNotificationBridge.m */; };
+		7C55AA0F2D667A3D00A11001 /* PendingCallModule.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C55AA0D2D667A3D00A11001 /* PendingCallModule.swift */; };
+		7C55AA102D667A3D00A11001 /* PendingCallModuleBridge.m in Sources */ = {isa = PBXBuildFile; fileRef = 7C55AA0E2D667A3D00A11001 /* PendingCallModuleBridge.m */; };
 		7B11AA0F2D667B3E00A11001 /* PHAssetHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B11AA0D2D667B3E00A11001 /* PHAssetHelper.swift */; };
 		7B11AA102D667B3E00A11001 /* PHAssetHelperBridge.m in Sources */ = {isa = PBXBuildFile; fileRef = 7B11AA0E2D667B3E00A11001 /* PHAssetHelperBridge.m */; };
 		81AB9BB82411601600AC10FF /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 81AB9BB72411601600AC10FF /* LaunchScreen.storyboard */; };
@@ -42,6 +44,8 @@
 		761780EC2CA45674006654EE /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AppDelegate.swift; path = PIMS/AppDelegate.swift; sourceTree = "<group>"; };
 		7A55AA0D2D667A3D00A11001 /* IOSLocalNotification.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = IOSLocalNotification.swift; path = PIMS/IOSLocalNotification.swift; sourceTree = "<group>"; };
 		7A55AA0E2D667A3D00A11001 /* IOSLocalNotificationBridge.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = IOSLocalNotificationBridge.m; path = PIMS/IOSLocalNotificationBridge.m; sourceTree = "<group>"; };
+		7C55AA0D2D667A3D00A11001 /* PendingCallModule.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = PendingCallModule.swift; path = PIMS/PendingCallModule.swift; sourceTree = "<group>"; };
+		7C55AA0E2D667A3D00A11001 /* PendingCallModuleBridge.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = PendingCallModuleBridge.m; path = PIMS/PendingCallModuleBridge.m; sourceTree = "<group>"; };
 		7B11AA0D2D667B3E00A11001 /* PHAssetHelper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = PHAssetHelper.swift; path = PIMS/PHAssetHelper.swift; sourceTree = "<group>"; };
 		7B11AA0E2D667B3E00A11001 /* PHAssetHelperBridge.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = PHAssetHelperBridge.m; path = PIMS/PHAssetHelperBridge.m; sourceTree = "<group>"; };
 		7E2BBD8D1F1C169C249B5991 /* Pods_PIMS.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = Pods_PIMS.framework; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -73,6 +77,8 @@
 				761780EC2CA45674006654EE /* AppDelegate.swift */,
 				7A55AA0D2D667A3D00A11001 /* IOSLocalNotification.swift */,
 				7A55AA0E2D667A3D00A11001 /* IOSLocalNotificationBridge.m */,
+				7C55AA0D2D667A3D00A11001 /* PendingCallModule.swift */,
+				7C55AA0E2D667A3D00A11001 /* PendingCallModuleBridge.m */,
 				7B11AA0D2D667B3E00A11001 /* PHAssetHelper.swift */,
 				7B11AA0E2D667B3E00A11001 /* PHAssetHelperBridge.m */,
 				13B07FB61A68108700A75B9A /* Info.plist */,
@@ -297,6 +303,8 @@
 				761780ED2CA45674006654EE /* AppDelegate.swift in Sources */,
 				7A55AA0F2D667A3D00A11001 /* IOSLocalNotification.swift in Sources */,
 				7A55AA102D667A3D00A11001 /* IOSLocalNotificationBridge.m in Sources */,
+				7C55AA0F2D667A3D00A11001 /* PendingCallModule.swift in Sources */,
+				7C55AA102D667A3D00A11001 /* PendingCallModuleBridge.m in Sources */,
 				7B11AA0F2D667B3E00A11001 /* PHAssetHelper.swift in Sources */,
 				7B11AA102D667B3E00A11001 /* PHAssetHelperBridge.m in Sources */,
 			);

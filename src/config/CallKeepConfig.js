@@ -1,20 +1,40 @@
 import RNCallKeep from 'react-native-callkeep';
 import firestore from '@react-native-firebase/firestore';
+import { AppState, NativeModules } from 'react-native';
+import { markCallKitActive, unmarkCallKitActive } from './CallKitState';
+import { rootNavigate } from './RootNavigation';
 
-// Holds the navigation ref set by App.js
-let _navigationRef = null;
-// Pending call data populated when a VoIP push / Firestore event arrives
-let _pendingCall   = null; // { callId, callerId, callerName, callerEmail, callType }
+const { PendingCallModule } = NativeModules;
+let _navigationRef  = null;
+let _pendingCall    = null;
+const _shownCallIds = new Set();
+let _answeredCallId = null;
+// Stores { callUUID, callType } when _onAnswer fires before nav is ready.
+// checkLogin() in App.js reads and clears this synchronously.
+// Set when _onAnswer fires before nav is ready (killed-app). checkLogin reads this synchronously.
+
+let _killedAppPending = null;
 
 export const setCallKeepNav = (ref) => { _navigationRef = ref; };
+
+// Synchronous getter — called from checkLogin before any await so timing is safe.
+export function getAndClearKilledAppPending() {
+  const val = _killedAppPending;
+  _killedAppPending = null;
+  return val; // { callUUID } or null — callType is NOT reliable here; use native for type
+}
+
+// Register listeners immediately at module-load time so _onAnswer fires the moment
+// RNCallKeep replays the queued native event, even before useEffect runs.
+
+RNCallKeep.addEventListener('answerCall',             _onAnswer);
+RNCallKeep.addEventListener('endCall',                _onEnd);
+RNCallKeep.addEventListener('didDisplayIncomingCall', _onDisplay);
 
 export async function initCallKeep() {
   try {
     await RNCallKeep.setup({
-      ios: {
-        appName:       'Tulsi',
-        supportsVideo: true,
-      },
+      ios:     { appName: 'Tulsi', supportsVideo: true },
       android: {
         alertTitle:       'Phone account permission',
         alertDescription: 'Tulsi needs access to your phone accounts to show incoming calls.',
@@ -32,10 +52,6 @@ export async function initCallKeep() {
   } catch (err) {
     console.log('[CallKeep] setup error:', err?.message);
   }
-
-  RNCallKeep.addEventListener('answerCall',             _onAnswer);
-  RNCallKeep.addEventListener('endCall',                _onEnd);
-  RNCallKeep.addEventListener('didDisplayIncomingCall', _onDisplay);
 }
 
 export function destroyCallKeep() {
@@ -44,10 +60,17 @@ export function destroyCallKeep() {
   RNCallKeep.removeEventListener('didDisplayIncomingCall');
 }
 
-// Called by IncomingCallOverlay (Firestore trigger) and VoIP push handler (App.js)
 export function displayIncomingCall(callData) {
+  if (_shownCallIds.has(callData.callId)) return;
+  _shownCallIds.add(callData.callId);
   _pendingCall = callData;
-  console.log('[CallKeep] displayIncomingCall:', callData.callId, callData.callerName);
+
+  if (AppState.currentState === 'active') {
+    console.log('[CallKeep] app active — in-app overlay handles ringing');
+    return;
+  }
+
+  markCallKitActive(callData.callId);
   try {
     RNCallKeep.displayIncomingCall(
       callData.callId,
@@ -61,42 +84,75 @@ export function displayIncomingCall(callData) {
   }
 }
 
-// Call this from VoiceCallScreen / VideoCallScreen once WebRTC is connected
+export function wasCallKitHandled() { return !!_answeredCallId; }
+
+export function clearShownCall(callId) { _shownCallIds.delete(callId); }
+
 export function reportCallActive(callId) {
   try { RNCallKeep.setCurrentCallActive(callId); } catch (_) {}
 }
 
-// Call this from endCall in VoiceCallScreen / VideoCallScreen
 export function endCallKeep(callId) {
+  _shownCallIds.delete(callId);
+  unmarkCallKitActive(callId);
   try { RNCallKeep.endCall(callId); } catch (_) {}
 }
 
-// ─── private event handlers ───────────────────────────────────────────────────
+// ───────────────────── private handlers ─────────────────────────────
 
 function _onAnswer({ callUUID }) {
-  const call = _pendingCall;
-  if (!call) return;
-  _pendingCall = null;
-  RNCallKeep.setCurrentCallActive(callUUID);
-  const screen = call.callType === 'video' ? 'VideoCallScreen' : 'VoiceCallScreen';
-  // Use reset so the call screen is always on top regardless of current nav state.
-  _navigationRef?.current?.reset({
-    index: 1,
-    routes: [
-      { name: 'MainDrawer' },
-      { name: screen, params: { incomingCall: call } },
-    ],
-  });
+  _answeredCallId = callUUID;
+  unmarkCallKitActive(callUUID);
+
+  // Mark accepted in native UserDefaults so getPendingAcceptedCall() knows this was
+  // a real accept (not just any incoming push). Fire-and-forget — no await needed.
+  if (PendingCallModule?.markCallAccepted) {
+    PendingCallModule.markCallAccepted().catch(() => {});
+  }
+
+  const nav = _navigationRef?.current;
+  if (!nav?.isReady?.()) {
+    // App was killed — nav not ready yet.
+    // Store synchronously so checkLogin() can read it before its first await resolves.
+    const callType = _pendingCall?.callType ?? 'voice';
+    _killedAppPending = { callUUID, callType };
+    _pendingCall = null;
+    // Dismiss the native CallKit UI
+    try { RNCallKeep.endCall(callUUID); } catch (_) {}
+    return;
+  }
+
+  // App was open/backgrounded — nav ready, navigate immediately via root navigator
+  // so the call screen lands on the root stack (ReturnToCallBar can find it with pop()).
+  const callType = _pendingCall?.callType ?? 'voice';
+  const screen   = callType === 'video' ? 'VideoCallScreen' : 'VoiceCallScreen';
+  _pendingCall   = null;
+  try {
+    rootNavigate(screen, { incomingCallId: callUUID });
+    RNCallKeep.endCall(callUUID);
+  } catch (_) {}
 }
 
 async function _onEnd({ callUUID }) {
-  const call = _pendingCall;
   _pendingCall = null;
-  if (call?.callId) {
-    try {
-      await firestore().collection('calls').doc(call.callId).update({ status: 'rejected' });
-    } catch (_) {}
+  _shownCallIds.delete(callUUID);
+  unmarkCallKitActive(callUUID);
+
+  // We called endCall() ourselves after answering — not a real decline, skip Firestore.
+  if (_answeredCallId === callUUID) {
+    _answeredCallId = null;
+    return;
   }
+  _answeredCallId = null;
+
+  // User declined — clear native UserDefaults so checkLogin doesn't wait for an accept.
+  if (PendingCallModule?.clearPendingVoipCall) {
+    PendingCallModule.clearPendingVoipCall().catch(() => {});
+  }
+
+  try {
+    await firestore().collection('calls').doc(callUUID).update({ status: 'rejected' });
+  } catch (_) {}
 }
 
 function _onDisplay({ error }) {

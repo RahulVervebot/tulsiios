@@ -12,7 +12,7 @@ import {
   Alert,
   RefreshControl,
 } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
+import { rootNavigate } from '../config/RootNavigation';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import firestore from '@react-native-firebase/firestore';
 import Icon from 'react-native-vector-icons/MaterialIcons';
@@ -23,10 +23,9 @@ import reportbg from '../assets/images/report-bg.png';
 const TAB_CONTACTS = 'contacts';
 const TAB_HISTORY  = 'history';
 const TAB_CHAT     = 'chat';
-
 const TEN_DAYS_MS = 10 * 24 * 60 * 60 * 1000;
 
-// ─── helpers ─────────────────────────────────────────────────────────────────
+// ────────────────────────── helpers ────────────────────────────────────
 
 function formatCallTime(ts) {
   if (!ts) return '';
@@ -50,7 +49,7 @@ function callStatusLabel(status, isOutgoing) {
 
 // ─── Contacts tab ─────────────────────────────────────────────────────────────
 
-function ContactsTab({ myEmail, myName, navigation }) {
+function ContactsTab({ myEmail, myName }) {
   const [users,          setUsers]          = useState([]);
   const [loading,        setLoading]        = useState(false);
   const [searchQuery,    setSearchQuery]    = useState('');
@@ -70,9 +69,9 @@ function ContactsTab({ myEmail, myName, navigation }) {
       ]);
 
       const agentList = storeDoc.data()?.Agent || [];
+
       // Use callUserEmail (myEmail prop) as identity — not the Google/device login email
       const agent = agentList.includes(myEmail);
-
       if (agent) await AsyncStorage.setItem('userRole', 'Agent');
 
       // Spread data first, then enforce doc.id as email so key is always unique.
@@ -102,7 +101,7 @@ function ContactsTab({ myEmail, myName, navigation }) {
     }
   }, [myEmail]);
 
-  useEffect(() => { fetchUsers(); }, []);
+  useEffect(() => { if (myEmail) fetchUsers(); }, [myEmail, fetchUsers]);
 
   const filteredUsers = users
     .filter((u) => u.email !== myEmail)
@@ -127,14 +126,14 @@ function ContactsTab({ myEmail, myName, navigation }) {
           onPress: async () => {
             try {
               const chatId = await getOrCreateDirectChat(myEmail, myName, user.email, user.name || user.email);
-              navigation.navigate('ChatScreen', { chatId, chatName: user.name || user.email, chatType: 'direct' });
+              rootNavigate('ChatScreen', { chatId, chatName: user.name || user.email, chatType: 'direct' });
             } catch (e) {
               Alert.alert('Error', 'Could not open chat.');
             }
           },
         },
-        { text: 'Voice Call', onPress: () => navigation.navigate('VoiceCallScreen', { outgoingUser: user }) },
-        { text: 'Video Call', onPress: () => navigation.navigate('VideoCallScreen', { outgoingUser: user }) },
+        { text: 'Voice Call', onPress: () => rootNavigate('VoiceCallScreen', { outgoingUser: user }) },
+        { text: 'Video Call', onPress: () => rootNavigate('VideoCallScreen', { outgoingUser: user }) },
         { text: 'Cancel', style: 'cancel' },
       ],
     );
@@ -254,13 +253,13 @@ function ContactsTab({ myEmail, myName, navigation }) {
   );
 }
 
-// ─── History tab ──────────────────────────────────────────────────────────────
+// ─── History tab ───
 
 function HistoryTab({ myEmail }) {
-  const navigation = useNavigation();
   const [calls,      setCalls]      = useState([]);
   const [loading,    setLoading]    = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [expanded,   setExpanded]   = useState({}); // email → bool
 
   const fetchHistory = useCallback(async (silent = false) => {
     if (!myEmail) return;
@@ -278,7 +277,7 @@ function HistoryTab({ myEmail }) {
 
       const merged = [...outgoing, ...incoming]
         .filter((c) => {
-          if (!c.createdAt) return true; // show if no timestamp rather than hide
+          if (!c.createdAt) return true;
           const ms = c.createdAt?.toMillis?.() ?? new Date(c.createdAt).getTime();
           return ms >= cutoff;
         })
@@ -299,20 +298,27 @@ function HistoryTab({ myEmail }) {
 
   useEffect(() => { fetchHistory(); }, [fetchHistory]);
 
-  const handleCallBack = (call) => {
-    const otherEmail = call.isOutgoing ? call.calleeEmail : call.callerEmail;
-    const otherName  = call.isOutgoing ? call.calleeName  : call.callerName;
-    const user = { email: otherEmail, name: otherName };
-    Alert.alert(
-      otherName || otherEmail,
-      'Choose call type',
-      [
-        { text: 'Voice Call', onPress: () => navigation.navigate('VoiceCallScreen', { outgoingUser: user }) },
-        { text: 'Video Call', onPress: () => navigation.navigate('VideoCallScreen', { outgoingUser: user }) },
-        { text: 'Cancel', style: 'cancel' },
-      ],
-    );
-  };
+  // Group calls by other-party email, preserving most-recent-first order
+  const grouped = React.useMemo(() => {
+    const map = {};
+    const order = [];
+    for (const c of calls) {
+      const email = c.isOutgoing ? c.calleeEmail : c.callerEmail;
+      const name  = c.isOutgoing ? (c.calleeName || c.calleeEmail) : (c.callerName || c.callerEmail);
+      if (!map[email]) {
+        map[email] = { email, name, items: [] };
+        order.push(email);
+      }
+      map[email].items.push(c);
+    }
+    return order.map((e) => ({
+      ...map[e],
+      recentItems: map[e].items.slice(0, 10),
+    }));
+  }, [calls]);
+
+  const toggleExpand = (email) =>
+    setExpanded((prev) => ({ ...prev, [email]: !prev[email] }));
 
   if (loading) {
     return (
@@ -324,8 +330,8 @@ function HistoryTab({ myEmail }) {
 
   return (
     <FlatList
-      data={calls}
-      keyExtractor={(item) => item.id}
+      data={grouped}
+      keyExtractor={(item) => item.email}
       showsVerticalScrollIndicator={false}
       contentContainerStyle={styles.listContent}
       refreshControl={
@@ -335,50 +341,92 @@ function HistoryTab({ myEmail }) {
           tintColor="#319241"
         />
       }
-      renderItem={({ item }) => {
-        const otherName  = item.isOutgoing ? (item.calleeName  || item.calleeEmail) : (item.callerName  || item.callerEmail);
-        const otherEmail = item.isOutgoing ?  item.calleeEmail : item.callerEmail;
-        const isVideo    = item.type === 'video';
-        const { label, color } = callStatusLabel(item.status, item.isOutgoing);
+      renderItem={({ item: group }) => {
+        const isOpen  = !!expanded[group.email];
+        const latest  = group.items[0];
+        const isVideo = latest?.type === 'video';
+        const user    = { email: group.email, name: group.name };
 
         return (
-          <TouchableOpacity
-            activeOpacity={0.75}
-            style={styles.historyCard}
-            onPress={() => handleCallBack(item)}
-          >
-            {/* Call type icon */}
-            <View style={[styles.historyIconWrap, { backgroundColor: isVideo ? '#EFF6FF' : '#DCFCE7' }]}>
-              <Icon
-                name={isVideo ? 'videocam' : 'call'}
-                size={22}
-                color={isVideo ? '#2563EB' : '#319241'}
-              />
-            </View>
-
-            {/* Info */}
-            <View style={styles.historyMeta}>
-              <View style={styles.historyRow}>
+          <View style={styles.historyCard}>
+            {/* ── User row (always visible) ── */}
+            <TouchableOpacity
+              activeOpacity={0.75}
+              style={styles.historyUserRow}
+              onPress={() => toggleExpand(group.email)}
+            >
+              <View style={[styles.historyIconWrap, { backgroundColor: isVideo ? '#EFF6FF' : '#DCFCE7' }]}>
                 <Icon
-                  name={item.isOutgoing ? 'call-made' : 'call-received'}
-                  size={13}
-                  color={item.isOutgoing ? '#319241' : '#F59E0B'}
-                  style={{ marginRight: 4 }}
+                  name={isVideo ? 'videocam' : 'call'}
+                  size={22}
+                  color={isVideo ? '#2563EB' : '#319241'}
                 />
-                <Text style={styles.historyName} numberOfLines={1}>{otherName}</Text>
               </View>
-              <Text style={styles.historyEmail} numberOfLines={1}>{otherEmail}</Text>
-              <Text style={[styles.historyStatus, { color }]}>{label}</Text>
-            </View>
 
-            {/* Time + callback */}
-            <View style={styles.historyRight}>
-              <Text style={styles.historyTime}>{formatCallTime(item.createdAt)}</Text>
-              <View style={styles.callbackBtn}>
-                <Icon name="call" size={16} color="#319241" />
+              <View style={styles.historyMeta}>
+                <Text style={styles.historyName} numberOfLines={1}>{group.name}</Text>
+                <Text style={styles.historyEmail} numberOfLines={1}>{group.email}</Text>
+                <Text style={styles.historyCount}>{group.items.length} call{group.items.length !== 1 ? 's' : ''}</Text>
               </View>
-            </View>
-          </TouchableOpacity>
+
+              <View style={styles.historyRight}>
+                <Text style={styles.historyTime}>{formatCallTime(latest?.createdAt)}</Text>
+                <Icon
+                  name={isOpen ? 'keyboard-arrow-up' : 'keyboard-arrow-down'}
+                  size={22}
+                  color="#6B7280"
+                />
+              </View>
+            </TouchableOpacity>
+
+            {/* ── Expanded history list ── */}
+            {isOpen && (
+              <View style={styles.historyExpanded}>
+                {group.recentItems.map((c) => {
+                  const { label, color } = callStatusLabel(c.status, c.isOutgoing);
+                  const callIsVideo = c.type === 'video';
+                  return (
+                    <View key={c.id} style={styles.historyDetailRow}>
+                      <Icon
+                        name={c.isOutgoing ? 'call-made' : 'call-received'}
+                        size={14}
+                        color={c.isOutgoing ? '#319241' : '#F59E0B'}
+                        style={{ marginRight: 6 }}
+                      />
+                      <Icon
+                        name={callIsVideo ? 'videocam' : 'call'}
+                        size={14}
+                        color={callIsVideo ? '#2563EB' : '#6B7280'}
+                        style={{ marginRight: 6 }}
+                      />
+                      <Text style={[styles.historyDetailStatus, { color }]}>{label}</Text>
+                      <Text style={styles.historyDetailTime}>{formatCallTime(c.createdAt)}</Text>
+                    </View>
+                  );
+                })}
+
+                {/* ── Call action buttons ── */}
+                <View style={styles.historyCallBtns}>
+                  <TouchableOpacity
+                    style={[styles.historyCallBtn, { marginRight: 6 }]}
+                    activeOpacity={0.8}
+                    onPress={() => rootNavigate('VoiceCallScreen', { outgoingUser: user })}
+                  >
+                    <Icon name="call" size={18} color="#fff" style={{ marginRight: 6 }} />
+                    <Text style={styles.historyCallBtnText}>Voice Call</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.historyCallBtn, { marginLeft: 6, backgroundColor: '#2563EB' }]}
+                    activeOpacity={0.8}
+                    onPress={() => rootNavigate('VideoCallScreen', { outgoingUser: user })}
+                  >
+                    <Icon name="videocam" size={18} color="#fff" style={{ marginRight: 6 }} />
+                    <Text style={styles.historyCallBtnText}>Video Call</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            )}
+          </View>
         );
       }}
       ListEmptyComponent={
@@ -391,7 +439,7 @@ function HistoryTab({ myEmail }) {
   );
 }
 
-// ─── Main screen ─────────────────────────────────────────────────────────────
+// ─── Main screen ────
 
 const getImageSource = (val) => (typeof val === 'number' ? val : { uri: val });
 
@@ -487,13 +535,13 @@ export default function SupportScreen({ navigation }) {
         </View>
 
         {activeTab === TAB_CONTACTS && (
-          <ContactsTab myEmail={myEmail} myName={myName} navigation={navigation} />
+          <ContactsTab myEmail={myEmail} myName={myName} />
         )}
         {activeTab === TAB_HISTORY && (
           <HistoryTab myEmail={myEmail} />
         )}
         {activeTab === TAB_CHAT && (
-          <ChatList myEmail={myEmail} myName={myName} navigation={navigation} />
+          <ChatList myEmail={myEmail} myName={myName} />
         )}
       </View>
     </ImageBackground>
@@ -695,8 +743,6 @@ const styles = StyleSheet.create({
 
   // ── history card ──
   historyCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
     backgroundColor: '#fff',
     borderRadius: 14,
     padding: 12,
@@ -794,5 +840,55 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#6B7280',
     marginTop: 1,
+  },
+  // ── grouped history ──
+  historyUserRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  historyCount: {
+    fontSize: 11,
+    color: '#9CA3AF',
+    marginTop: 2,
+  },
+  historyExpanded: {
+    marginTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: '#F3F4F6',
+    paddingTop: 10,
+  },
+  historyDetailRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 5,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F9FAFB',
+  },
+  historyDetailStatus: {
+    fontSize: 13,
+    fontWeight: '600',
+    flex: 1,
+  },
+  historyDetailTime: {
+    fontSize: 11,
+    color: '#9CA3AF',
+  },
+  historyCallBtns: {
+    flexDirection: 'row',
+    marginTop: 12,
+  },
+  historyCallBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#319241',
+    borderRadius: 10,
+    paddingVertical: 9,
+  },
+  historyCallBtnText: {
+    color: '#fff',
+    fontWeight: '700',
+    fontSize: 13,
   },
 });

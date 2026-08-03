@@ -4,6 +4,7 @@ import {
   ActivityIndicator, RefreshControl,
 } from 'react-native';
 import firestore from '@react-native-firebase/firestore';
+import { rootNavigate } from '../../config/RootNavigation';
 import Icon from 'react-native-vector-icons/MaterialIcons';
 import CreateGroupModal from './CreateGroupModal';
 
@@ -18,7 +19,7 @@ function relativeTime(ts) {
   return date.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' });
 }
 
-export default function ChatList({ myEmail, myName, navigation }) {
+export default function ChatList({ myEmail, myName }) {
   const [chats,      setChats]      = useState([]);
   const [loading,    setLoading]    = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -26,7 +27,6 @@ export default function ChatList({ myEmail, myName, navigation }) {
 
   useEffect(() => {
     if (!myEmail) return;
-
     // No orderBy in the query — array-contains + orderBy requires a composite
     // Firestore index that may not exist. Sort by lastMessageTime in JS instead.
     const unsub = firestore()
@@ -102,7 +102,7 @@ export default function ChatList({ myEmail, myName, navigation }) {
               style={styles.row}
               activeOpacity={0.75}
               onPress={() =>
-                navigation.navigate('ChatScreen', {
+                rootNavigate('ChatScreen', {
                   chatId:   item.id,
                   chatName: name,
                   chatType: item.type,
@@ -157,7 +157,7 @@ export default function ChatList({ myEmail, myName, navigation }) {
         onClose={() => setShowCreate(false)}
         onCreated={(chat) => {
           setShowCreate(false);
-          navigation.navigate('ChatScreen', {
+          rootNavigate('ChatScreen', {
             chatId:   chat.id,
             chatName: chat.name,
             chatType: 'group',

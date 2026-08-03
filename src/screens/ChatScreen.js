@@ -3,9 +3,8 @@ import {
   View, Text, TextInput, TouchableOpacity, FlatList, StyleSheet,
   KeyboardAvoidingView, Platform, Image, ActivityIndicator, Alert,
   ActionSheetIOS, StatusBar, Modal, Dimensions, SectionList,
-  ScrollView, Linking, NativeModules,
+  ScrollView, Linking, NativeModules, PanResponder, Animated,
 } from 'react-native';
-
 const { PHAssetHelper } = NativeModules;
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import firestore from '@react-native-firebase/firestore';
@@ -18,13 +17,17 @@ import {
   downloadFromS3, isFileDownloaded,
   deleteLocalFile, getLocalPath, getPresignedDownloadUrl,
 } from '../config/S3Config';
+
 import {
   sendChatPushNotification, markChatAsRead, incrementUnread,
 } from '../functions/chat/chatUtils';
+
 import {
   addToUploadQueue, persistFileForQueue,
 } from '../functions/chat/uploadQueue';
+
 import { startUploadManager, subscribeUpload, cancelUpload } from '../functions/chat/UploadManager';
+
 import AddMembersModal from '../components/chat/AddMembersModal';
 
 const { width: SCREEN_W } = Dimensions.get('window');
@@ -142,7 +145,6 @@ function AttachmentPreviewModal({ attachments, onAddCamera, onAddGallery, onRemo
   if (!attachments || attachments.length === 0) return null;
   const active = attachments[Math.min(activeIdx, attachments.length - 1)];
   const activeSize = formatSize(active.fileSize);
-
   return (
     <Modal visible animationType="fade" transparent onRequestClose={onCancel}>
       <KeyboardAvoidingView
@@ -249,6 +251,7 @@ function AttachmentPreviewModal({ attachments, onAddCamera, onAddGallery, onRemo
       </KeyboardAvoidingView>
     </Modal>
   );
+
 }
 
 const pStyles = StyleSheet.create({
@@ -1332,7 +1335,80 @@ function MediaBubble({ message, isMe, onTap }) {
 
 // ─── Message bubble ───────────────────────────────────────────────────────────
 
-function MessageBubble({ message, isMe, isGroup, onMediaTap }) {
+function ReplyQuote({ replyTo, isMe, onPress }) {
+  if (!replyTo) return null;
+  const preview =
+    replyTo.type === 'text' ? replyTo.text :
+    replyTo.type === 'image' ? '📷 Photo' :
+    replyTo.type === 'video' ? '🎬 Video' : '📎 File';
+  return (
+    <TouchableOpacity
+      activeOpacity={0.7}
+      onPress={() => onPress?.(replyTo.id)}
+      style={[styles.replyQuote, isMe ? styles.replyQuoteMe : styles.replyQuoteOther]}
+    >
+      <View style={[styles.replyQuoteAccent, isMe ? styles.replyQuoteAccentMe : styles.replyQuoteAccentOther]} />
+      <View style={{ flex: 1 }}>
+        <Text style={[styles.replyQuoteSender, isMe && styles.replyQuoteSenderMe]} numberOfLines={1}>
+          {replyTo.senderName || replyTo.senderId}
+        </Text>
+        <Text style={[styles.replyQuoteText, isMe && styles.replyQuoteTextMe]} numberOfLines={2}>
+          {preview}
+        </Text>
+      </View>
+    </TouchableOpacity>
+  );
+}
+
+// Split text into plain + @mention spans for inline highlight rendering
+function renderMentionText(text, mentions, isMe) {
+  if (!text) return null;
+  if (!mentions?.length) return text;
+  const mentionNames = mentions.map((m) => m.name);
+  // Build a regex that matches any @MentionName in the text
+  const escaped = mentionNames.map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+  const pattern = new RegExp(`(@(?:${escaped.join('|')}))`, 'g');
+  const parts = text.split(pattern);
+  return parts.map((part, i) => {
+    if (part.startsWith('@') && mentionNames.includes(part.slice(1))) {
+      return (
+        <Text key={i} style={isMe ? styles.mentionSpanMe : styles.mentionSpan}>
+          {part}
+        </Text>
+      );
+    }
+    return part;
+  });
+}
+
+function MessageBubble({ message, isMe, isGroup, onMediaTap, onSwipeReply, onPressReply, highlighted }) {
+  const translateX = useRef(new Animated.Value(0)).current;
+  const swipedRef  = useRef(false);
+
+  const panResponder = useRef(PanResponder.create({
+    onMoveShouldSetPanResponder: (_, g) =>
+      Math.abs(g.dx) > 8 && Math.abs(g.dx) > Math.abs(g.dy) * 1.5,
+    onPanResponderMove: (_, g) => {
+      // allow slide in both directions but cap at ±60
+      const dx = Math.max(-60, Math.min(60, g.dx));
+      translateX.setValue(dx);
+      if (!swipedRef.current && Math.abs(dx) >= 40) {
+        swipedRef.current = true;
+      }
+    },
+    onPanResponderRelease: (_, g) => {
+      Animated.spring(translateX, { toValue: 0, useNativeDriver: true, speed: 20 }).start();
+      if (swipedRef.current) {
+        swipedRef.current = false;
+        onSwipeReply?.(message);
+      }
+    },
+    onPanResponderTerminate: (_e, _g) => {
+      Animated.spring(translateX, { toValue: 0, useNativeDriver: true, speed: 20 }).start();
+      swipedRef.current = false;
+    },
+  })).current;
+
   if (message.type === 'system') {
     return (
       <View style={styles.systemNotice}>
@@ -1342,21 +1418,30 @@ function MessageBubble({ message, isMe, isGroup, onMediaTap }) {
   }
 
   return (
-    <View style={[styles.bubbleWrap, isMe ? styles.bubbleWrapMe : styles.bubbleWrapOther]}>
+    <Animated.View
+      style={[
+        styles.bubbleWrap,
+        isMe ? styles.bubbleWrapMe : styles.bubbleWrapOther,
+        { transform: [{ translateX }] },
+        highlighted && styles.bubbleHighlight,
+      ]}
+      {...panResponder.panHandlers}
+    >
       <View style={[styles.bubble, isMe ? styles.bubbleMe : styles.bubbleOther]}>
         {isGroup && !isMe && (
           <Text style={styles.bubbleSender}>{message.senderName || message.senderId}</Text>
         )}
+        <ReplyQuote replyTo={message.replyTo} isMe={isMe} onPress={onPressReply} />
         {message.type === 'text' ? (
           <Text style={[styles.bubbleText, isMe && styles.bubbleTextMe]}>
-            {message.text}
+            {renderMentionText(message.text, message.mentions, isMe)}
           </Text>
         ) : (
           <>
             <MediaBubble message={message} isMe={isMe} onTap={onMediaTap} />
             {!!message.text && (
               <Text style={[styles.bubbleText, isMe && styles.bubbleTextMe, { marginTop: 6 }]}>
-                {message.text}
+                {renderMentionText(message.text, message.mentions, isMe)}
               </Text>
             )}
           </>
@@ -1365,11 +1450,11 @@ function MessageBubble({ message, isMe, isGroup, onMediaTap }) {
           {formatMsgTime(message.timestamp)}
         </Text>
       </View>
-    </View>
+    </Animated.View>
   );
 }
 
-// ─── Date separator ───────────────────────────────────────────────────────────
+// ─────────────────── Date separator ───────────────────────────────────────────────────────────
 
 function DateSeparator({ timestamp }) {
   return (
@@ -1389,27 +1474,52 @@ export default function ChatScreen({ route, navigation }) {
 
   const [myEmail,  setMyEmail]  = useState('');
   const [myName,   setMyName]   = useState('');
+  const [isAgent,  setIsAgent]  = useState(false);
   const [messages,         setMessages]         = useState([]);
   const [chatMeta,         setChatMeta]         = useState(null);
+
+  // Refs so the navigation header callback always reads fresh values
+  const myEmailRef  = useRef('');
+  const chatMetaRef = useRef(null);
+  useEffect(() => { myEmailRef.current  = myEmail;  }, [myEmail]);
+  useEffect(() => { chatMetaRef.current = chatMeta; }, [chatMeta]);
   const [inputText,        setInputText]        = useState('');
   const [sending,          setSending]          = useState(false);
   const [uploading,  setUploading]  = useState(false);
   const [uploadProg, setUploadProg] = useState(0);
+  const [replyTo,            setReplyTo]            = useState(null); // message being replied to
+  const [highlightedId,      setHighlightedId]      = useState(null); // briefly flash scrolled-to msg
   const [pendingAttachments, setPendingAttachments] = useState([]); // preview before send
   const [viewerImages,     setViewerImages]     = useState([]);
   const [viewerIndex,      setViewerIndex]      = useState(0);
   const [showViewer,       setShowViewer]       = useState(false);
   const [showMediaLib,     setShowMediaLib]     = useState(false);
   const [showAddMembers, setShowAddMembers] = useState(false);
+  const [mentionSuggestions, setMentionSuggestions] = useState([]); // members matching @query
+  const [mentionQuery,       setMentionQuery]       = useState(null); // active @query or null
+  const inputRef = useRef(null);
 
-  const listRef = useRef(null);
+  const listRef         = useRef(null);
+  const filteredMsgsRef = useRef([]);   // mirror of filtered list for index lookups
+
+  const scrollToReply = useCallback((replyMsgId) => {
+    if (!replyMsgId) return;
+    const idx = filteredMsgsRef.current.findIndex((m) => m.id === replyMsgId);
+    if (idx === -1) return;
+    try {
+      listRef.current?.scrollToIndex({ index: idx, animated: true, viewPosition: 0.5 });
+    } catch (_) {}
+    setHighlightedId(replyMsgId);
+    setTimeout(() => setHighlightedId(null), 1200);
+  }, []);
 
   useEffect(() => {
-    AsyncStorage.multiGet(['callUserEmail', 'callUserName']).then((pairs) => {
+    AsyncStorage.multiGet(['callUserEmail', 'callUserName', 'userRole']).then((pairs) => {
       const email = pairs[0][1] || '';
       const name  = pairs[1][1] || email;
       setMyEmail(email);
       setMyName(name);
+      setIsAgent(pairs[2][1] === 'Agent');
     });
   }, []);
 
@@ -1474,9 +1584,55 @@ export default function ChatScreen({ route, navigation }) {
               onPress={() => setShowAddMembers(true)}
               style={{ padding: 8 }}
             >
-              <Icon name="group-add" size={22} color="#fff" />
+              <Icon name={isAgent ? 'group-add' : 'group'} size={22} color="#fff" />
             </TouchableOpacity>
           )}
+          {/* Voice conference call for group, direct voice call for 1-to-1 */}
+          <TouchableOpacity
+            onPress={() => {
+              if (chatType === 'group') {
+                // Build participant list for the conference from chatMeta
+                const parts = (chatMetaRef.current?.participants || [])
+                  .filter((e) => e !== myEmailRef.current);
+                const names = chatMetaRef.current?.participantNames || {};
+                const preselected = parts.map((e) => ({ email: e, name: names[e] || e }));
+                navigation.navigate('ConferenceCallScreen', {
+                  callType: 'voice',
+                  preselectedUsers: preselected,
+                });
+              } else {
+                // Direct 1-to-1 voice call — derive the other person from participants
+                const other = (chatMetaRef.current?.participants || []).find((e) => e !== myEmailRef.current);
+                const names = chatMetaRef.current?.participantNames || {};
+                if (other) navigation.navigate('VoiceCallScreen', { outgoingUser: { email: other, name: names[other] || other } });
+              }
+            }}
+            style={{ padding: 8 }}
+          >
+            <Icon name="call" size={22} color="#fff" />
+          </TouchableOpacity>
+          {/* Video conference call for group, direct video call for 1-to-1 */}
+          <TouchableOpacity
+            onPress={() => {
+              if (chatType === 'group') {
+                const parts = (chatMetaRef.current?.participants || [])
+                  .filter((e) => e !== myEmailRef.current);
+                const names = chatMetaRef.current?.participantNames || {};
+                const preselected = parts.map((e) => ({ email: e, name: names[e] || e }));
+                navigation.navigate('ConferenceCallScreen', {
+                  callType: 'video',
+                  preselectedUsers: preselected,
+                });
+              } else {
+                const other = (chatMetaRef.current?.participants || []).find((e) => e !== myEmailRef.current);
+                const names = chatMetaRef.current?.participantNames || {};
+                if (other) navigation.navigate('VideoCallScreen', { outgoingUser: { email: other, name: names[other] || other } });
+              }
+            }}
+            style={{ padding: 8 }}
+          >
+            <Icon name="videocam" size={22} color="#fff" />
+          </TouchableOpacity>
           <TouchableOpacity
             onPress={() => setShowMediaLib(true)}
             style={{ padding: 8, marginRight: 4 }}
@@ -1488,7 +1644,7 @@ export default function ChatScreen({ route, navigation }) {
     });
   }, [navigation, chatName, chatType]);
 
-  const sendMessage = useCallback(async (type, payload) => {
+  const sendMessage = useCallback(async (type, payload, replyMsg = null) => {
     if (!myEmail) return;
     const msgData = {
       senderId:   myEmail,
@@ -1496,6 +1652,15 @@ export default function ChatScreen({ route, navigation }) {
       type,
       timestamp:  firestore.FieldValue.serverTimestamp(),
       readBy:     [myEmail],
+      ...(replyMsg ? {
+        replyTo: {
+          id:         replyMsg.id,
+          senderId:   replyMsg.senderId,
+          senderName: replyMsg.senderName || replyMsg.senderId,
+          type:       replyMsg.type,
+          text:       replyMsg.text || '',
+        },
+      } : {}),
       ...payload,
     };
     try {
@@ -1513,11 +1678,12 @@ export default function ChatScreen({ route, navigation }) {
         lastMessageTime: firestore.FieldValue.serverTimestamp(),
       });
 
-      if (chatMeta?.participants) {
-        incrementUnread(chatId, chatMeta.participants, myEmail);
+      const meta = chatMetaRef.current;
+      if (meta?.participants) {
+        incrementUnread(chatId, meta.participants, myEmail);
         sendChatPushNotification(
           chatId, chatName, myName, preview,
-          chatMeta.participants, myEmail, chatType,
+          meta.participants, myEmail, chatType,
         );
       }
     } catch (e) {
@@ -1525,12 +1691,61 @@ export default function ChatScreen({ route, navigation }) {
     }
   }, [myEmail, myName, chatId, chatName, chatMeta, chatType]);
 
+  // Parse @mentions out of text — returns [{ email, name }] for each @Name found
+  const extractMentions = (text) => {
+    const names = chatMeta?.participantNames || {};
+    const found = [];
+    const nameToEmail = {};
+    Object.entries(names).forEach(([email, name]) => {
+      if (email !== myEmail) nameToEmail[name] = email;
+    });
+    const regex = /@([^\s@][^@\n]*?)(?=\s|$)/g;
+    let m;
+    while ((m = regex.exec(text)) !== null) {
+      const email = nameToEmail[m[1].trim()];
+      if (email) found.push({ email, name: m[1].trim() });
+    }
+    return found;
+  };
+
+  const handleMentionInput = (text) => {
+    setInputText(text);
+    // Find the last @ before the cursor that hasn't been closed by a space
+    const atIdx = text.lastIndexOf('@');
+    if (atIdx === -1) { setMentionQuery(null); setMentionSuggestions([]); return; }
+    const afterAt = text.slice(atIdx + 1);
+    // If there's a space after @query it means the mention was already completed
+    if (afterAt.includes(' ') && afterAt.trim() !== '') { setMentionQuery(null); setMentionSuggestions([]); return; }
+    const query = afterAt.toLowerCase();
+    setMentionQuery(atIdx);
+    const names = chatMeta?.participantNames || {};
+    const suggestions = Object.entries(names)
+      .filter(([email, name]) => email !== myEmail && typeof name === 'string' && name.toLowerCase().includes(query))
+      .map(([email, name]) => ({ email, name }));
+    setMentionSuggestions(suggestions);
+  };
+
+  const applyMention = (member) => {
+    if (mentionQuery === null) return;
+    const before = inputText.slice(0, mentionQuery);
+    const newText = `${before}@${member.name} `;
+    setInputText(newText);
+    setMentionQuery(null);
+    setMentionSuggestions([]);
+    inputRef.current?.focus();
+  };
+
   const handleSendText = async () => {
     const text = inputText.trim();
     if (!text || sending) return;
     setSending(true);
     setInputText('');
-    await sendMessage('text', { text });
+    setMentionQuery(null);
+    setMentionSuggestions([]);
+    const reply = replyTo;
+    setReplyTo(null);
+    const mentions = chatType === 'group' ? extractMentions(text) : [];
+    await sendMessage('text', { text, ...(mentions.length ? { mentions } : {}) }, reply);
     setSending(false);
   };
 
@@ -1546,6 +1761,8 @@ export default function ChatScreen({ route, navigation }) {
     setPendingAttachments([]);   // close preview modal right away
 
     const trimmedCaption = (caption || '').trim();
+    const reply = replyTo;
+    setReplyTo(null);
 
     for (const { uri, type, fileName, fileSize, mimeType } of items) {
       const s3Key       = s3KeyFor(chatId, fileName);
@@ -1569,6 +1786,15 @@ export default function ChatScreen({ route, navigation }) {
         mimeType,
         status:     'uploading',
         ...(trimmedCaption ? { text: trimmedCaption } : {}),
+        ...(reply ? {
+          replyTo: {
+            id:         reply.id,
+            senderId:   reply.senderId,
+            senderName: reply.senderName || reply.senderId,
+            type:       reply.type,
+            text:       reply.text || '',
+          },
+        } : {}),
       };
 
       // Write to Firestore first — message shows in chat immediately
@@ -1787,6 +2013,7 @@ export default function ChatScreen({ route, navigation }) {
         participantNames={chatMeta?.participantNames || {}}
         myEmail={myEmail}
         myName={myName}
+        readOnly={!isAgent}
         onClose={() => setShowAddMembers(false)}
         onConfirm={(toAdd, toRemove, actorName) => {
           setShowAddMembers(false);
@@ -1834,17 +2061,27 @@ export default function ChatScreen({ route, navigation }) {
           </View>
         )}
 
+        {(() => {
+          const filteredMsgs = messages.filter((m) => m.senderId === myEmail || m.status !== 'uploading');
+          filteredMsgsRef.current = filteredMsgs;
+          return (
         <FlatList
           ref={listRef}
-          data={messages.filter((m) => m.senderId === myEmail || m.status !== 'uploading')}
+          data={filteredMsgs}
           keyExtractor={(m) => m.id}
           inverted
           showsVerticalScrollIndicator={false}
           contentContainerStyle={styles.msgList}
           keyboardDismissMode="interactive"
+          onScrollToIndexFailed={({ index }) => {
+            // fallback: wait a frame then retry
+            setTimeout(() => {
+              listRef.current?.scrollToIndex({ index, animated: true, viewPosition: 0.5 });
+            }, 300);
+          }}
           renderItem={({ item, index }) => {
             const isMe     = item.senderId === myEmail;
-            const prevItem = messages[index + 1];
+            const prevItem = filteredMsgs[index + 1];
             const showDate = !prevItem || !isSameDay(item.timestamp, prevItem.timestamp);
             return (
               <>
@@ -1853,6 +2090,9 @@ export default function ChatScreen({ route, navigation }) {
                   isMe={isMe}
                   isGroup={chatType === 'group'}
                   onMediaTap={(msg) => openImageViewer(msg)}
+                  onSwipeReply={(msg) => setReplyTo(msg)}
+                  onPressReply={scrollToReply}
+                  highlighted={highlightedId === item.id}
                 />
                 {showDate && <DateSeparator timestamp={item.timestamp} />}
               </>
@@ -1865,17 +2105,60 @@ export default function ChatScreen({ route, navigation }) {
             </View>
           }
         />
+          );
+        })()}
+
+        {replyTo && (
+          <View style={styles.replyBar}>
+            <View style={styles.replyBarAccent} />
+            <View style={{ flex: 1 }}>
+              <Text style={styles.replyBarSender} numberOfLines={1}>
+                {replyTo.senderName || replyTo.senderId}
+              </Text>
+              <Text style={styles.replyBarText} numberOfLines={1}>
+                {replyTo.type === 'text' ? replyTo.text :
+                 replyTo.type === 'image' ? '📷 Photo' :
+                 replyTo.type === 'video' ? '🎬 Video' : '📎 File'}
+              </Text>
+            </View>
+            <TouchableOpacity onPress={() => setReplyTo(null)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+              <Icon name="close" size={18} color="#6B7280" />
+            </TouchableOpacity>
+          </View>
+        )}
+
+        {/* @ mention suggestions */}
+        {chatType === 'group' && mentionSuggestions.length > 0 && (
+          <View style={styles.mentionList}>
+            {mentionSuggestions.map((m) => (
+              <TouchableOpacity
+                key={m.email}
+                style={styles.mentionItem}
+                onPress={() => applyMention(m)}
+              >
+                <View style={styles.mentionAvatar}>
+                  <Text style={styles.mentionAvatarText}>{m.name.charAt(0).toUpperCase()}</Text>
+                </View>
+                <View>
+                  <Text style={styles.mentionName}>{m.name}</Text>
+                  <Text style={styles.mentionEmail}>{m.email}</Text>
+                </View>
+              </TouchableOpacity>
+            ))}
+          </View>
+        )}
 
         <View style={[styles.inputRow, { paddingBottom: 8 + insets.bottom }]}>
           <TouchableOpacity style={styles.attachBtn} onPress={handlePickMedia}>
             <Icon name="attach-file" size={24} color="#319241" />
           </TouchableOpacity>
           <TextInput
+            ref={inputRef}
             style={styles.textInput}
-            placeholder="Type a message..."
+            placeholder={'Message'}
             placeholderTextColor="#9CA3AF"
             value={inputText}
-            onChangeText={setInputText}
+            onChangeText={handleMentionInput}
             multiline
             maxLength={4000}
           />
@@ -1915,6 +2198,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10, paddingVertical: 6, alignSelf: 'flex-start',
     marginBottom: 4,
   },
+
   uploadingText: { color: '#fff', fontSize: 12, fontWeight: '600' },
 
   msgList: {
@@ -1925,6 +2209,7 @@ const styles = StyleSheet.create({
   bubbleWrap:      { marginBottom: 4, maxWidth: '80%' },
   bubbleWrapMe:    { alignSelf: 'flex-end' },
   bubbleWrapOther: { alignSelf: 'flex-start' },
+  bubbleHighlight: { backgroundColor: 'rgba(49,146,65,0.15)', borderRadius: 18 },
   bubble: {
     borderRadius: 18, paddingHorizontal: 14, paddingTop: 9, paddingBottom: 6,
   },
@@ -2000,4 +2285,54 @@ const styles = StyleSheet.create({
     marginLeft: 8, alignSelf: 'flex-end',
   },
   sendBtnOff: { backgroundColor: '#D1D5DB' },
+
+  // ── @ Mention suggestion list ────────────────────────────────────────────────
+  mentionList: {
+    backgroundColor: '#fff',
+    borderTopWidth: 1, borderTopColor: '#E5E7EB',
+    maxHeight: 180,
+  },
+  mentionItem: {
+    flexDirection: 'row', alignItems: 'center',
+    paddingHorizontal: 14, paddingVertical: 10,
+    borderBottomWidth: 1, borderBottomColor: '#F3F4F6',
+  },
+  mentionAvatar: {
+    width: 34, height: 34, borderRadius: 17,
+    backgroundColor: '#DCFCE7',
+    alignItems: 'center', justifyContent: 'center',
+    marginRight: 10,
+  },
+  mentionAvatarText: { fontSize: 14, fontWeight: '700', color: '#319241' },
+  mentionName:  { fontSize: 14, fontWeight: '600', color: '#111827' },
+  mentionEmail: { fontSize: 12, color: '#6B7280' },
+  // Mention spans inside message bubbles
+  mentionSpan:   { fontWeight: '700', color: '#319241' },
+  mentionSpanMe: { fontWeight: '700', color: '#A7F3D0' },
+
+  // ── Reply bar (above input) ──────────────────────────────────────────────────
+  replyBar: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    backgroundColor: '#F3F4F6', paddingHorizontal: 14, paddingVertical: 8,
+    borderTopWidth: 1, borderTopColor: '#E5E7EB',
+  },
+  replyBarAccent: { width: 3, borderRadius: 2, alignSelf: 'stretch', backgroundColor: '#319241' },
+  replyBarSender: { fontSize: 12, fontWeight: '700', color: '#319241', marginBottom: 1 },
+  replyBarText:   { fontSize: 13, color: '#374151' },
+
+  // ── Reply quote inside bubble ────────────────────────────────────────────────
+  replyQuote: {
+    flexDirection: 'row', borderRadius: 8, marginBottom: 6,
+    overflow: 'hidden', backgroundColor: 'rgba(0,0,0,0.07)',
+    paddingVertical: 5, paddingHorizontal: 8, gap: 6,
+  },
+  replyQuoteMe:          { backgroundColor: 'rgba(255,255,255,0.18)' },
+  replyQuoteOther:       { backgroundColor: 'rgba(0,0,0,0.06)' },
+  replyQuoteAccent:      { width: 3, borderRadius: 2, alignSelf: 'stretch', backgroundColor: '#319241' },
+  replyQuoteAccentMe:    { backgroundColor: 'rgba(255,255,255,0.7)' },
+  replyQuoteAccentOther: { backgroundColor: '#319241' },
+  replyQuoteSender:      { fontSize: 11, fontWeight: '700', color: '#319241', marginBottom: 1 },
+  replyQuoteSenderMe:    { color: 'rgba(255,255,255,0.85)' },
+  replyQuoteText:        { fontSize: 12, color: '#374151' },
+  replyQuoteTextMe:      { color: 'rgba(255,255,255,0.8)' },
 });

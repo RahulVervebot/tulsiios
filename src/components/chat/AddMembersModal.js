@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import {
   View, Text, Modal, TextInput, TouchableOpacity, FlatList,
-  StyleSheet, ActivityIndicator, KeyboardAvoidingView, Platform, Alert,
+  StyleSheet, ActivityIndicator, KeyboardAvoidingView, Platform, Alert, ScrollView,
 } from 'react-native';
 import firestore from '@react-native-firebase/firestore';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -9,53 +9,73 @@ import Icon from 'react-native-vector-icons/MaterialIcons';
 
 export default function AddMembersModal({
   visible, chatId, currentParticipants, participantNames,
-  myEmail, myName, onClose, onConfirm,
+  myEmail, myName, readOnly, onClose, onConfirm,
 }) {
-  const [search,   setSearch]   = useState('');
-  const [users,    setUsers]    = useState([]);
-  const [selected, setSelected] = useState(new Set());
-  const [loading,  setLoading]  = useState(false);
-  const [saving,   setSaving]   = useState(false);
+  const [search,          setSearch]          = useState('');
+  const [users,           setUsers]           = useState([]);
+  const [selected,        setSelected]        = useState(new Set());
+  const [loading,         setLoading]         = useState(false);
+  const [saving,          setSaving]          = useState(false);
+  const [isAgent,         setIsAgent]         = useState(false);
+  const [storeDomains,    setStoreDomains]    = useState([]);
+  const [selectedDomain,  setSelectedDomain]  = useState('All');
+  const [showDropdown,    setShowDropdown]    = useState(false);
 
   useEffect(() => {
     if (!visible) return;
     setSearch('');
-    // Start with all current participants checked
+    setSelectedDomain('All');
+    setShowDropdown(false);
     setSelected(new Set(currentParticipants || []));
     setLoading(true);
-    AsyncStorage.getItem('storeDomain').then((myStoreDomain) => {
-      firestore()
-        .collection('callProfiles')
-        .get()
-        .then((snap) => {
-          const contacts = snap.docs
-            .map((d) => ({ email: d.id, name: d.data().name || d.id, storeDomain: d.data().storeDomain || '' }))
-            .filter((u) => {
-              if (u.email === myEmail) return false;
-              if (myStoreDomain) return u.storeDomain === myStoreDomain;
-              return true;
-            })
-            .sort((a, b) => {
-              const aIn = (currentParticipants || []).includes(a.email);
-              const bIn = (currentParticipants || []).includes(b.email);
-              if (aIn !== bIn) return aIn ? -1 : 1;
-              return a.name.localeCompare(b.name);
-            });
-          setUsers(contacts);
-        })
-        .catch(() => {})
-        .finally(() => setLoading(false));
+
+    AsyncStorage.getItem('userRole').then((userRole) => {
+      const agent = userRole === 'Agent';
+      setIsAgent(agent);
+
+      if (!agent) {
+        // Non-agents: view-only — show exactly who is in the group using participantNames
+        const members = (currentParticipants || [])
+          .filter((e) => e !== myEmail)
+          .map((e) => ({ email: e, name: (participantNames || {})[e] || e, storeDomain: '' }))
+          .sort((a, b) => a.name.localeCompare(b.name));
+        setUsers(members);
+        setLoading(false);
+        return;
+      }
+
+      // Agents: load all callProfiles with domain filter support
+      Promise.all([
+        firestore().collection('tulsi').doc('storelist').get(),
+        firestore().collection('callProfiles').get(),
+      ]).then(([storeDoc, snap]) => {
+        let contacts = snap.docs.map((d) => ({
+          email: d.id,
+          name: d.data().name || d.id,
+          storeDomain: d.data().storeDomain || '',
+        })).filter((u) => u.email !== myEmail);
+
+        const domains = [...new Set(contacts.map((u) => u.storeDomain).filter(Boolean))].sort();
+        setStoreDomains(domains);
+
+        contacts.sort((a, b) => {
+          const aIn = (currentParticipants || []).includes(a.email);
+          const bIn = (currentParticipants || []).includes(b.email);
+          if (aIn !== bIn) return aIn ? -1 : 1;
+          return a.name.localeCompare(b.name);
+        });
+
+        setUsers(contacts);
+      }).catch(() => {}).finally(() => setLoading(false));
     }).catch(() => setLoading(false));
-  }, [visible]);  // eslint-disable-line react-hooks/exhaustive-deps
+  }, [visible]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const current = currentParticipants || [];
 
-  // Contacts to add: not in group but now checked
   const toAdd = useMemo(
     () => users.filter((u) => !current.includes(u.email) && selected.has(u.email)),
     [users, selected, current],
   );
-  // Contacts to remove: in group but now unchecked
   const toRemove = useMemo(
     () => users.filter((u) => current.includes(u.email) && !selected.has(u.email)),
     [users, selected, current],
@@ -73,7 +93,6 @@ export default function AddMembersModal({
 
   const handleConfirm = () => {
     if (!hasChanges || saving) return;
-
     const addNames    = toAdd.map((u) => u.name).join(', ');
     const removeNames = toRemove.map((u) => u.name).join(', ');
     let msg = '';
@@ -84,7 +103,6 @@ export default function AddMembersModal({
     } else {
       msg = `Remove ${toRemove.length} member${toRemove.length > 1 ? 's' : ''}: ${removeNames}`;
     }
-
     Alert.alert('Confirm changes?', msg, [
       { text: 'Cancel', style: 'cancel' },
       { text: 'Confirm', onPress: doUpdate },
@@ -95,34 +113,21 @@ export default function AddMembersModal({
     setSaving(true);
     try {
       const updates = {};
-
       if (toAdd.length > 0 && toRemove.length === 0) {
-        updates.participants = firestore.FieldValue.arrayUnion(
-          ...toAdd.map((u) => u.email),
-        );
+        updates.participants = firestore.FieldValue.arrayUnion(...toAdd.map((u) => u.email));
         toAdd.forEach((u) => { updates[`participantNames.${u.email}`] = u.name; });
-
       } else if (toRemove.length > 0 && toAdd.length === 0) {
-        updates.participants = firestore.FieldValue.arrayRemove(
-          ...toRemove.map((u) => u.email),
-        );
-        toRemove.forEach((u) => {
-          updates[`participantNames.${u.email}`] = firestore.FieldValue.delete();
-        });
-
+        updates.participants = firestore.FieldValue.arrayRemove(...toRemove.map((u) => u.email));
+        toRemove.forEach((u) => { updates[`participantNames.${u.email}`] = firestore.FieldValue.delete(); });
       } else {
-        // Both — compute final array to avoid conflicting array ops on same field
         const finalList = [
           ...current.filter((e) => !toRemove.some((u) => u.email === e)),
           ...toAdd.map((u) => u.email),
         ];
         updates.participants = finalList;
         toAdd.forEach((u) => { updates[`participantNames.${u.email}`] = u.name; });
-        toRemove.forEach((u) => {
-          updates[`participantNames.${u.email}`] = firestore.FieldValue.delete();
-        });
+        toRemove.forEach((u) => { updates[`participantNames.${u.email}`] = firestore.FieldValue.delete(); });
       }
-
       await firestore().collection('chats').doc(chatId).update(updates);
       onConfirm?.(toAdd, toRemove, myName);
       onClose();
@@ -134,12 +139,18 @@ export default function AddMembersModal({
     }
   };
 
-  const filtered = users.filter((u) => {
+  const domainFiltered = useMemo(() => {
+    if (!isAgent || selectedDomain === 'All') return users;
+    return users.filter((u) => u.storeDomain === selectedDomain);
+  }, [users, isAgent, selectedDomain]);
+
+  const filtered = domainFiltered.filter((u) => {
     const q = search.toLowerCase();
     return !q || u.name.toLowerCase().includes(q) || u.email.toLowerCase().includes(q);
   });
 
   const summaryLabel = () => {
+    if (readOnly) return `${current.length} member${current.length !== 1 ? 's' : ''}`;
     const parts = [];
     if (toAdd.length)    parts.push(`${toAdd.length} to add`);
     if (toRemove.length) parts.push(`${toRemove.length} to remove`);
@@ -161,22 +172,63 @@ export default function AddMembersModal({
             <TouchableOpacity onPress={onClose} style={styles.closeBtn}>
               <Icon name="close" size={22} color="#6B7280" />
             </TouchableOpacity>
-            <Text style={styles.title}>Manage Members</Text>
-            <TouchableOpacity
-              style={[styles.confirmBtn, !hasChanges && styles.confirmBtnOff]}
-              onPress={handleConfirm}
-              disabled={!hasChanges || saving}
-            >
-              {saving
-                ? <ActivityIndicator size="small" color="#fff" />
-                : <Text style={styles.confirmBtnText}>
-                    {hasChanges ? `Update (${toAdd.length + toRemove.length})` : 'No changes'}
-                  </Text>}
-            </TouchableOpacity>
+            <Text style={styles.title}>{readOnly ? 'Group Members' : 'Manage Members'}</Text>
+            {readOnly ? (
+              <View style={styles.memberCountBadge}>
+                <Text style={styles.memberCountText}>{(currentParticipants || []).length}</Text>
+              </View>
+            ) : (
+              <TouchableOpacity
+                style={[styles.confirmBtn, !hasChanges && styles.confirmBtnOff]}
+                onPress={handleConfirm}
+                disabled={!hasChanges || saving}
+              >
+                {saving
+                  ? <ActivityIndicator size="small" color="#fff" />
+                  : <Text style={styles.confirmBtnText}>
+                      {hasChanges ? `Update (${toAdd.length + toRemove.length})` : 'No changes'}
+                    </Text>}
+              </TouchableOpacity>
+            )}
           </View>
 
-          {/* Change chips */}
-          {(toAdd.length > 0 || toRemove.length > 0) && (
+          {/* Domain filter — agents only, not in readOnly mode */}
+          {!readOnly && isAgent && storeDomains.length > 0 && (
+            <View style={styles.domainRow}>
+              <TouchableOpacity
+                style={styles.domainBtn}
+                onPress={() => setShowDropdown((v) => !v)}
+                activeOpacity={0.8}
+              >
+                <Icon name="filter-list" size={16} color="#319241" style={{ marginRight: 6 }} />
+                <Text style={styles.domainBtnText}>
+                  {selectedDomain === 'All' ? 'All Stores' : selectedDomain}
+                </Text>
+                <Icon name={showDropdown ? 'expand-less' : 'expand-more'} size={18} color="#319241" />
+              </TouchableOpacity>
+              {showDropdown && (
+                <View style={styles.dropdown}>
+                  <ScrollView style={{ maxHeight: 180 }} keyboardShouldPersistTaps="handled">
+                    {['All', ...storeDomains].map((d) => (
+                      <TouchableOpacity
+                        key={d}
+                        style={[styles.dropdownItem, selectedDomain === d && styles.dropdownItemActive]}
+                        onPress={() => { setSelectedDomain(d); setShowDropdown(false); }}
+                      >
+                        <Text style={[styles.dropdownItemText, selectedDomain === d && styles.dropdownItemTextActive]}>
+                          {d === 'All' ? 'All Stores' : d}
+                        </Text>
+                        {selectedDomain === d && <Icon name="check" size={16} color="#319241" />}
+                      </TouchableOpacity>
+                    ))}
+                  </ScrollView>
+                </View>
+              )}
+            </View>
+          )}
+
+          {/* Change chips — hidden in readOnly mode */}
+          {!readOnly && (toAdd.length > 0 || toRemove.length > 0) && (
             <View style={styles.chips}>
               {toAdd.map((u) => (
                 <TouchableOpacity key={u.email} style={styles.chipAdd} onPress={() => toggle(u.email)}>
@@ -223,19 +275,21 @@ export default function AddMembersModal({
               style={styles.list}
               keyboardShouldPersistTaps="handled"
               renderItem={({ item }) => {
-                const inGroup  = current.includes(item.email);
-                const isChecked = selected.has(item.email);
-                const isAdding   = !inGroup && isChecked;
-                const isRemoving = inGroup && !isChecked;
+                const inGroup    = current.includes(item.email);
+                const isChecked  = selected.has(item.email);
+                const isAdding   = !readOnly && !inGroup && isChecked;
+                const isRemoving = !readOnly && inGroup && !isChecked;
 
                 let avatarStyle = styles.avatarDefault;
                 let avatarIcon  = 'person';
                 let avatarIconColor = '#319241';
 
-                if (isAdding)   { avatarStyle = styles.avatarAdding;   avatarIcon = 'check'; avatarIconColor = '#fff'; }
-                if (isRemoving) { avatarStyle = styles.avatarRemoving; avatarIcon = 'close'; avatarIconColor = '#fff'; }
-                if (inGroup && isChecked && !isRemoving) {
-                  avatarStyle = styles.avatarInGroup; avatarIcon = 'check'; avatarIconColor = '#fff';
+                if (!readOnly) {
+                  if (isAdding)   { avatarStyle = styles.avatarAdding;   avatarIcon = 'check'; avatarIconColor = '#fff'; }
+                  if (isRemoving) { avatarStyle = styles.avatarRemoving; avatarIcon = 'close'; avatarIconColor = '#fff'; }
+                  if (inGroup && isChecked && !isRemoving) {
+                    avatarStyle = styles.avatarInGroup; avatarIcon = 'check'; avatarIconColor = '#fff';
+                  }
                 }
 
                 return (
@@ -245,8 +299,8 @@ export default function AddMembersModal({
                       isAdding   && styles.userRowAdding,
                       isRemoving && styles.userRowRemoving,
                     ]}
-                    onPress={() => toggle(item.email)}
-                    activeOpacity={0.75}
+                    onPress={readOnly ? undefined : () => toggle(item.email)}
+                    activeOpacity={readOnly ? 1 : 0.75}
                   >
                     <View style={[styles.avatar, avatarStyle]}>
                       <Icon name={avatarIcon} size={18} color={avatarIconColor} />
@@ -260,18 +314,21 @@ export default function AddMembersModal({
                         {item.name}
                       </Text>
                       <Text style={styles.userEmail}>{item.email}</Text>
+                      {isAgent && !!item.storeDomain && (
+                        <Text style={styles.userDomain}>{item.storeDomain}</Text>
+                      )}
                     </View>
-                    {inGroup && !isRemoving && (
+                    {!readOnly && inGroup && !isRemoving && (
                       <View style={styles.inGroupBadge}>
                         <Text style={styles.inGroupText}>In group</Text>
                       </View>
                     )}
-                    {isRemoving && (
+                    {!readOnly && isRemoving && (
                       <View style={styles.removeBadge}>
                         <Text style={styles.removeBadgeText}>Will remove</Text>
                       </View>
                     )}
-                    {isAdding && (
+                    {!readOnly && isAdding && (
                       <View style={styles.addBadge}>
                         <Text style={styles.addBadgeText}>Will add</Text>
                       </View>
@@ -317,12 +374,66 @@ const styles = StyleSheet.create({
   },
   closeBtn: { padding: 4 },
   title: { fontSize: 17, fontWeight: '700', color: '#111827' },
+  memberCountBadge: {
+    minWidth: 32, height: 32, borderRadius: 16,
+    backgroundColor: '#F3F4F6', alignItems: 'center', justifyContent: 'center',
+    paddingHorizontal: 10,
+  },
+  memberCountText: { fontSize: 13, fontWeight: '700', color: '#6B7280' },
   confirmBtn: {
     backgroundColor: '#319241', borderRadius: 20,
     paddingHorizontal: 14, paddingVertical: 7, minWidth: 90, alignItems: 'center',
   },
   confirmBtnOff:  { backgroundColor: '#D1D5DB' },
   confirmBtnText: { color: '#fff', fontWeight: '700', fontSize: 13 },
+
+  // ── Domain filter ──
+  domainRow: {
+    marginHorizontal: 14,
+    marginTop: 10,
+    zIndex: 10,
+  },
+  domainBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    backgroundColor: '#F0FDF4',
+    borderWidth: 1,
+    borderColor: '#A7D7AD',
+    borderRadius: 20,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+  },
+  domainBtnText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#319241',
+    marginRight: 2,
+  },
+  dropdown: {
+    marginTop: 4,
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    elevation: 4,
+    shadowColor: '#000',
+    shadowOpacity: 0.08,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 2 },
+  },
+  dropdownItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F9FAFB',
+  },
+  dropdownItemActive:     { backgroundColor: '#F0FDF4' },
+  dropdownItemText:       { fontSize: 14, color: '#374151' },
+  dropdownItemTextActive: { color: '#319241', fontWeight: '600' },
 
   chips: {
     flexDirection: 'row', flexWrap: 'wrap',
@@ -377,6 +488,7 @@ const styles = StyleSheet.create({
   userNameAdding:   { color: '#7C3AED' },
   userNameRemoving: { color: '#DC2626' },
   userEmail:        { fontSize: 12, color: '#6B7280' },
+  userDomain:       { fontSize: 11, color: '#9CA3AF', marginTop: 1 },
 
   inGroupBadge: {
     backgroundColor: '#DCFCE7', borderRadius: 12,
