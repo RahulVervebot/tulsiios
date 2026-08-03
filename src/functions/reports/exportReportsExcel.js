@@ -104,6 +104,135 @@ export async function exportSalesSummaryToExcel({ apiData, fileName } = {}) {
   return path;
 }
 
+export async function exportHourlyReportToExcel({ labels, primarySeries, comparisonSeries, primaryLabel, comparisonLabel, fileName } = {}) {
+  const hasComparison = Array.isArray(comparisonSeries) && comparisonSeries.length > 0;
+  const rows = (labels || []).map((label, idx) => {
+    const row = {
+      Hour: label,
+      [primaryLabel || 'Primary Sale']: safeNumber(primarySeries?.[idx]),
+    };
+    if (hasComparison) {
+      row[comparisonLabel || 'Comparison Sale'] = safeNumber(comparisonSeries?.[idx]);
+    }
+    return row;
+  });
+
+  const workbook = XLSX.utils.book_new();
+  const worksheet = rows.length
+    ? XLSX.utils.json_to_sheet(rows)
+    : XLSX.utils.aoa_to_sheet([['No data for this range']]);
+  XLSX.utils.book_append_sheet(workbook, worksheet, 'Hourly Sales Report');
+
+  const base64 = XLSX.write(workbook, { type: 'base64', bookType: 'xlsx' });
+  const finalName = fileName || `Hourly_Sales_Report_${Date.now()}.xlsx`;
+  const path = `${RNBlobUtil.fs.dirs.DocumentDir}/${finalName}`;
+
+  await RNBlobUtil.fs.writeFile(path, base64, 'base64');
+  await shareExcelFile(path);
+  return path;
+}
+
+export async function exportTopSellingCustomersToExcel({ rows, totalSales, dateRangeLabel, fileName } = {}) {
+  const list = Array.isArray(rows) ? rows : [];
+
+  const dataRows = list.map((row) => ({
+    'Customer Name': row?.name ?? '',
+    Phone: row?.phone ?? '',
+    'Sale Amount': safeNumber(row?.saleAmount),
+  }));
+
+  dataRows.push({ 'Customer Name': '', Phone: '', 'Sale Amount': '' });
+  dataRows.push({ 'Customer Name': 'Total Sale', Phone: '', 'Sale Amount': safeNumber(totalSales) });
+  dataRows.push({ 'Customer Name': 'Date', Phone: '', 'Sale Amount': dateRangeLabel ?? '' });
+
+  const workbook = XLSX.utils.book_new();
+  const worksheet = XLSX.utils.json_to_sheet(dataRows);
+  XLSX.utils.book_append_sheet(workbook, worksheet, 'Top Selling Customers');
+
+  const base64 = XLSX.write(workbook, { type: 'base64', bookType: 'xlsx' });
+  const finalName = fileName || `Top_Selling_Customers_${Date.now()}.xlsx`;
+  const path = `${RNBlobUtil.fs.dirs.DocumentDir}/${finalName}`;
+
+  await RNBlobUtil.fs.writeFile(path, base64, 'base64');
+  await shareExcelFile(path);
+  return path;
+}
+
+export async function exportTopSellingCategoriesToExcel({ rows, totals, dateRangeLabel, fileName } = {}) {
+  const list = Array.isArray(rows) ? rows : [];
+
+  const dataRows = list.map((row) => ({
+    Name: row?.name ?? '',
+    'Sale Amount': safeNumber(row?.sale_amount),
+    Cost: safeNumber(row?.cost),
+    Qty: safeNumber(row?.qty),
+    'Tax Amount': safeNumber(row?.tax_amount),
+    'Partner Count': safeNumber(row?.partner_count),
+    'GMP %': safeNumber(row?.gmp),
+  }));
+
+  dataRows.push({ Name: '' });
+  dataRows.push({ Name: 'Total Sale', 'Sale Amount': safeNumber(totals?.totalSale) });
+  dataRows.push({ Name: 'Total Cost', 'Sale Amount': safeNumber(totals?.totalCost) });
+  dataRows.push({ Name: 'Total Qty', 'Sale Amount': safeNumber(totals?.totalQty) });
+  dataRows.push({ Name: 'Total Tax', 'Sale Amount': safeNumber(totals?.totalTax) });
+  dataRows.push({ Name: 'Total Partners', 'Sale Amount': safeNumber(totals?.totalPartners) });
+  dataRows.push({ Name: 'Date', 'Sale Amount': dateRangeLabel ?? '' });
+
+  const workbook = XLSX.utils.book_new();
+  const worksheet = XLSX.utils.json_to_sheet(dataRows);
+  XLSX.utils.book_append_sheet(workbook, worksheet, 'Top Selling Categories');
+
+  const base64 = XLSX.write(workbook, { type: 'base64', bookType: 'xlsx' });
+  const finalName = fileName || `Top_Selling_Categories_${Date.now()}.xlsx`;
+  const path = `${RNBlobUtil.fs.dirs.DocumentDir}/${finalName}`;
+
+  await RNBlobUtil.fs.writeFile(path, base64, 'base64');
+  await shareExcelFile(path);
+  return path;
+}
+
+export async function exportTopSellingProductsToExcel({ rows, totals, dateRangeLabel, fileName } = {}) {
+  const list = Array.isArray(rows) ? rows : [];
+
+  const dataRows = list.map((row) => ({
+    Product: row?.product_name ?? '',
+    Barcode: row?.barcode ?? '',
+    Category: row?.category ?? '',
+    Supplier: row?.supplier ?? '',
+    Quantity: safeNumber(row?.quantity),
+    'Sales Price': safeNumber(row?.sales_price),
+    'Sales Amount': safeNumber(row?.sales_amount),
+    Tax: safeNumber(row?.tax),
+    'Unit Cost': safeNumber(row?.unit_cost),
+    'Total Cost': safeNumber(row?.total_cost),
+    'Gross Profit': safeNumber(row?.gross_profit),
+    'GMP %': safeNumber(row?.gmp),
+    'Order Date': row?.order_date ?? '',
+    'Last Sold Date': row?.last_sold_date ?? '',
+  }));
+
+  dataRows.push({ Product: '' });
+  dataRows.push({ Product: 'Total Sale', 'Sales Amount': safeNumber(totals?.totalSales) });
+  dataRows.push({ Product: 'Total Cost', 'Sales Amount': safeNumber(totals?.totalCost) });
+  dataRows.push({ Product: 'Total Qty', 'Sales Amount': safeNumber(totals?.totalQty) });
+  dataRows.push({ Product: 'Total Tax', 'Sales Amount': safeNumber(totals?.totalTax) });
+  dataRows.push({ Product: 'Total Gross Profit', 'Sales Amount': safeNumber(totals?.totalGrossProfit) });
+  dataRows.push({ Product: 'Date', 'Sales Amount': dateRangeLabel ?? '' });
+
+  const workbook = XLSX.utils.book_new();
+  const worksheet = XLSX.utils.json_to_sheet(dataRows);
+  XLSX.utils.book_append_sheet(workbook, worksheet, 'Top Selling Products');
+
+  const base64 = XLSX.write(workbook, { type: 'base64', bookType: 'xlsx' });
+  const finalName = fileName || `Top_Selling_Products_${Date.now()}.xlsx`;
+  const path = `${RNBlobUtil.fs.dirs.DocumentDir}/${finalName}`;
+
+  await RNBlobUtil.fs.writeFile(path, base64, 'base64');
+  await shareExcelFile(path);
+  return path;
+}
+
 async function shareExcelFile(path) {
   const fileUrl = path.startsWith('file://') ? path : `file://${path}`;
   const mime = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';

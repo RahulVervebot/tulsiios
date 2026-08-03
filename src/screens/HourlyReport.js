@@ -1,14 +1,31 @@
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import {
   View, Text, ScrollView, StyleSheet, useColorScheme,
-  TouchableOpacity, Modal, Platform, ImageBackground, Switch, Dimensions, Alert,
+  TouchableOpacity, Modal, Platform, ImageBackground, Switch, Dimensions, Alert, ActivityIndicator,
 } from "react-native";
 import { LineChart, Grid, XAxis, YAxis } from "react-native-svg-charts";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import { IconButton } from "react-native-paper";
+import Svg, { Path } from "react-native-svg";
 import AppHeader from "../components/AppHeader";
 import reportbg from "../assets/images/report-bg.png";
 import { HourlyReport } from "../functions/reports/pos_reports"
+import { exportHourlyReportToExcel } from "../functions/reports/exportReportsExcel";
+
+function DownloadIcon({ color = "#2e7d32" }) {
+  return (
+    <Svg width={20} height={20} viewBox="0 0 24 24">
+      <Path
+        d="M12 3v10m0 0l-4-4m4 4l4-4M5 19h14"
+        stroke={color}
+        strokeWidth={2}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        fill="none"
+      />
+    </Svg>
+  );
+}
 
 const screenWidth = Dimensions.get("window").width;
 
@@ -23,6 +40,7 @@ export default function ReportsByHours({ navigation }) {
   const [xAxisTitle, setXAxisTitle] = useState("");
   const [yAxisTitle, setYAxisTitle] = useState("");
   const [noDataMessage, setNoDataMessage] = useState("");
+  const [downloading, setDownloading] = useState(false);
 
   const [reportDate, setReportDate] = useState(() => {
     const d = new Date(); d.setHours(0,0,0,0); return d;
@@ -167,6 +185,29 @@ export default function ReportsByHours({ navigation }) {
       : primarySeries;
   }, [compareSales, primarySeries, comparisonSeries]);
 
+  const handleDownloadReport = async () => {
+    if (downloading) return;
+    setDownloading(true);
+    try {
+      const hasComparison = compareSales && comparisonSeries.length > 0;
+      await exportHourlyReportToExcel({
+        labels: hourlyData.labels || [],
+        primarySeries,
+        comparisonSeries: hasComparison ? comparisonSeries : undefined,
+        primaryLabel: `Sale (${fmtDateBadge(reportDate)})`,
+        comparisonLabel: hasComparison ? `Sale (${fmtDateBadge(compareDate)})` : undefined,
+        fileName: hasComparison
+          ? `Hourly_Sales_Report_${fmtDateBadge(reportDate).replace(/\//g, '-')}_vs_${fmtDateBadge(compareDate).replace(/\//g, '-')}.xlsx`
+          : `Hourly_Sales_Report_${fmtDateBadge(reportDate).replace(/\//g, '-')}.xlsx`,
+      });
+    } catch (e) {
+      console.warn('Hourly report export failed:', e);
+      Alert.alert('Export failed', 'Could not generate the Excel file. Please try again.');
+    } finally {
+      setDownloading(false);
+    }
+  };
+
   return (
     <ImageBackground source={getImageSource(reportbg)} style={styles.screen} resizeMode="cover">
       <AppHeader
@@ -229,7 +270,21 @@ export default function ReportsByHours({ navigation }) {
 
       {/* Chart Panel */}
       <View style={styles.panelInner}>
-        <Text style={styles.title}>{chartTitle}</Text>
+        <View style={styles.titleRow}>
+          <Text style={styles.title}>{chartTitle}</Text>
+          <TouchableOpacity
+            style={styles.downloadBtn}
+            onPress={handleDownloadReport}
+            disabled={downloading}
+            activeOpacity={0.75}
+          >
+            {downloading ? (
+              <ActivityIndicator size="small" color="#2e7d32" />
+            ) : (
+              <DownloadIcon />
+            )}
+          </TouchableOpacity>
+        </View>
 
         {hourlyData.datasets.length > 0 ? (
           <ScrollView horizontal>
@@ -407,7 +462,18 @@ const styles = StyleSheet.create({
       ios: { shadowColor: "#000", shadowOpacity: 0.06, shadowRadius: 4, shadowOffset: { width: 0, height: 2 } },
     }),
   },
-  title: { color: "#f58b40", fontSize: 21, fontWeight: "bold", margin: 10 },
+  titleRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginHorizontal: 10 },
+  title: { color: "#f58b40", fontSize: 21, fontWeight: "bold", marginVertical: 10, flexShrink: 1 },
+  downloadBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#E8F5E9",
+    borderWidth: 1,
+    borderColor: "#C8E6C9",
+  },
   noData: { fontSize: 18, color: "red", marginTop: 20 },
   legendRow: { flexDirection: "row", alignItems: "center", gap: 16, marginBottom: -2, marginLeft: 2 },
   legendItem: { flexDirection: "row", alignItems: "center", gap: 6 },

@@ -11,13 +11,31 @@ import {
   FlatList,
   ActivityIndicator,
   TextInput,
+  Alert,
 } from 'react-native';
+import Svg, { Path } from 'react-native-svg';
 
 import AppHeader from '../components/AppHeader';
 import reportbg from '../assets/images/report-bg.png';
 import DateRangePickerModal from '../components/DateRangePickerModal';
 import { SectionCard, currency, safeNumber, sumBy } from '../components/reports/shared/ReportUI';
 import { TopSellingProductsReport } from '../functions/reports/pos_reports';
+import { exportTopSellingProductsToExcel } from '../functions/reports/exportReportsExcel';
+
+function DownloadIcon({ color = '#2e7d32' }) {
+  return (
+    <Svg width={20} height={20} viewBox="0 0 24 24">
+      <Path
+        d="M12 3v10m0 0l-4-4m4 4l4-4M5 19h14"
+        stroke={color}
+        strokeWidth={2}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        fill="none"
+      />
+    </Svg>
+  );
+}
 
 export default function TopSellingProductsReportScreen() {
   const pad = (n) => String(n).padStart(2, '0');
@@ -46,6 +64,7 @@ export default function TopSellingProductsReportScreen() {
   const [errorMsg, setErrorMsg] = useState('');
   const [numProducts, setNumProducts] = useState('10');
   const [hasSearched, setHasSearched] = useState(false);
+  const [downloading, setDownloading] = useState(false);
 
   const [range, setRange] = useState(() => {
     const now = new Date();
@@ -105,6 +124,24 @@ export default function TopSellingProductsReportScreen() {
   }, [rows]);
 
   const getImageSource = (val) => (typeof val === 'number' ? val : { uri: val });
+
+  const handleDownloadReport = async () => {
+    if (downloading || rows.length === 0) return;
+    setDownloading(true);
+    try {
+      await exportTopSellingProductsToExcel({
+        rows,
+        totals: { totalSales, totalCost, totalQty, totalTax, totalGrossProfit },
+        dateRangeLabel: `${fmtDateOnly(range.start)} to ${fmtDateOnly(range.end)}`,
+        fileName: `Top_Selling_Products_${fmtDateOnly(range.start)}_to_${fmtDateOnly(range.end)}.xlsx`,
+      });
+    } catch (e) {
+      console.warn('Top selling products export failed:', e);
+      Alert.alert('Export failed', 'Could not generate the Excel file. Please try again.');
+    } finally {
+      setDownloading(false);
+    }
+  };
 
   const renderHeader = () => (
     <View style={styles.tableHeaderRow}>
@@ -282,7 +319,23 @@ export default function TopSellingProductsReportScreen() {
                 </View>
               </SectionCard>
 
-              <SectionCard title="Product Details">
+              <SectionCard
+                title="Product Details"
+                right={
+                  <TouchableOpacity
+                    style={styles.downloadBtn}
+                    onPress={handleDownloadReport}
+                    disabled={downloading}
+                    activeOpacity={0.75}
+                  >
+                    {downloading ? (
+                      <ActivityIndicator size="small" color="#2e7d32" />
+                    ) : (
+                      <DownloadIcon />
+                    )}
+                  </TouchableOpacity>
+                }
+              >
                 <View style={styles.tableWrap}>
                   <View style={styles.tableTitleRow}>
                     <Text style={styles.tableTitle}>Top Selling Products</Text>
@@ -437,6 +490,17 @@ const getStyles = (isTablet) =>
     },
     tableTitle: { fontSize: 14, fontWeight: '800', color: '#111' },
     tableCount: { fontSize: 12, color: '#666', fontWeight: '700' },
+
+    downloadBtn: {
+      width: 32,
+      height: 32,
+      borderRadius: 8,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: '#E8F5E9',
+      borderWidth: 1,
+      borderColor: '#C8E6C9',
+    },
 
     tableHeaderRow: {
       flexDirection: 'row',

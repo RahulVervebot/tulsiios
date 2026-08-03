@@ -20,7 +20,7 @@ export function SectionCard({ title, children, right }) {
   return (
     <View style={styles.card}>
       {!!title && (
-        <View style={styles.cardHeader}>
+        <View style={[styles.cardHeader, right && styles.cardHeaderRow]}>
           <Text style={styles.cardTitle}>{title}</Text>
           {right}
         </View>
@@ -153,6 +153,11 @@ const styles = StyleSheet.create({
     paddingBottom: 6,
     borderTopLeftRadius: 12,
     borderTopRightRadius: 12,
+  },
+  cardHeaderRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
   },
   cardTitle: { fontSize: 14, fontWeight: "800", color: "#111" },
   cardBody: { paddingHorizontal: 14, paddingVertical: 10 },
