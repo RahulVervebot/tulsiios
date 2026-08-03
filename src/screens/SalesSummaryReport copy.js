@@ -70,7 +70,7 @@ export default function SaleSummaryReport() {
     const day = pad(d.getDate());
     return `${y}-${m}-${day}`;
   };
-
+// this is test
   const [pickerVisible, setPickerVisible] = useState(false);
   // Data
   const [paymentTypeReport, setPaymentTypeReport] = useState([]);
