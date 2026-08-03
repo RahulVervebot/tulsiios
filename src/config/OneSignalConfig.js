@@ -4,7 +4,6 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
 import OneSignal from 'react-native-onesignal';
 import firestore from '@react-native-firebase/firestore';
-
 let isInitialized = false;
 
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -20,7 +19,6 @@ export const initializeOneSignal = async () => {
    const onesignalid = await AsyncStorage.getItem('onesignalid');
     console.log('\n🚀 ===== INITIALIZING ONESIGNAL =====');
     console.log('[OneSignal] appId from storage:', onesignalid || '(using hardcoded fallback)');
-
     OneSignal.setAppId(onesignalid);
     // Optional debug logs
     if (OneSignal.setLogLevel) {
