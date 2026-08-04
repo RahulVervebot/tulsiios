@@ -26,29 +26,26 @@ import Icon from 'react-native-vector-icons/MaterialIcons';
 import { S3_ASYNC_KEYS } from '../config/S3Config';
 
 export default function LoginScreen({ navigation }) {
+
   const insets = useSafeAreaInsets();
   const [signingIn, setSigningIn] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
-
   // fetched from Firestore: public Storage URL to JSON (e.g., https://.../storelist.json?...token=...)
   const [firebaseeurl, setFirebaseUrl] = useState('');
   const inFlightRef = useRef(false);
   const chatAuthInFlightRef = useRef(false);
-
   // store picker state
   const [storeMap, setStoreMap] = useState(null); // { [domain]: [{ name, storeurl, dbname }] }
   const [storeOptions, setStoreOptions] = useState([]); // options for current email domain
   const [storeDomain, setStoreDomain] = useState(''); // current email domain
   const [selectedStore, setSelectedStore] = useState(null);
   const [storeModalVisible, setStoreModalVisible] = useState(false);
-
   // PIN modal state
   const [pinModalVisible, setPinModalVisible] = useState(false);
   const [enteredPin, setEnteredPin] = useState('');
   const [pinError, setPinError] = useState('');
-
   // -----------------------------
   // 1) Get Firebase URL (your existing Firestore doc)
   // -----------------------------
@@ -203,7 +200,6 @@ export default function LoginScreen({ navigation }) {
     }, [fetchFirebaseDataLogin])
   );
 
-
   const fetchStoreListFromFirebaseUrl = useCallback(async (url) => {
     try {
       if (!url) return;
@@ -296,7 +292,6 @@ export default function LoginScreen({ navigation }) {
     }
     return withScheme + normalizedPath;
   };
-
 
   const handleManualLogin = async () => {
     if (!email || !password) {
@@ -609,7 +604,6 @@ export default function LoginScreen({ navigation }) {
       </Modal>
     </SafeAreaView>
   );
-
 }
 
 const styles = StyleSheet.create({

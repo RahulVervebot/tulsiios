@@ -330,8 +330,7 @@ export default function App() {
   }, []);
 
   function ChatOverlay() {
-    const insets = useSafeAreaInsets();
-
+ const insets = useSafeAreaInsets();
     return (
       <Chat
         buttonStyle={{ bottom: 76 + insets.bottom }}

@@ -25,6 +25,7 @@ import RNBlobUtil  from 'react-native-blob-util';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // AsyncStorage key names — use these exact keys in LoginScreen
+
 export const S3_ASYNC_KEYS = {
   region:          '@s3_region',
   bucket:          '@s3_bucket',
@@ -34,22 +35,23 @@ export const S3_ASYNC_KEYS = {
 
 const DOWNLOAD_URL_TTL = 604800; // 7 days — file itself lives forever in S3
 const UPLOAD_URL_TTL   = 600;    // 10 min — enough for any upload
-
 const LOCAL_DIR = RNBlobUtil.fs.dirs.DocumentDir + '/chat_media/';
 const MAP_STORE  = '@chat_s3_map_v1';
 
-// ─── Local download map ───────────────────────────────────────────────────────
+// ─── Local download map ───
 
 let _map = {};
 const _loadMap = async () => {
   try { const r = await AsyncStorage.getItem(MAP_STORE); if (r) _map = JSON.parse(r); } catch (_) {}
 };
+
 const _saveMap = async () => {
   try { await AsyncStorage.setItem(MAP_STORE, JSON.stringify(_map)); } catch (_) {}
 };
+
 _loadMap();
 
-// ─── Config cache ─────────────────────────────────────────────────────────────
+// ──────────────── Config cache ──────────────────
 
 let _config = null;
 
@@ -71,7 +73,7 @@ const getConfig = async () => {
 // Call on logout so next login rebuilds with fresh credentials
 export const clearS3Client = () => { _config = null; };
 
-// ─── AWS SigV4 pre-signed URL (pure JS, Hermes-safe) ─────────────────────────
+// ─── AWS SigV4 pre-signed URL (pure JS, Hermes-safe) ─────
 
 const encodeRfc3986 = (s) =>
   encodeURIComponent(s).replace(/[!'()*]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`);
@@ -138,7 +140,7 @@ const buildPresignedUrl = (method, s3Key, expiresIn, cfg, contentType = null) =>
   return `https://${host}/${encodedKey}?${canonicalQS}&X-Amz-Signature=${sig}`;
 };
 
-// ─── Public API ───────────────────────────────────────────────────────────────
+// ─────────────────── Public API ────────────────────────────
 
 // Generate a temporary download URL. File itself never expires in S3.
 export const getPresignedDownloadUrl = async (s3Key) => {

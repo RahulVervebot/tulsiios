@@ -45,7 +45,9 @@ export default function ReportsByHours({ navigation }) {
   const [reportDate, setReportDate] = useState(() => {
     const d = new Date(); d.setHours(0,0,0,0); return d;
   });
+
   const [compareSales, setCompareSales] = useState(false);
+
   const [compareDate, setCompareDate] = useState(() => {
     const d = new Date(); d.setDate(d.getDate() - 1); d.setHours(0,0,0,0); return d;
   });

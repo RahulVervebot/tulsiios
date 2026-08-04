@@ -223,17 +223,6 @@ const openDetails = (item) => sheetRef.current?.open(item);
         showsVerticalScrollIndicator={false}
       />
 
-      {/* {showFloatingCart && cart.length > 0 && (
-        <TouchableOpacity
-          style={[styles.floatingCart, { bottom: FLOATING_BOTTOM, right: 20 }]}
-          onPress={() => navigation.navigate('Cart')}
-        >
-          <Text style={{ color: '#fff', fontWeight: '700' }}>
-            🛒 {cart.length}
-          </Text>
-        </TouchableOpacity>
-      )} */}
-
       <ProductModal
         ref={sheetRef}
         onAddToCart={(p) => addToCart(p)}

@@ -24,7 +24,6 @@ import { CartContext } from '../context/CartContext';
 import { PrintContext } from '../context/PrintContext';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { createQuantityDiscountPromotion } from '../screens/promotions/function';
-
 const THEME = { primary: '#319241', secondary: '#319241', price: '#27ae60' };
 
 const ProductModal = forwardRef(({ onAddToCart, onAddToPrint }, ref) => {
@@ -32,31 +31,25 @@ const ProductModal = forwardRef(({ onAddToCart, onAddToPrint }, ref) => {
   const { cart, addToCart, increaseQty, decreaseQty } = useContext(CartContext);
   const { print, addToPrint, increasePrintQty, decreasePrintQty, removeFromprint } = useContext(PrintContext);
   const _isDark = useColorScheme() === 'dark';
-
   const inputTextColor = '#111';
   const placeholderColor = '#6B7280';
   const inputBg = '#fff';
   const inputBorder = '#ddd';
   const iconColor = '#333';
-
   const [storeUrl, setStoreUrl] = useState('');
   const [token, setToken] = useState('');
-
   const [product, setProduct] = useState(null);
   const [userrole, setUserRole] = useState('');
-
   const [id, setID] = useState('');
   const [name, setName] = useState('');
   const [size, setSize] = useState('');
   const [barcodeOriginal, setBarcodeOriginal] = useState('');
   const [newBarcode, setNewBarcode] = useState('');
-
   const [price, setPrice] = useState('');
   const [cost, setCost] = useState('');
   const [qtyavailable, setQtyAvailable] = useState('');
   const [unitc, setUnitc] = useState('');
   const [casecost, setCaseCost] = useState('');
-
   const [categoryId, setCategoryId] = useState('');
   const [selectedVendors, setSelectedVendors] = useState([]); // Original API objects
   const [searchText, setSearchText] = useState('');
@@ -64,14 +57,12 @@ const ProductModal = forwardRef(({ onAddToCart, onAddToPrint }, ref) => {
   const [vendorModalVisible, setVendorModalVisible] = useState(false);
   const searchDebounceRef = useRef(null);
   const [selectedTaxIds, setSelectedTaxIds] = useState([]);
-
   const [availablePOS, setAvailablePOS] = useState(false);
   const [in_store_label_product, setin_store_label_product] = useState(false);
   const [serverin_store_label_product, setServerin_store_label_product] = useState(null);
   const [isEBT, setIsEBT] = useState(false);
   const [ewic, setEwic] = useState(false);
   const [otc, setOtc] = useState(false);
-
   const [allCats, setAllCats] = useState([]);
   const [vendorList, setVendorList] = useState([]);
   const [taxList, setTaxList] = useState([]);

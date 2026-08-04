@@ -7,15 +7,14 @@ import firestore from '@react-native-firebase/firestore';
 let isInitialized = false;
 
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-
 const normalizeStoreUrl = (value) => String(value || '').trim().toLowerCase();
-
 export const initializeOneSignal = async () => {
   try {
     if (isInitialized) {
       console.log('ℹ️ OneSignal already initialized');
       return true;
     }
+
    const onesignalid = await AsyncStorage.getItem('onesignalid');
     console.log('\n🚀 ===== INITIALIZING ONESIGNAL =====');
     console.log('[OneSignal] appId from storage:', onesignalid || '(using hardcoded fallback)');
@@ -193,7 +192,7 @@ export const tagDeviceWithStoreUrl = async (storeUrl, storeRole) => {
       return false;
     }
 
-    const normalizedStoreUrl = normalizeStoreUrl(storeUrl);
+   const normalizedStoreUrl = normalizeStoreUrl(storeUrl);
    const normalizedStoreRole = normalizeStoreUrl(storeRole);
     console.log('\n🏷️ ===== TAGGING DEVICE =====');
     console.log('Original storeUrl:', storeUrl);
@@ -210,13 +209,13 @@ export const tagDeviceWithStoreUrl = async (storeUrl, storeRole) => {
 
     // Save locally
     await AsyncStorage.setItem('storeurl', normalizedStoreUrl);
-   await AsyncStorage.setItem('userrole', normalizedStoreRole);
-const storeuserrole = normalizedStoreUrl+normalizedStoreRole
-OneSignal.sendTags({
- storeuserrole: storeuserrole,
-  app_user: 'true',
-  device_type: Platform.OS.toLowerCase(),
-});
+    await AsyncStorage.setItem('userrole', normalizedStoreRole);
+    const storeuserrole = normalizedStoreUrl+normalizedStoreRole
+    OneSignal.sendTags({
+    storeuserrole: storeuserrole,
+    app_user: 'true',
+    device_type: Platform.OS.toLowerCase(),
+    });
     // Give OneSignal some time to sync tags
     await wait(5000);
     const tags = await new Promise((resolve) => {
@@ -228,6 +227,7 @@ OneSignal.sendTags({
     console.log('MATCH userrole:', tags?.userrole === normalizedStoreRole);
     console.log('✅ Tags sent successfully');
     console.log('🏷️ ===== TAGGING COMPLETE =====\n');
+
     return true;
   } catch (error) {
     console.log('❌ tagDeviceWithStoreUrl error:', error?.message || error);
@@ -488,9 +488,6 @@ export const forceEnablePushNotifications = async () => {
   }
 };
 
-// Removes the oneSignalPlayerId from the Google/device login email's callProfiles doc if it
-// has no PIN — meaning it was created by the old LoginScreen bug, not by the call login system.
-// Call this on every app startup to clean up stale routing entries.
 export const cleanupStaleCallProfile = async () => {
   try {
     const userEmail = await AsyncStorage.getItem('userEmail');
