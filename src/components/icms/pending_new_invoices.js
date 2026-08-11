@@ -68,6 +68,8 @@ export default function PendingNewInvoices() {
   const [previewData, setPreviewData] = useState(null);
   const [previewJobId, setPreviewJobId] = useState('');
   const [previewActionLoading, setPreviewActionLoading] = useState(false);
+  const [regenerateModalVisible, setRegenerateModalVisible] = useState(false);
+  const [regeneratePrompt, setRegeneratePrompt] = useState('');
 
   useEffect(() => {
     const loadHeader = async () => {
@@ -277,10 +279,22 @@ console.log("response notify",response);
     }
   }, [previewJobId, getIcmsHeaders, closePreviewModal, fetchPendingJobs]);
 
-  const handleRegenerate = useCallback(async () => {
+  const openRegenerateModal = useCallback(() => {
+    setRegeneratePrompt('');
+    setRegenerateModalVisible(true);
+  }, []);
+
+  const closeRegenerateModal = useCallback(() => {
+    setRegenerateModalVisible(false);
+    setRegeneratePrompt('');
+  }, []);
+
+  const handleRegenerateSubmit = useCallback(async () => {
     const normalizedJobId = String(previewJobId || '').trim();
     if (!normalizedJobId) return;
 
+    const trimmedPrompt = regeneratePrompt.trim();
+    setRegenerateModalVisible(false);
     setPreviewActionLoading(true);
     try {
       const headers = await getIcmsHeaders();
@@ -289,7 +303,7 @@ console.log("response notify",response);
         headers,
         body: JSON.stringify({
           jobId: normalizedJobId,
-          userPrompt: 'The first numeric column is a serial number, ignore it.',
+          userPrompt: trimmedPrompt,
         }),
       });
 
@@ -309,8 +323,9 @@ console.log("response notify",response);
       Alert.alert(error?.message || 'Unable to regenerate.');
     } finally {
       setPreviewActionLoading(false);
+      setRegeneratePrompt('');
     }
-  }, [previewJobId, getIcmsHeaders, loadPreview]);
+  }, [previewJobId, regeneratePrompt, getIcmsHeaders, loadPreview]);
 
   const sortedJobs = useMemo(() => {
     const normalizedQuery = searchQuery.trim().toLowerCase();
@@ -429,15 +444,15 @@ console.log("response notify",response);
 
             {String(item?.stageCode || '').toLowerCase() === 'waiting_for_review' ? (
               <View style={styles.progressCard}>
-                <View style={styles.progressCardHeader}>
-                  <TouchableOpacity
-                    style={styles.previewBtn}
-                    onPress={() => handlePreview(item?.jobId)}
-                    disabled={!item?.jobId}
-                  >
-                    <Text style={styles.previewBtnText}>Preview</Text>
-                  </TouchableOpacity>
-                </View>
+                <TouchableOpacity
+                  style={styles.previewBtn}
+                  onPress={() => handlePreview(item?.jobId)}
+                  disabled={!item?.jobId}
+                  activeOpacity={0.85}
+                >
+                  <Icon name="visibility" size={18} color="#fff" />
+                  <Text style={styles.previewBtnText}>Preview Extracted Data</Text>
+                </TouchableOpacity>
               </View>
             ) : null}
           </View>
@@ -533,6 +548,38 @@ console.log("response notify",response);
         <View style={styles.modalBackdrop}>
           <TouchableOpacity style={styles.modalBackdropTouch} onPress={closePreviewModal} />
           <View style={styles.previewModalCard}>
+            {regenerateModalVisible ? (
+              <>
+                <Text style={styles.modalTitle}>Regenerate Regex</Text>
+                <Text style={styles.modalText}>
+                  Describe how the parsing should be adjusted.
+                </Text>
+                <TextInput
+                  style={styles.regeneratePromptInput}
+                  placeholder="e.g. The first numeric column is a serial number, ignore it."
+                  placeholderTextColor="#7B8A81"
+                  value={regeneratePrompt}
+                  onChangeText={setRegeneratePrompt}
+                  multiline
+                  numberOfLines={4}
+                />
+                <View style={styles.modalActions}>
+                  <TouchableOpacity
+                    style={[styles.modalBtn, styles.modalBtnPrimary]}
+                    onPress={handleRegenerateSubmit}
+                  >
+                    <Text style={styles.modalBtnText}>Submit</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.modalBtn, styles.modalBtnGhost]}
+                    onPress={closeRegenerateModal}
+                  >
+                    <Text style={styles.modalBtnGhostText}>Cancel</Text>
+                  </TouchableOpacity>
+                </View>
+              </>
+            ) : (
+              <>
             <Text style={styles.modalTitle}>Invoice Preview</Text>
 
             {previewLoading ? (
@@ -601,7 +648,7 @@ console.log("response notify",response);
                   </TouchableOpacity>
                   <TouchableOpacity
                     style={[styles.modalBtn, styles.modalBtnRegenerate]}
-                    onPress={handleRegenerate}
+                    onPress={openRegenerateModal}
                     disabled={previewActionLoading || previewLoading}
                   >
                     <Text style={styles.modalBtnText}>Regenerate</Text>
@@ -619,6 +666,8 @@ console.log("response notify",response);
             {previewActionLoading ? (
               <ActivityIndicator style={styles.previewActionLoader} size="small" color="#319241" />
             ) : null}
+              </>
+            )}
           </View>
         </View>
       </Modal>
@@ -814,12 +863,6 @@ const styles = StyleSheet.create({
     padding: 12,
     gap: 6,
   },
-  progressCardHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 10,
-  },
   progressTitle: {
     flex: 1,
     fontSize: 14,
@@ -827,15 +870,25 @@ const styles = StyleSheet.create({
     color: '#0F172A',
   },
   previewBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
     backgroundColor: '#319241',
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    shadowColor: '#10351B',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 4,
+    elevation: 2,
   },
   previewBtnText: {
     color: '#fff',
-    fontSize: 12,
+    fontSize: 14,
     fontWeight: '700',
+    letterSpacing: 0.2,
   },
   progressText: {
     fontSize: 13,
@@ -927,6 +980,19 @@ const styles = StyleSheet.create({
   modalBtnGhostText: {
     color: '#334155',
     fontWeight: '700',
+  },
+  regeneratePromptInput: {
+    marginTop: 12,
+    backgroundColor: '#F6FBF7',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#CFE3D5',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    color: '#10261A',
+    fontSize: 14,
+    minHeight: 90,
+    textAlignVertical: 'top',
   },
   previewModalCard: {
     width: '100%',

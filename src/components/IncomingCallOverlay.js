@@ -8,6 +8,8 @@ import Icon from 'react-native-vector-icons/MaterialIcons';
 import InCallManager from 'react-native-incall-manager';
 import { isCallKitActive } from '../config/CallKitState';
 import { rootNavigate } from '../config/RootNavigation';
+import { endCallKeep } from '../config/CallKeepConfig';
+import { sendMissedCallPushNotification } from '../config/OneSignalConfig';
 
 export default function IncomingCallOverlay({ navigationRef }) {
   const [myEmail, setMyEmail] = useState('');
@@ -25,9 +27,7 @@ export default function IncomingCallOverlay({ navigationRef }) {
   // ─── 1-to-1 call listener ─────────────────────────────────────────────────
   useEffect(() => {
     if (!myEmail) return;
-
     const subscribeTime = Date.now();
-
     const unsub = firestore()
       .collection('calls')
       .where('calleeId', '==', myEmail)
@@ -36,25 +36,33 @@ export default function IncomingCallOverlay({ navigationRef }) {
           const docId = change.doc.id;
           const data = change.doc.data();
 
-          // Dismiss our in-app UI if the call is ended/rejected remotely
+          // Dismiss our in-app UI if the call is ended/rejected/cancelled remotely
           if (change.type === 'modified') {
-            if (
-              (data.status === 'ended' || data.status === 'rejected') &&
-              ringingCallRef.current?.callId === docId
-            ) {
-              dismissRinging();
+            const isOver = data.status === 'ended' || data.status === 'rejected' || data.status === 'cancelled';
+            if (isOver) {
+              // Dismiss if this is the active ringing call OR if it was previously shown
+              // (handles the race where modified arrives before added is processed)
+              if (ringingCallRef.current?.callId === docId || shownRef.current.has(docId)) {
+                // caller cancelled while ringing — send missed call push so callee knows
+                if (data.status === 'ended' || data.status === 'cancelled') {
+                  const callerName = data.callerName || data.callerEmail || 'Someone';
+                  const callType = data.type === 'video' ? 'video' : 'voice';
+                  sendMissedCallPushNotification(myEmail, callerName, callType).catch(() => {});
+                }
+                dismissRinging(docId, { endNative: true });
+                shownRef.current.delete(docId);
+              }
             }
             return;
           }
-
           if (change.type !== 'added') return;
+          // If the call was already ended before we processed the added event, skip it
+          if (data.status === 'ended' || data.status === 'rejected' || data.status === 'cancelled') return;
           if (shownRef.current.has(docId)) return;
           if (data.status !== 'calling') return;
           if (data.type !== 'voice' && data.type !== 'video') return;
-
           const createdMs = data.createdAt?.toMillis?.() ?? 0;
           if (createdMs && subscribeTime - createdMs > 30000) return;
-
           // Already on a call screen — don't interrupt
           const currentRoute = navigationRef.current?.getCurrentRoute?.()?.name;
           if (
@@ -62,15 +70,12 @@ export default function IncomingCallOverlay({ navigationRef }) {
             currentRoute === 'VideoCallScreen' ||
             currentRoute === 'ConferenceCallScreen'
           ) return;
-
           shownRef.current.add(docId);
-
           // When app is backgrounded/killed, CallKit native screen is visible — don't show
           // our in-app modal on top of it. When app is active, CallKit has no visible UI
           // so we must show our modal so the user can answer.
           const appIsActive = AppState.currentState === 'active';
           if (!appIsActive && isCallKitActive(docId)) return;
-
           // App is foregrounded — show our in-app ringing modal
           const incoming = {
             callId: docId,
@@ -91,9 +96,7 @@ export default function IncomingCallOverlay({ navigationRef }) {
   // ─── Conference call listener ──────────────────────────────────────────────
   useEffect(() => {
     if (!myEmail) return;
-
     const subscribeTime = Date.now();
-
     const unsub = firestore()
       .collection('conferenceCalls')
       .where('status', '==', 'active')
@@ -102,29 +105,22 @@ export default function IncomingCallOverlay({ navigationRef }) {
           if (change.type !== 'added') return;
           const roomId = change.doc.id;
           const data = change.doc.data();
-
           if (confAlertShownRef.current.has(roomId)) return;
-
           const participants = data.participants || [];
           const isInvited = participants.some((p) => p.email === myEmail);
           if (!isInvited) return;
           if (data.createdBy === myEmail) return;
-
           const createdMs = data.createdAt?.toMillis?.() ?? 0;
           if (createdMs && subscribeTime - createdMs > 45000) return;
-
           const currentRoute = navigationRef.current?.getCurrentRoute?.()?.name;
           if (
             currentRoute === 'VoiceCallScreen' ||
             currentRoute === 'VideoCallScreen' ||
             currentRoute === 'ConferenceCallScreen'
           ) return;
-
           confAlertShownRef.current.add(roomId);
-
           const callerName = data.createdByName || data.createdBy || 'Someone';
           const callTypeLabel = data.callType === 'voice' ? 'Group Voice' : 'Group Video';
-
           const incoming = {
             callId: roomId,
             callerName,
@@ -140,20 +136,25 @@ export default function IncomingCallOverlay({ navigationRef }) {
           Vibration.vibrate([0, 1000, 500], true);
         });
       }, (e) => console.log('[IncomingConf] snapshot error:', e?.message));
-
     return () => unsub();
   }, [myEmail]);
-
-  const dismissRinging = () => {
+  
+  const dismissRinging = (callId, { endNative = false } = {}) => {
     ringingCallRef.current = null;
     setRingingCall(null);
     try { InCallManager.stopRingtone(); } catch (_) {}
     Vibration.cancel();
+    // Only tell CallKit to end when declining — accepting navigates to the call screen
+    // which handles its own CallKit lifecycle. Calling endCallKeep on accept triggers
+    // _onEnd which writes status:'rejected' to Firestore and kills the call immediately.
+    if (endNative && callId) {
+      try { endCallKeep(callId); } catch (_) {}
+    }
   };
 
   const handleDecline = async () => {
     const call = ringingCallRef.current;
-    dismissRinging();
+    dismissRinging(call?.callId, { endNative: true });
     if (!call || call.isConference) return;
     try {
       await firestore().collection('calls').doc(call.callId).update({ status: 'rejected' });
@@ -162,7 +163,7 @@ export default function IncomingCallOverlay({ navigationRef }) {
 
   const handleAccept = () => {
     const call = ringingCallRef.current;
-    dismissRinging();
+    dismissRinging(call?.callId, { endNative: false });
     if (!call) return;
 
     const screen = call.isConference

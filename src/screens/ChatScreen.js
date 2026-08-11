@@ -1,18 +1,28 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+
 import {
   View, Text, TextInput, TouchableOpacity, FlatList, StyleSheet,
   KeyboardAvoidingView, Platform, Image, ActivityIndicator, Alert,
   ActionSheetIOS, StatusBar, Modal, Dimensions, SectionList,
   ScrollView, Linking, NativeModules, PanResponder, Animated,
 } from 'react-native';
+
 const { PHAssetHelper } = NativeModules;
+
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+
 import firestore from '@react-native-firebase/firestore';
+
 import AsyncStorage from '@react-native-async-storage/async-storage';
+
 import Icon from 'react-native-vector-icons/MaterialIcons';
+
 import { launchCamera, launchImageLibrary } from 'react-native-image-picker';
+
 import DocumentPicker from 'react-native-document-picker';
+
 import DateTimePicker from '@react-native-community/datetimepicker';
+
 import {
   downloadFromS3, isFileDownloaded,
   deleteLocalFile, getLocalPath, getPresignedDownloadUrl,
@@ -32,7 +42,7 @@ import AddMembersModal from '../components/chat/AddMembersModal';
 
 const { width: SCREEN_W } = Dimensions.get('window');
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
+// ──────────────────────────── Helpers ───────────────────────────────────
 
 const isSameDay = (tsA, tsB) => {
   if (!tsA || !tsB) return false;
@@ -89,9 +99,11 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 const TEMP_RE = /rn_image_picker_lib_temp|^rn_|^tmp_/i;
 
 // Extract the last path component from a file:// URI or path string, without query params.
+
 const nameFromPath = (p) => (p || '').split('/').pop()?.split('?')[0] || '';
 
 // Returns true if the base name (without extension) looks like a UUID or temp name.
+
 const isTempName = (name) => {
   const base = name.replace(/\.[^.]+$/, '');
   return !name || TEMP_RE.test(name) || UUID_RE.test(base);
@@ -128,10 +140,6 @@ const assetToAttachment = (asset) => {
   };
 };
 
-// ─── Attachment Preview Modal ─────────────────────────────────────────────────
-// Shows selected items before upload. User must tap Send to upload.
-// Supports multiple items; Camera/Gallery buttons add more.
-
 function AttachmentPreviewModal({ attachments, onAddCamera, onAddGallery, onRemove, onSend, onCancel, sending }) {
   const [activeIdx, setActiveIdx] = useState(0);
   const [caption,   setCaption]   = useState('');
@@ -145,6 +153,7 @@ function AttachmentPreviewModal({ attachments, onAddCamera, onAddGallery, onRemo
   if (!attachments || attachments.length === 0) return null;
   const active = attachments[Math.min(activeIdx, attachments.length - 1)];
   const activeSize = formatSize(active.fileSize);
+
   return (
     <Modal visible animationType="fade" transparent onRequestClose={onCancel}>
       <KeyboardAvoidingView
@@ -251,7 +260,6 @@ function AttachmentPreviewModal({ attachments, onAddCamera, onAddGallery, onRemo
       </KeyboardAvoidingView>
     </Modal>
   );
-
 }
 
 const pStyles = StyleSheet.create({
@@ -323,7 +331,7 @@ const pStyles = StyleSheet.create({
   addTxt: { color: '#9CA3AF', fontSize: 9, fontWeight: '600' },
 });
 
-// ─── Fullscreen Image Viewer ──────────────────────────────────────────────────
+// ────────────────────────────── Fullscreen Image Viewer ────────────────────────────────────
 
 function ImageViewerPage({ message, myEmail }) {
   const [uri, setUri] = useState(null);
@@ -445,7 +453,7 @@ const vStyles = StyleSheet.create({
   },
 });
 
-// ─── Shared Media Library ─────────────────────────────────────────────────────
+// ──────────────────────────── Shared Media Library ──────────────────────────────────────
 
 const TYPE_FILTERS = [
   { key: 'all',   label: 'All',       icon: 'perm-media'       },
@@ -520,9 +528,11 @@ function SharedMediaModal({ messages, myEmail, onClose, onViewImage }) {
     })();
   }, [messages]);
 
-  // Any media item can be deleted from local device storage.
-  // Sent items have no persistent local cache, so deleteLocalFile is a no-op for them.
-  const canDelete = () => true;
+  // Only items with an actual local copy can be deleted from device storage.
+  // Sent items keep a local cache after upload (see uploadQueue.js), so senders
+  // can delete their own media the same way receivers delete downloaded media.
+  // Older items sent before this local cache existed won't have one, so no delete option.
+  const canDelete = (msg) => !!downloadedMap[msg.mediaKey];
 
   // Filter messages by type then date
   const filteredMedia = useMemo(() => {
@@ -586,8 +596,8 @@ function SharedMediaModal({ messages, myEmail, onClose, onViewImage }) {
   }, [filteredMedia, typeFilter, sortDir]);
 
   const deletableKeys = useMemo(
-    () => filteredMedia.map((m) => m.mediaKey).filter(Boolean),
-    [filteredMedia],
+    () => filteredMedia.filter((m) => canDelete(m)).map((m) => m.mediaKey).filter(Boolean),
+    [filteredMedia, downloadedMap],
   );
 
   const imageMessages = useMemo(
@@ -714,29 +724,33 @@ function SharedMediaModal({ messages, myEmail, onClose, onViewImage }) {
           )}
         </View>
 
-        {/* Select checkbox OR delete button */}
+        {/* Select checkbox OR delete button — only shown when a local copy exists to remove */}
         {selectMode ? (
-          <View style={[mStyles.checkbox, checked && mStyles.checkboxChecked]}>
-            {checked && <Icon name="check" size={14} color="#fff" />}
-          </View>
+          deletable && (
+            <View style={[mStyles.checkbox, checked && mStyles.checkboxChecked]}>
+              {checked && <Icon name="check" size={14} color="#fff" />}
+            </View>
+          )
         ) : (
-          <TouchableOpacity
-            style={mStyles.deleteBtn}
-            onPress={() => {
-              Alert.alert('Delete from device?', 'This removes the local copy. The file stays on the server.', [
-                { text: 'Cancel', style: 'cancel' },
-                {
-                  text: 'Delete', style: 'destructive',
-                  onPress: async () => {
-                    await deleteLocalFile(msg.mediaKey);
-                    setDownloadedMap((prev) => ({ ...prev, [msg.mediaKey]: false }));
+          deletable && (
+            <TouchableOpacity
+              style={mStyles.deleteBtn}
+              onPress={() => {
+                Alert.alert('Delete from device?', 'This removes the local copy. The file stays on the server.', [
+                  { text: 'Cancel', style: 'cancel' },
+                  {
+                    text: 'Delete', style: 'destructive',
+                    onPress: async () => {
+                      await deleteLocalFile(msg.mediaKey);
+                      setDownloadedMap((prev) => ({ ...prev, [msg.mediaKey]: false }));
+                    },
                   },
-                },
-              ]);
-            }}
-          >
-            <Icon name="delete-outline" size={22} color="#DC2626" />
-          </TouchableOpacity>
+                ]);
+              }}
+            >
+              <Icon name="delete-outline" size={22} color="#DC2626" />
+            </TouchableOpacity>
+          )
         )}
       </TouchableOpacity>
     );
@@ -803,11 +817,11 @@ function SharedMediaModal({ messages, myEmail, onClose, onViewImage }) {
         </View>
 
         {/* Type filter tabs */}
-        <View style={mStyles.typeBar}>
+          <View style={mStyles.typeBar}>
           {TYPE_FILTERS.map((f) => {
-            const active = typeFilter === f.key;
-            return (
-              <TouchableOpacity
+          const active = typeFilter === f.key;
+          return (
+          <TouchableOpacity
                 key={f.key}
                 style={[mStyles.typeTab, active && mStyles.typeTabActive]}
                 onPress={() => setTypeFilter(f.key)}
@@ -1185,7 +1199,7 @@ const mStyles = StyleSheet.create({
   pickerDone:    { fontSize: 16, fontWeight: '700', color: '#319241' },
 });
 
-// ─── Media bubble ─────────────────────────────────────────────────────────────
+// ───────────────────────── Media bubble ───────────────────────────────────────────────
 
 function MediaBubble({ message, isMe, onTap }) {
   const [downloaded,   setDownloaded]   = useState(false);
@@ -1199,14 +1213,11 @@ function MediaBubble({ message, isMe, onTap }) {
   useEffect(() => {
     // Skip while file is still uploading — it doesn't exist on S3 yet
     if (!message.mediaKey || isUploading) return;
-    if (isMe) {
-      getPresignedDownloadUrl(message.mediaKey).then(setPresignedUri).catch(() => {});
-    } else {
-      isFileDownloaded(message.mediaKey).then((yes) => {
-        setDownloaded(yes);
-        if (yes) setLocalUri('file://' + getLocalPath(message.mediaKey));
-      });
-    }
+    if (isMe) getPresignedDownloadUrl(message.mediaKey).then(setPresignedUri).catch(() => {});
+    isFileDownloaded(message.mediaKey).then((yes) => {
+      setDownloaded(yes);
+      if (yes) setLocalUri('file://' + getLocalPath(message.mediaKey));
+    });
   }, [message.mediaKey, isMe, isUploading]); // isUploading in deps → re-fetches when upload finishes
 
   const download = async () => {
@@ -1250,7 +1261,7 @@ function MediaBubble({ message, isMe, onTap }) {
   };
 
   const openVideo = async () => {
-    const uri = isMe ? presignedUri : localUri;
+    const uri = localUri || presignedUri;
     if (!uri) {
       if (!isMe && !downloaded) Alert.alert('Not downloaded', 'Download the video first to play it.');
       return;
@@ -1260,7 +1271,7 @@ function MediaBubble({ message, isMe, onTap }) {
 
   const isImage    = message.type === 'image';
   const isVideo    = message.type === 'video';
-  const displayUri  = isMe ? presignedUri : localUri;
+  const displayUri  = localUri || presignedUri;
   const showPreview = !!displayUri;
 
   // File is still uploading — show a placeholder so neither side tries to open/download it
@@ -1309,31 +1320,29 @@ function MediaBubble({ message, isMe, onTap }) {
         </TouchableOpacity>
       )}
 
-      {!isMe && (
-        <View style={styles.mediaActions}>
-          {busy ? (
-            <View style={styles.progressRow}>
-              <ActivityIndicator size="small" color="#319241" />
-              <Text style={styles.progressText}>{Math.round(progress * 100)}%</Text>
-            </View>
-          ) : downloaded ? (
-            <TouchableOpacity style={styles.mediaActionBtn} onPress={deleteLocal}>
-              <Icon name="delete-outline" size={16} color="#DC2626" />
-              <Text style={[styles.mediaActionTxt, { color: '#DC2626' }]}>Delete from device</Text>
-            </TouchableOpacity>
-          ) : (
-            <TouchableOpacity style={styles.mediaActionBtn} onPress={download}>
-              <Icon name="file-download" size={16} color="#319241" />
-              <Text style={[styles.mediaActionTxt, { color: '#319241' }]}>Download</Text>
-            </TouchableOpacity>
-          )}
-        </View>
-      )}
+      <View style={styles.mediaActions}>
+        {busy ? (
+          <View style={styles.progressRow}>
+            <ActivityIndicator size="small" color="#319241" />
+            <Text style={styles.progressText}>{Math.round(progress * 100)}%</Text>
+          </View>
+        ) : downloaded ? (
+          <TouchableOpacity style={styles.mediaActionBtn} onPress={deleteLocal}>
+            <Icon name="delete-outline" size={16} color="#DC2626" />
+            <Text style={[styles.mediaActionTxt, { color: '#DC2626' }]}>Delete from device</Text>
+          </TouchableOpacity>
+        ) : !isMe ? (
+          <TouchableOpacity style={styles.mediaActionBtn} onPress={download}>
+            <Icon name="file-download" size={16} color="#319241" />
+            <Text style={[styles.mediaActionTxt, { color: '#319241' }]}>Download</Text>
+          </TouchableOpacity>
+        ) : null}
+      </View>
     </View>
   );
 }
 
-// ─── Message bubble ───────────────────────────────────────────────────────────
+// ──────────────────────── Message bubble ─────────────────────────────────────────────────────
 
 function ReplyQuote({ replyTo, isMe, onPress }) {
   if (!replyTo) return null;
@@ -1814,7 +1823,7 @@ export default function ChatScreen({ route, navigation }) {
 
       // Notification params are stored in the queue and fired AFTER upload completes
       await addToUploadQueue({
-        msgId: msgRef.id, chatId, localUri, s3Key, mimeType, type,
+        msgId: msgRef.id, chatId, localUri, s3Key, mimeType, type, fileName: displayName,
         notif: chatMeta?.participants ? {
           chatId, chatName, senderName: myName, preview,
           participants: chatMeta.participants, senderEmail: myEmail, chatType,

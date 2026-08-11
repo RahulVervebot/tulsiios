@@ -118,7 +118,7 @@ function EditRedProduct({ visible, item, onClose, onSave }) {
         },
         body: JSON.stringify(buildUpdatePayload(updatedItem)),
       });
-console.log("updatedItem", JSON.stringify(buildUpdatePayload(updatedItem)));
+     console.log("updatedItem", JSON.stringify(buildUpdatePayload(updatedItem)));
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         console.warn('Update red products failed:', data);

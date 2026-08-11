@@ -14,11 +14,9 @@ const APNS_KEY_P8_BASE64 = defineSecret('APNS_KEY_P8_BASE64');
 const APNS_KEY_ID        = defineString('APNS_KEY_ID');
 const APNS_TEAM_ID       = defineString('APNS_TEAM_ID');
 const APNS_BUNDLE_ID     = defineString('APNS_BUNDLE_ID');
-const APNS_ENV           = defineString('APNS_ENV', { default: 'production' });
-
+const APNS_ENV           = defineString('APNS_ENV', { default: 'sandbox' });
 const GMAIL_USER = defineSecret('GMAIL_USER');
 const GMAIL_PASS = defineSecret('GMAIL_PASS');
-
 // ── JWT helper — ES256 token signed with the p8 private key ──────────────────
 let _jwtCache = null;
 

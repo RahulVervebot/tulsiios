@@ -22,14 +22,15 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import Icon from 'react-native-vector-icons/MaterialIcons';
 import InCallManager from 'react-native-incall-manager';
 import { useFocusEffect } from '@react-navigation/native';
-import { sendCallPushNotification } from '../config/OneSignalConfig';
+import { sendMissedCallPushNotification } from '../config/OneSignalConfig';
 import { useActiveCall } from '../context/ActiveCallContext';
+import { reportCallActive, endCallKeep, clearAnsweredCall } from '../config/CallKeepConfig';
 
 const makeUUID = () =>
   'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
     const r = (Math.random() * 16) | 0;
     return (c === 'x' ? r : (r & 0x3) | 0x8).toString(16);
-  });
+});
 
 const ICE_SERVERS = [
   { urls: 'stun:stun.l.google.com:19302' },
@@ -49,7 +50,6 @@ const STATUS = {
 export default function VoiceCallScreen({ route, navigation }) {
   const [myEmail, setMyEmail] = useState('');
   const [myName, setMyName] = useState('');
-
   const [callStatus, setCallStatus] = useState(STATUS.IDLE);
   const [remoteUser, setRemoteUser] = useState(null);
   const [muted, setMuted] = useState(false);
@@ -61,7 +61,6 @@ export default function VoiceCallScreen({ route, navigation }) {
   const [addSearch, setAddSearch] = useState('');
   const [addUsers, setAddUsers] = useState([]);
   const [addingParticipant, setAddingParticipant] = useState(false);
-
   const pcRef = useRef(null);
   const localStreamRef = useRef(null);
   const callDocRef = useRef(null);
@@ -74,8 +73,9 @@ export default function VoiceCallScreen({ route, navigation }) {
   const endCallFiredRef = useRef(false);
   const remoteUserRef = useRef(null);
   const activeCallIdRef = useRef(null);
-
-  const { setActiveCall } = useActiveCall();
+  const callRoleRef = useRef(null); // 'caller' | 'callee'
+  const callWasConnectedRef = useRef(false);
+  const { setActiveCall, setMiniDuration } = useActiveCall();
 
   const setStatus = (s) => {
     callStatusRef.current = s;
@@ -122,6 +122,7 @@ export default function VoiceCallScreen({ route, navigation }) {
 
   // Auto-answer when navigated here from CallKeep (incomingCall only has callId/callerName)
   // Must fetch offer + full data from Firestore before calling answerCall.
+
   useEffect(() => {
     const call = route?.params?.incomingCall;
     if (!call?.callId) return;
@@ -133,7 +134,8 @@ export default function VoiceCallScreen({ route, navigation }) {
     firestore().collection('calls').doc(call.callId).get()
       .then((snap) => {
         const data = snap.data();
-        if (data) answerCall({ id: call.callId, ...data });
+        if (!data || data.status === 'ended' || data.status === 'rejected' || data.status === 'cancelled') return;
+        answerCall({ id: call.callId, ...data });
       })
       .catch((e) => Alert.alert('Error', 'Could not load call: ' + e.message));
   }, []);
@@ -146,6 +148,7 @@ export default function VoiceCallScreen({ route, navigation }) {
       firestore().collection('calls').doc(incomingCallId).update({ status: 'busy' }).catch(() => {});
       return;
     }
+
     // Show connecting UI immediately with a placeholder name while we fetch call data
     setStatus(STATUS.RINGING);
     firestore().collection('calls').doc(incomingCallId).get().then((snap) => {
@@ -154,6 +157,7 @@ export default function VoiceCallScreen({ route, navigation }) {
         setStatus(STATUS.IDLE);
         return;
       }
+
       // Show caller info immediately so the placeholder isn't blank during WebRTC setup
       const ru = { name: data.callerName, email: data.callerEmail || data.callerId };
       remoteUserRef.current = ru;
@@ -164,14 +168,13 @@ export default function VoiceCallScreen({ route, navigation }) {
 
   useEffect(() => {
     if (callStatus === STATUS.CONNECTED) {
-      timerRef.current = setInterval(() => setCallDuration((d) => d + 1), 1000);
+      timerRef.current = setInterval(() => setCallDuration((d) => { setMiniDuration(d + 1); return d + 1; }), 1000);
     } else {
       clearInterval(timerRef.current);
       if (callStatus === STATUS.IDLE) setCallDuration(0);
     }
     return () => clearInterval(timerRef.current);
   }, [callStatus]);
-
 
   useEffect(() => {
     const sub = AppState.addEventListener('change', () => {});
@@ -195,7 +198,9 @@ export default function VoiceCallScreen({ route, navigation }) {
     pc.oniceconnectionstatechange = () => setIceState(pc.iceConnectionState);
     pc.onconnectionstatechange = () => {
       if (pc.connectionState === 'connected') {
+        callWasConnectedRef.current = true;
         setStatus(STATUS.CONNECTED);
+        if (activeCallIdRef.current) reportCallActive(activeCallIdRef.current);
       } else if (pc.connectionState === 'failed') {
         // Terminal failure — end the call
         endCall(false);
@@ -258,6 +263,7 @@ export default function VoiceCallScreen({ route, navigation }) {
       } catch (_) {}
 
       console.log('[VoiceCall] startCall | caller:', myEmail, '| callee:', targetEmail);
+      callRoleRef.current = 'caller';
       remoteUserRef.current = targetUser;
       setRemoteUser(targetUser);
       setStatus(STATUS.CALLING);
@@ -299,6 +305,7 @@ export default function VoiceCallScreen({ route, navigation }) {
         if (data.status === 'answered' && data.answer && !pc.remoteDescription) {
           clearCallTimers();
           setCallSubLabel('');
+          callWasConnectedRef.current = true; // guard: answered = never send missed call
           try { InCallManager?.stopRingback?.(); } catch (_) {}
           await pc.setRemoteDescription(new RTCSessionDescription(data.answer));
           setStatus(STATUS.CONNECTED);
@@ -323,7 +330,7 @@ export default function VoiceCallScreen({ route, navigation }) {
       });
 
       unsubsRef.current.push(unsub1, unsub2);
-      sendCallPushNotification(targetEmail, myName || myEmail, 'voice', callId).catch(() => {});
+      // sendCallPushNotification(targetEmail, myName || myEmail, 'voice', callId).catch(() => {});
 
       // ── Forward after 30s if agent hasn't answered ───────────────────────
       forwardTimerRef.current = setTimeout(async () => {
@@ -347,7 +354,7 @@ export default function VoiceCallScreen({ route, navigation }) {
             forwardedFrom: targetEmail,
             forwardedAt: firestore.FieldValue.serverTimestamp(),
           });
-          sendCallPushNotification(supervisor, myName || myEmail, 'voice', callId).catch(() => {});
+          // sendCallPushNotification(supervisor, myName || myEmail, 'voice', callId).catch(() => {});
         } catch (_) {}
       }, 30_000);
 
@@ -370,6 +377,7 @@ export default function VoiceCallScreen({ route, navigation }) {
   const answerCall = async (callData) => {
     if (!callData) return;
     try {
+      callRoleRef.current = 'callee';
       const ru = { name: callData.callerName, email: callData.callerEmail || callData.callerId };
       remoteUserRef.current = ru;
       setRemoteUser(ru);
@@ -391,6 +399,14 @@ export default function VoiceCallScreen({ route, navigation }) {
       const answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
 
+      // Check if caller cancelled while we were setting up WebRTC
+      const freshSnap = await callRef.get({ source: 'server' }).catch(() => null);
+      const freshStatus = freshSnap?.data()?.status;
+      if (freshStatus === 'ended' || freshStatus === 'rejected' || freshStatus === 'cancelled') {
+        endCall(false);
+        return;
+      }
+
       await callRef.update({
         answer: { type: answer.type, sdp: answer.sdp },
         status: 'answered',
@@ -408,7 +424,7 @@ export default function VoiceCallScreen({ route, navigation }) {
       // Watch for remote end/reject so callee disconnects immediately
       const unsubStatus = callRef.onSnapshot((snap) => {
         const data = snap.data();
-        if (data?.status === 'ended' || data?.status === 'rejected') {
+        if (data?.status === 'ended' || data?.status === 'rejected' || data?.status === 'cancelled') {
           endCall(false);
         }
       });
@@ -422,13 +438,20 @@ export default function VoiceCallScreen({ route, navigation }) {
   const endCall = async (updateDb = true) => {
     if (endCallFiredRef.current) return;
     endCallFiredRef.current = true;
+    const wasCalling = callStatusRef.current === STATUS.CALLING;
+    const calleeEmail = remoteUserRef.current?.email;
+    const callId = activeCallIdRef.current;
     setActiveCall(null);
     if (updateDb && callDocRef.current) {
       try { await callDocRef.current.update({ status: 'ended' }); } catch (_) {}
     }
     cleanup();
+    if (callId) { clearAnsweredCall(callId); endCallKeep(callId); }
     try { InCallManager?.stopRingback?.(); } catch (_) {}
     try { InCallManager?.stop(); } catch (_) {}
+    if (wasCalling && callRoleRef.current === 'caller' && calleeEmail && !callWasConnectedRef.current) {
+      sendMissedCallPushNotification(calleeEmail, myName || myEmail, 'voice').catch(() => {});
+    }
     setStatus(STATUS.IDLE);
     navigation.reset({ index: 0, routes: [{ name: 'MainDrawer' }] });
   };
@@ -449,6 +472,7 @@ export default function VoiceCallScreen({ route, navigation }) {
     pcRef.current?.close();
     pcRef.current = null;
     callDocRef.current = null;
+    callWasConnectedRef.current = false;
   };
 
   const toggleMute = () => {
@@ -520,10 +544,10 @@ export default function VoiceCallScreen({ route, navigation }) {
         try { await callDocRef.current.update({ status: 'ended' }); } catch (_) {}
       }
 
-      sendCallPushNotification(guest.email, me.name, 'conference_voice', roomId).catch(() => {});
-      if (other) {
-        sendCallPushNotification(other.email, me.name, 'conference_voice', roomId).catch(() => {});
-      }
+      // sendCallPushNotification(guest.email, me.name, 'conference_voice', roomId).catch(() => {});
+      // if (other) {
+      //   sendCallPushNotification(other.email, me.name, 'conference_voice', roomId).catch(() => {});
+      // }
 
       setShowAddSheet(false);
       setAddingParticipant(false);
@@ -674,7 +698,6 @@ export default function VoiceCallScreen({ route, navigation }) {
       </View>
     );
   }
-
   // IDLE — call is always initiated externally; render nothing
   return <View style={styles.callScreen} />;
 }

@@ -211,6 +211,26 @@ export const downloadFromS3 = async (s3Key, fileName, onProgress) => {
   }
 };
 
+// Move a locally-held file (e.g. just-uploaded sender copy) into the permanent
+// local cache and track it, so it shows as "downloaded" and can be deleted later.
+export const registerLocalFile = async (s3Key, sourcePath, fileName) => {
+  try {
+    const dirExists = await RNBlobUtil.fs.isDir(LOCAL_DIR).catch(() => false);
+    if (!dirExists) await RNBlobUtil.fs.mkdir(LOCAL_DIR);
+
+    const localPath = LOCAL_DIR + fileName;
+    const clean      = sourcePath.replace('file://', '');
+    await RNBlobUtil.fs.cp(clean, localPath);
+
+    _map[s3Key] = localPath;
+    await _saveMap();
+    return localPath;
+  } catch (e) {
+    console.log('[S3] registerLocalFile error:', e?.message);
+    return null;
+  }
+};
+
 export const isFileDownloaded = async (s3Key) => {
   const p = _map[s3Key];
   if (!p) return false;

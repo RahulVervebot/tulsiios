@@ -4,11 +4,6 @@ import { useFocusEffect } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import API_ENDPOINTS, { initICMSBase } from '../../../icms_config/api';
 import DateTimePicker from '@react-native-community/datetimepicker';
-
-const pad2 = (n) => String(n).padStart(2, '0');
-const formatLocalDate = (date) =>
-  `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`;
-
 const SaveInvoiceModal = ({ isVisible, onClose,ImageURL, vendorName, defaultInvoiceNo = '', defaultInvoiceDateISO = '', tableData,cleardata,selectedVendor }) => {
   const [savedInvoiceNo, setSavedInvoiceNo] = useState('');
   const [invoiceDate, setInvoiceDate] = useState(new Date());
@@ -26,9 +21,10 @@ const SaveInvoiceModal = ({ isVisible, onClose,ImageURL, vendorName, defaultInvo
       const fetchInitialData = async () => {
         try {
           // Retrieve any needed tokens/urls (if used by fetchManageOrderReport)
-          const userEmail = await AsyncStorage.getItem('userEmail');
+             const userEmail = await AsyncStorage.getItem('userEmail');
           const temocrurl = await AsyncStorage.getItem('ocrurl');
           setUserEmail(userEmail || '');
+
           setOcrUrl(temocrurl);
         } catch (error) {
           console.error('Error fetching initial data:', error);
@@ -72,7 +68,7 @@ const SaveInvoiceModal = ({ isVisible, onClose,ImageURL, vendorName, defaultInvo
         condition: row.condition || '',
         source: row.source || ''
       }))
-    const selectedDate = formatLocalDate(invoiceDate);
+    const selectedDate = invoiceDate.toISOString().split('T')[0];
     const bodyPayload = {
       InvoicesImgUrls: ImageURL,
       InvoiceName: vendorName,
@@ -111,18 +107,19 @@ const SaveInvoiceModal = ({ isVisible, onClose,ImageURL, vendorName, defaultInvo
 
       const data = await response.json();
       console.log("response saved",data);
-      if(data.message === 'Product created successfully'){
-       Alert.alert('Invoice saved successfully.');
-      cleardata?.();
+      if(data.message){
+        Alert.alert(data.message || 'Invoice saved successfully.');
+       cleardata?.();
       setSavedInvoiceNo('');
       setInvoiceDate(new Date());
       setInvoiceMode('new');
       onClose();
       } else if(data.error.message){
         Alert.alert(data.error.message || 'Error saving invoice.');
-      }  else {
-        Alert.alert(data?.message || 'Error saving invoice.');
       }
+
+      // await handleCreateInvoice();
+   
      } catch (error) {
       Alert.alert('Error', 'Failed to save invoice.');
       console.log('error', error);
@@ -139,7 +136,7 @@ const handleCreateInvoice = async () => {
   }
 
   const invoiceNo = savedInvoiceNo.trim();
-  const invoiceSavedDate = formatLocalDate(invoiceDate);
+  const invoiceSavedDate = invoiceDate.toISOString().split('T')[0];
 
   // keep as a JSON string if your backend expects it in a header
 const vendordetails = selectedVendor;
@@ -272,7 +269,7 @@ const vendordetails = selectedVendor;
             onPress={() => setShowInvoiceDatePicker(true)}
             activeOpacity={0.8}
           >
-            <Text style={styles.dateText}>{formatLocalDate(invoiceDate)}</Text>
+            <Text style={styles.dateText}>{invoiceDate.toISOString().split('T')[0]}</Text>
           </TouchableOpacity>
 
           {Platform.OS === 'ios' && (

@@ -139,13 +139,14 @@ async function _onEnd({ callUUID }) {
   unmarkCallKitActive(callUUID);
 
   // We called endCall() ourselves after answering — not a real decline, skip Firestore.
+  // Do NOT clear _answeredCallId here; iOS may fire this event more than once for the
+  // same UUID (e.g. system + our explicit endCall). Keep the guard active until the
+  // call screen calls endCallKeep() which explicitly clears it via clearAnsweredCall().
   if (_answeredCallId === callUUID) {
-    _answeredCallId = null;
     return;
   }
-  _answeredCallId = null;
 
-  // User declined — clear native UserDefaults so checkLogin doesn't wait for an accept.
+  // User declined from native CallKit UI — write rejected and clean up.
   if (PendingCallModule?.clearPendingVoipCall) {
     PendingCallModule.clearPendingVoipCall().catch(() => {});
   }
@@ -153,6 +154,10 @@ async function _onEnd({ callUUID }) {
   try {
     await firestore().collection('calls').doc(callUUID).update({ status: 'rejected' });
   } catch (_) {}
+}
+
+export function clearAnsweredCall(callId) {
+  if (_answeredCallId === callId) _answeredCallId = null;
 }
 
 function _onDisplay({ error }) {

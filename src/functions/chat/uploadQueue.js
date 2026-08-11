@@ -1,7 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import RNBlobUtil from 'react-native-blob-util';
 import firestore from '@react-native-firebase/firestore';
-import { uploadToS3 } from '../../config/S3Config';
+import { uploadToS3, registerLocalFile } from '../../config/S3Config';
 import { sendChatPushNotification, incrementUnread } from './chatUtils';
 
 const QUEUE_KEY   = '@chat_upload_queue_v2';
@@ -97,7 +97,7 @@ export const processUploadQueue = async (onProgress) => {
     for (const task of q) {
       if (_cancelled) break; // user cancelled — stop processing further items
 
-      const { msgId, chatId, localUri, s3Key, mimeType } = task;
+      const { msgId, chatId, localUri, s3Key, mimeType, fileName } = task;
       try {
         await uploadToS3(localUri, s3Key, mimeType, onProgress, (t) => {
           _cancelCurrentTask = t;
@@ -119,6 +119,9 @@ export const processUploadQueue = async (onProgress) => {
           sendChatPushNotification(chatId, chatName, senderName, preview, participants, senderEmail, chatType);
         }
 
+        // Keep a local copy so the sender can also delete it from device later
+        const cacheName = fileName || s3Key.split('/').pop();
+        await registerLocalFile(s3Key, localUri, cacheName);
         await deletePersisted(localUri);
         console.log('[UploadQueue] ✓ uploaded:', s3Key);
       } catch (err) {

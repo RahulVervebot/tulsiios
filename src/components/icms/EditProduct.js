@@ -1,4 +1,5 @@
 import React, { useRef, useEffect, useState } from 'react';
+
 import {
   View,
   Text,
@@ -14,7 +15,9 @@ import {
   KeyboardAvoidingView,
   Platform
 } from 'react-native';
+
 import AsyncStorage from '@react-native-async-storage/async-storage';
+
 import API_ENDPOINTS from '../../../icms_config/api';
 
 function EditProduct({ visible, item, InvoiceDate, InvNumber, vendorName, onClose, onSave }) {
@@ -22,16 +25,17 @@ function EditProduct({ visible, item, InvoiceDate, InvNumber, vendorName, onClos
   const [loading, setLoading] = useState(false);
   const [editedItem, setEditedItem] = useState(item);
   const [qtyText, setQtyText] = useState('');
- const [piecesText, setPiecesText] = useState('');
+  const [piecesText, setPiecesText] = useState('');
   const [unitPriceText, setUnitPriceText] = useState('');
   const [extendedPriceText, setExtendedPriceText] = useState('');
   const isStockUpdated = item?.isStockUpdated === true || item?.isStockUpdated === 'true';
-  
+
   const parseNum = (v) => {
     const n = Number(String(v ?? '').replace(/[$,\s]/g, ''));
     return Number.isFinite(n) ? n : null;
   };
-  const to2 = (v) => Number(v).toFixed(2);
+
+ const to2 = (v) => Number(v).toFixed(2);
 
   const handleLinkedNumericChange = (field, text) => {
     // Update text state

@@ -8,7 +8,10 @@ import {
   ActivityIndicator,
   FlatList,
   Platform,
-  Alert
+  Alert,
+  PanResponder,
+  Animated,
+  Dimensions,
 } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { StackActions } from '@react-navigation/native';
@@ -226,12 +229,68 @@ function MainDrawer() {
 
 const CALL_SCREENS = new Set(['VideoCallScreen', 'VoiceCallScreen', 'ConferenceCallScreen']);
 
-function ReturnToCallBar({ navigationRef, activeRouteName }) {
-  const { activeCall } = useActiveCall();
+const MINI_W_VOICE = 180;
+const MINI_H_VOICE = 80;
+
+function FloatingCallCard({ navigationRef, activeRouteName }) {
+  const { activeCall, callDurationRef, miniTick } = useActiveCall();
+  const pan = useRef(new Animated.ValueXY()).current;
+  const posRef = useRef({ x: 0, y: 0 });
+  const screenW = Dimensions.get('window').width;
+  const screenH = Dimensions.get('window').height;
+
+  // Reset position to top-right when a new call starts
+  useEffect(() => {
+    if (activeCall) {
+      const initX = screenW - MINI_W_VOICE - 12;
+      const initY = 60;
+      posRef.current = { x: initX, y: initY };
+      pan.setValue({ x: initX, y: initY });
+    }
+  }, [!!activeCall]);
+
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: (_, gs) =>
+        Math.abs(gs.dx) > 4 || Math.abs(gs.dy) > 4,
+      onPanResponderGrant: () => {
+        pan.setOffset(posRef.current);
+        pan.setValue({ x: 0, y: 0 });
+      },
+      onPanResponderMove: Animated.event(
+        [null, { dx: pan.x, dy: pan.y }],
+        { useNativeDriver: false }
+      ),
+      onPanResponderRelease: (_, gs) => {
+        pan.flattenOffset();
+        const rawX = posRef.current.x + gs.dx;
+        const rawY = posRef.current.y + gs.dy;
+        const clampedX = Math.max(8, Math.min(rawX, screenW - MINI_W_VOICE - 8));
+        const clampedY = Math.max(50, Math.min(rawY, screenH - MINI_H_VOICE - 50));
+        posRef.current = { x: clampedX, y: clampedY };
+        Animated.spring(pan, {
+          toValue: { x: clampedX, y: clampedY },
+          useNativeDriver: false,
+          bounciness: 4,
+        }).start();
+      },
+    })
+  ).current;
+
   if (!activeCall) return null;
   if (CALL_SCREENS.has(activeRouteName)) return null;
 
-  const handlePress = () => {
+  const isVideo = activeCall.screen === 'VideoCallScreen';
+  const duration = callDurationRef.current;
+  const mm = String(Math.floor(duration / 60)).padStart(2, '0');
+  const ss = String(duration % 60).padStart(2, '0');
+  const durationStr = `${mm}:${ss}`;
+
+  const cardW = MINI_W_VOICE;
+  const cardH = MINI_H_VOICE;
+
+  const navigateToCall = () => {
     const nav = navigationRef.current;
     if (!nav?.isReady?.()) return;
     const state = nav.getRootState();
@@ -242,27 +301,36 @@ function ReturnToCallBar({ navigationRef, activeRouteName }) {
       if (routes[i].name === activeCall.screen) { callIdx = i; break; }
     }
     if (callIdx >= 0 && callIdx < currentIdx) {
-      nav.reset({
-        index: callIdx,
-        routes: routes.slice(0, callIdx + 1),
-      });
+      nav.reset({ index: callIdx, routes: routes.slice(0, callIdx + 1) });
     } else if (callIdx === -1) {
-      // Call screen not in stack — push it fresh (handles edge cases)
       nav.dispatch(StackActions.push(activeCall.screen, activeCall.params || {}));
     }
   };
 
   return (
-    <TouchableOpacity
-      style={styles.returnToCallBar}
-      onPress={handlePress}
-      activeOpacity={0.85}
+    <Animated.View
+      style={[
+        styles.floatingCard,
+        { width: cardW, height: cardH, borderRadius: 40 },
+        { transform: pan.getTranslateTransform() },
+      ]}
+      {...panResponder.panHandlers}
     >
-      <View style={styles.returnToCallPulse} />
-      <Icon name={activeCall.screen === 'VoiceCallScreen' ? 'call' : 'videocam'} size={18} color="#fff" style={{ marginRight: 8 }} />
-      <Text style={styles.returnToCallText}>{activeCall.label || 'Return to Call'}</Text>
-      <Text style={styles.returnToCallArrow}>›</Text>
-    </TouchableOpacity>
+      <TouchableOpacity style={styles.floatingVoiceInner} onPress={navigateToCall} activeOpacity={0.9}>
+        <View style={styles.floatingVoiceIcon}>
+          <Icon name={isVideo ? 'videocam' : 'call'} size={20} color="#fff" />
+        </View>
+        <View style={styles.floatingVoiceInfo}>
+          <Text style={styles.floatingVoiceName} numberOfLines={1}>
+            {activeCall.label?.replace('Video call with ', '').replace('Voice call with ', '') || (isVideo ? 'Video Call' : 'Voice Call')}
+          </Text>
+          <Text style={styles.floatingVoiceDuration}>
+            {duration > 0 ? durationStr : 'Calling…'}
+          </Text>
+        </View>
+        <Icon name="chevron-forward" size={18} color="rgba(255,255,255,0.6)" />
+      </TouchableOpacity>
+    </Animated.View>
   );
 }
 
@@ -282,8 +350,8 @@ export default function App() {
   const [initialParams, setInitialParams] = useState({});
   const [activeRouteName, setActiveRouteName] = useState('');
   const navigationRef = useRef(null);
-  const CHAT_HIDDEN_ROUTES = new Set(['Login', 'CategoryListScreen', 'CategoryProducts', 'ProductScreen','CallLoginScreen','ChatScreen','VideoCallScreen','VoiceCallScreen','ConferenceCallScreen','SupportScreen']);
-
+  const CHAT_HIDDEN_ROUTES = new Set(['Login', 'CategoryListScreen', 'CategoryProducts', 'ProductScreen','CallLoginScreen','ChatScreen','VideoCallScreen','VoiceCallScreen','ConferenceCallScreen','SupportScreen','OcrScreen']);
+   const CHAT_SHOW_ROUTES = new Set(['Dashboard','ICMSScreen','Report','POSScreen']);
   useEffect(() => {
     initUploadManager(); // resume any pending uploads from previous session
   }, []);
@@ -751,11 +819,11 @@ export default function App() {
           />
           </Stack.Navigator>
 
-          {!CHAT_HIDDEN_ROUTES.has(activeRouteName) && isAllowTulsiChatSupport && <ChatOverlay />}
+          {CHAT_SHOW_ROUTES.has(activeRouteName) && isAllowTulsiChatSupport && <ChatOverlay />}
           {initialRoute === 'MainDrawer' || activeRouteName !== 'Login'
             ? <IncomingCallOverlay navigationRef={navigationRef} />
             : null}
-          <ReturnToCallBar navigationRef={navigationRef} activeRouteName={activeRouteName} />
+          <FloatingCallCard navigationRef={navigationRef} activeRouteName={activeRouteName} />
         </View>
         </NavigationContainer>
       </SafeAreaProvider>
@@ -806,40 +874,85 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
   },
-  returnToCallBar: {
+  floatingCard: {
     position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    backgroundColor: '#1a7a2e',
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingTop: 48,
-    paddingBottom: 12,
+    overflow: 'hidden',
     elevation: 20,
     zIndex: 9999,
     shadowColor: '#000',
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.45,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 4 },
+    backgroundColor: '#111',
   },
-  returnToCallPulse: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: '#6EE7B7',
-    marginRight: 8,
-  },
-  returnToCallText: {
+  floatingNoVideo: {
     flex: 1,
+    backgroundColor: '#1a2e1a',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  floatingVideoOverlay: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    gap: 6,
+  },
+  floatingLiveDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#6EE7B7',
+  },
+  floatingDuration: {
     color: '#fff',
-    fontSize: 14,
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  floatingExpandBtn: {
+    position: 'absolute',
+    top: 6,
+    right: 6,
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: 'rgba(0,0,0,0.4)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  floatingVoiceInner: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    backgroundColor: '#1a7a2e',
+    gap: 10,
+  },
+  floatingVoiceIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(255,255,255,0.15)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  floatingVoiceInfo: {
+    flex: 1,
+  },
+  floatingVoiceName: {
+    color: '#fff',
+    fontSize: 13,
     fontWeight: '700',
   },
-  returnToCallArrow: {
-    color: '#fff',
-    fontSize: 22,
-    fontWeight: '300',
+  floatingVoiceDuration: {
+    color: '#6EE7B7',
+    fontSize: 11,
+    fontWeight: '500',
+    marginTop: 1,
   },
 });

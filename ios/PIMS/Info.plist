@@ -89,6 +89,8 @@
 		<string>voip</string>
 		<string>audio</string>
 		<string>remote-notification</string>
+		<string>fetch</string>
+		<string>picture-in-picture</string>
 	</array>
 	<key>UILaunchStoryboardName</key>
 	<string>LaunchScreen</string>

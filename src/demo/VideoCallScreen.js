@@ -18,9 +18,6 @@ import {
   RTCIceCandidate,
   RTCSessionDescription,
   RTCView,
-  RTCPIPView,
-  startIOSPIP,
-  stopIOSPIP,
   mediaDevices,
 } from 'react-native-webrtc';
 import firestore from '@react-native-firebase/firestore';
@@ -30,8 +27,6 @@ import InCallManager from 'react-native-incall-manager';
 import { sendMissedCallPushNotification } from '../config/OneSignalConfig';
 import { useActiveCall } from '../context/ActiveCallContext';
 import { useFocusEffect } from '@react-navigation/native';
-import { StackActions } from '@react-navigation/native';
-import { reportCallActive, endCallKeep, clearAnsweredCall } from '../config/CallKeepConfig';
 
 const makeUUID = () =>
   'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
@@ -55,7 +50,7 @@ const STATUS = {
 };
 
 export default function VideoCallScreen({ route, navigation }) {
-  const params = route?.params;
+
   const [myEmail, setMyEmail] = useState('');
   const [myName, setMyName] = useState('');
   const [callStatus, setCallStatus] = useState(STATUS.IDLE);
@@ -90,10 +85,8 @@ export default function VideoCallScreen({ route, navigation }) {
   const cameraOffRef = useRef(false);
   const activeCallIdRef = useRef(null);
   const callRoleRef = useRef(null); // 'caller' | 'callee'
-  const callWasConnectedRef = useRef(false);
-  const pipViewRef = useRef(null);
 
-  const { setActiveCall, setMiniRemoteURL, setMiniDuration } = useActiveCall();
+  const { setActiveCall } = useActiveCall();
 
   const setStatus = (s) => {
     callStatusRef.current = s;
@@ -128,18 +121,19 @@ export default function VideoCallScreen({ route, navigation }) {
     resolve();
   }, []);
 
-  // Auto-start outgoing call when params arrive with a target user
+  // Auto-start outgoing call when navigated from SupportScreen with a target user
   useEffect(() => {
-    const target = params?.outgoingUser;
+    const target = route?.params?.outgoingUser;
     if (myEmail && target && !autoCallFiredRef.current) {
       autoCallFiredRef.current = true;
       startCall(target);
     }
   }, [myEmail]);
 
-  // Auto-answer when params arrive from CallKeep (incomingCall has callId/callerName)
+  // Auto-answer when navigated here from CallKeep (incomingCall only has callId/callerName)
+  // Must fetch offer + full data from Firestore before calling answerCall.
   useEffect(() => {
-    const call = params?.incomingCall;
+    const call = route?.params?.incomingCall;
     if (!call?.callId) return;
     if (callStatusRef.current !== STATUS.IDLE) {
       firestore().collection('calls').doc(call.callId).update({ status: 'busy' }).catch(() => {});
@@ -155,13 +149,14 @@ export default function VideoCallScreen({ route, navigation }) {
   }, []);
 
   // Answer an incoming call — triggered by in-app overlay or CallKit accept.
-  const incomingCallId = params?.incomingCallId;
+  const incomingCallId = route?.params?.incomingCallId;
   useEffect(() => {
     if (!incomingCallId) return;
     if (callStatusRef.current !== STATUS.IDLE) {
       firestore().collection('calls').doc(incomingCallId).update({ status: 'busy' }).catch(() => {});
       return;
     }
+    // Show connecting UI immediately with a placeholder name while we fetch call data
     setStatus(STATUS.RINGING);
     firestore().collection('calls').doc(incomingCallId).get().then((snap) => {
       const data = snap.data();
@@ -169,6 +164,7 @@ export default function VideoCallScreen({ route, navigation }) {
         setStatus(STATUS.IDLE);
         return;
       }
+      // Show caller info immediately so the placeholder isn't blank during WebRTC setup
       const ru = { name: data.callerName, email: data.callerEmail || data.callerId };
       remoteUserRef.current = ru;
       setRemoteUser(ru);
@@ -178,7 +174,7 @@ export default function VideoCallScreen({ route, navigation }) {
 
   useEffect(() => {
     if (callStatus === STATUS.CONNECTED) {
-      timerRef.current = setInterval(() => setCallDuration((d) => { setMiniDuration(d + 1); return d + 1; }), 1000);
+      timerRef.current = setInterval(() => setCallDuration((d) => d + 1), 1000);
     } else {
       clearInterval(timerRef.current);
       if (callStatus === STATUS.IDLE) setCallDuration(0);
@@ -221,7 +217,7 @@ export default function VideoCallScreen({ route, navigation }) {
     if (callStatusRef.current === STATUS.IDLE) return;
 
     const doRefresh = () => {
-      if (remoteStreamRef.current) { const u = remoteStreamRef.current.toURL(); setRemoteURL(u); setMiniRemoteURL(u); }
+      if (remoteStreamRef.current) setRemoteURL(remoteStreamRef.current.toURL());
       if (!cameraOffRef.current && localStreamRef.current) setLocalURL(localStreamRef.current.toURL());
       // Hide for one frame then show — forces Metal surface rebind
       setVideosVisible(false);
@@ -245,7 +241,7 @@ export default function VideoCallScreen({ route, navigation }) {
             localStreamRef.current?.getVideoTracks().forEach((t) => t.stop());
             localStreamRef.current = newStream;
             setLocalURL(newStream.toURL());
-            if (remoteStreamRef.current) { const u = remoteStreamRef.current.toURL(); setRemoteURL(u); setMiniRemoteURL(u); }
+            if (remoteStreamRef.current) setRemoteURL(remoteStreamRef.current.toURL());
             setVideosVisible(false);
             setTimeout(() => setVideosVisible(true), 50);
           })
@@ -261,13 +257,7 @@ export default function VideoCallScreen({ route, navigation }) {
   useEffect(() => {
     const sub = AppState.addEventListener('change', (nextState) => {
       if (nextState === 'active') {
-        try { stopIOSPIP(pipViewRef); } catch (_) {}
         setTimeout(() => refreshVideo(true), 300);
-      } else if (nextState === 'background') {
-        if (callStatusRef.current !== STATUS.IDLE) {
-          localStreamRef.current?.getVideoTracks().forEach((t) => { t.enabled = false; });
-          try { startIOSPIP(pipViewRef); } catch (_) {}
-        }
       }
     });
     return () => {
@@ -276,16 +266,12 @@ export default function VideoCallScreen({ route, navigation }) {
     };
   }, [refreshVideo]);
 
-  // When user navigates back to this screen (from FloatingCallCard tap),
-  // stop PiP and reacquire camera so the full-screen call resumes correctly.
   useFocusEffect(
     useCallback(() => {
       if (callStatusRef.current === STATUS.IDLE) return;
-      try { stopIOSPIP(pipViewRef); } catch (_) {}
-      refreshVideo(true);
+      refreshVideo(false);
     }, [refreshVideo])
   );
-
 
   const buildPC = () => {
     const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
@@ -293,17 +279,13 @@ export default function VideoCallScreen({ route, navigation }) {
     pc.ontrack = (event) => {
       if (event.streams && event.streams[0]) {
         remoteStreamRef.current = event.streams[0];
-        const url = event.streams[0].toURL();
-        setRemoteURL(url);
-        setMiniRemoteURL(url);
+        setRemoteURL(event.streams[0].toURL());
       }
     };
     pc.oniceconnectionstatechange = () => setIceState(pc.iceConnectionState);
     pc.onconnectionstatechange = () => {
       if (pc.connectionState === 'connected') {
-        callWasConnectedRef.current = true;
         setStatus(STATUS.CONNECTED);
-        if (activeCallIdRef.current) reportCallActive(activeCallIdRef.current);
       } else if (pc.connectionState === 'failed') {
         // Terminal failure — end the call
         endCall(false);
@@ -395,7 +377,6 @@ export default function VideoCallScreen({ route, navigation }) {
         if (data.status === 'answered' && data.answer && !pc.remoteDescription) {
           clearCallTimers();
           setCallSubLabel('');
-          callWasConnectedRef.current = true; // guard: answered = never send missed call
           await pc.setRemoteDescription(new RTCSessionDescription(data.answer));
           setStatus(STATUS.CONNECTED);
         }
@@ -420,6 +401,7 @@ export default function VideoCallScreen({ route, navigation }) {
 
       unsubsRef.current.push(unsub1, unsub2);
       // sendCallPushNotification(targetEmail, myName || myEmail, 'video', callId).catch(() => {});
+
       // ── Forward after 30s if agent hasn't answered ───────────────────────
       forwardTimerRef.current = setTimeout(async () => {
         if (callStatusRef.current !== STATUS.CALLING) return;
@@ -531,14 +513,12 @@ export default function VideoCallScreen({ route, navigation }) {
     endCallFiredRef.current = true;
     const wasCalling = callStatusRef.current === STATUS.CALLING;
     const calleeEmail = remoteUserRef.current?.email;
-    const callId = activeCallIdRef.current;
     setActiveCall(null);
     if (updateDb && callDocRef.current) {
       try { await callDocRef.current.update({ status: 'ended' }); } catch (_) {}
     }
     cleanup();
-    if (callId) { clearAnsweredCall(callId); endCallKeep(callId); }
-    if (wasCalling && callRoleRef.current === 'caller' && calleeEmail && !callWasConnectedRef.current) {
+    if (wasCalling && callRoleRef.current === 'caller' && calleeEmail) {
       sendMissedCallPushNotification(calleeEmail, myName || myEmail, 'video').catch(() => {});
     }
     setStatus(STATUS.IDLE);
@@ -561,9 +541,6 @@ export default function VideoCallScreen({ route, navigation }) {
     remoteStreamRef.current = null;
     setLocalURL(null);
     setRemoteURL(null);
-    setMiniRemoteURL(null);
-    setMiniDuration(0);
-    callWasConnectedRef.current = false;
     pcRef.current?.close();
     pcRef.current = null;
     callDocRef.current = null;
@@ -706,36 +683,19 @@ export default function VideoCallScreen({ route, navigation }) {
       <View style={styles.callScreen}>
         <StatusBar barStyle="light-content" />
 
-        <TouchableOpacity
-          style={styles.minimizeBtn}
-          onPress={() => {
-            localStreamRef.current?.getVideoTracks().forEach((t) => { t.enabled = false; });
-            try { startIOSPIP(pipViewRef); } catch (_) {}
-            // Push MainDrawer ON TOP — VideoCallScreen stays mounted beneath so
-            // RTCPIPView keeps its native backing and PiP continues outside the app.
-            // FloatingCallCard tap resets the stack back to VideoCallScreen.
-            navigation.dispatch(StackActions.push('MainDrawer'));
-          }}
-        >
+        {/* Minimize — navigate to MainDrawer; VideoCallScreen stays mounted beneath */}
+        <TouchableOpacity style={styles.minimizeBtn} onPress={() => navigation.navigate('MainDrawer')}>
           <Icon name="keyboard-arrow-down" size={28} color="#fff" />
         </TouchableOpacity>
 
-        {/* RTCPIPView must always be visible so iOS PiP has pixel content to capture */}
-        <RTCPIPView
-          ref={pipViewRef}
+        <RTCView
           streamURL={remoteURL || ''}
-          style={StyleSheet.absoluteFill}
+          style={[StyleSheet.absoluteFill, { opacity: remoteURL && videosVisible ? 1 : 0 }]}
           objectFit="cover"
-          iosPIP={{
-            enabled: true,
-            startAutomatically: false,
-            stopAutomatically: true,
-            preferredSize: { width: 180, height: 320 },
-          }}
         />
 
-        {/* Placeholder shown when no remote video yet — sits on top of RTCPIPView */}
-        {(!remoteURL || !videosVisible) && (
+        {/* Placeholder shown when no remote video yet */}
+        {!remoteURL && (
           <View style={styles.noVideoPlaceholder}>
             <View style={styles.callAvatar}>
               <Icon name="person" size={64} color="#fff" />

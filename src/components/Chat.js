@@ -134,8 +134,6 @@ export default function Chat({ style, buttonStyle, isOpen: externalIsOpen, setIs
   const [messages, setMessages] = useState([]);
   const [message, setMessage] = useState('');
   const [sending, setSending] = useState(false);
-  const [showTypeSelector, setShowTypeSelector] = useState(false);
-  const [switchingAgent, setSwitchingAgent] = useState(false);
   const [wsConnected, setWsConnected] = useState(false);
   const [, forceUpdate] = useState({});
   const [pendingAttachments, setPendingAttachments] = useState([]);
@@ -167,7 +165,6 @@ export default function Chat({ style, buttonStyle, isOpen: externalIsOpen, setIs
   const messageRef = useRef('');
   const voiceAutoSendRef = useRef(false);
   const pendingTypeMessageRef = useRef('');
-  const showTypeSelectorRef = useRef(false);
   const selectedConversationRef = useRef(null);
   const navigationRef = useRef(null);
   const messagesEndRef = useRef(null);
@@ -213,45 +210,6 @@ export default function Chat({ style, buttonStyle, isOpen: externalIsOpen, setIs
       </Text>
     );
   };
-
-  const ConversationTypeSelector = ({ onSelect, onCancel }) => (
-    <>
-    {!sending ?
-  <View style={styles.typeSelector}>
-    <Text style={styles.typeTitle}>Choose conversation type</Text>
-    <Text style={styles.typeSubtitle}>Pick how you want to chat with us.</Text>
-    <TouchableOpacity style={styles.typeCard} onPress={() => onSelect('ai')}>
-      <View style={styles.typeCardIcon}>
-        <Icon name="smart-toy" size={18} color="#16A34A" />
-      </View>
-      <View style={styles.typeCardBody}>
-        <Text style={styles.typeCardTitle}>Ask AI Agent</Text>
-        <Text style={styles.typeCardText}>Get instant answers and insights from your POS data.</Text>
-      </View>
-      <View style={styles.typeCardAction}>
-         <Text style={styles.typeCardActionText}> {sending ? 'Sending...' : 'Send'}</Text>
-      </View>
-    </TouchableOpacity>
-    <TouchableOpacity style={styles.typeCard} onPress={() => onSelect('support')}>
-      <View style={styles.typeCardIcon}>
-        <Icon name="support-agent" size={18} color="#16A34A" />
-      </View>
-      <View style={styles.typeCardBody}>
-        <Text style={styles.typeCardTitle}>Contact Support</Text>
-        <Text style={styles.typeCardText}>Message a live support agent for help and troubleshooting.</Text>
-      </View>
-      <View style={styles.typeCardAction}>
-        <Text style={styles.typeCardActionText}>Start</Text>
-      </View>
-    </TouchableOpacity>
-    <TouchableOpacity style={[styles.typeBtn, styles.typeCancel]} onPress={onCancel}>
-      <Text style={styles.typeCancelText}>Cancel</Text>
-    </TouchableOpacity>
-  </View>
-  :''
-}
-  </>
-);
 
   useEffect(() => {
     authBootstrapRef.current = (async () => {
@@ -337,10 +295,6 @@ export default function Chat({ style, buttonStyle, isOpen: externalIsOpen, setIs
       wsBase: wsBase || '',
     };
   }, [accessToken, apiBase, frontBase, wsBase]);
-
-  useEffect(() => {
-    showTypeSelectorRef.current = showTypeSelector;
-  }, [showTypeSelector]);
 
   useEffect(() => {
     selectedConversationRef.current = selectedConversation;
@@ -912,9 +866,14 @@ const loadMessages = async (conversationId) => {
       setSending(true);
 
       if (!selectedConversation) {
-        setShowTypeSelector(true);
         pendingTypeMessageRef.current = messageContent;
         setMessage('');
+        if (tenants.length > 1) {
+          setPendingConversationType('ai');
+          setShowStoreModal(true);
+        } else {
+          handleTypeSelection('ai');
+        }
         return;
       }
 
@@ -1084,12 +1043,14 @@ const loadMessages = async (conversationId) => {
 
       if (!latestText) return;
 
-      const needsTypeSelection =
-        showTypeSelectorRef.current || !selectedConversationRef.current;
-
-      if (needsTypeSelection) {
+      if (!selectedConversationRef.current) {
         pendingTypeMessageRef.current = latestText;
-        setShowTypeSelector(true);
+        if (tenants.length > 1) {
+          setPendingConversationType('ai');
+          setShowStoreModal(true);
+        } else {
+          handleTypeSelection('ai');
+        }
         return;
       }
 
@@ -1162,7 +1123,6 @@ const loadMessages = async (conversationId) => {
         }
       }
 
-      setShowTypeSelector(false);
       setMessage('');
       pendingTypeMessageRef.current = '';
     } catch (error) {
@@ -1176,47 +1136,15 @@ const loadMessages = async (conversationId) => {
     }
   };
 
-  const handleSwitchAgent = async () => {
-    if (!selectedConversation) return;
-
-    try {
-      const chatContext = await ensureChatContext();
-      if (!chatContext) return;
-      const { endpoints: resolvedEndpoints, authHeaders: resolvedAuthHeaders } = chatContext;
-      setSwitchingAgent(true);
-      const newType = selectedConversation.conversation_type === 'ai' ? 'support' : 'ai';
-      const res = await fetch(resolvedEndpoints.switchAgent(selectedConversation.id), {
-        method: 'POST',
-        headers: resolvedAuthHeaders,
-        body: JSON.stringify({ agent_type: newType }),
-      });
-      const data = await parseJsonSafe(res, resolvedEndpoints.switchAgent(selectedConversation.id));
-      if (!res.ok) {
-        throw new Error(data?.detail || 'Failed to switch agent');
-      }
-
-      const updatedConv = {
-        ...selectedConversation,
-        conversation_type: newType,
-        subject: data?.subject || selectedConversation.subject,
-        chat_display_name: data?.chat_display_name || selectedConversation.chat_display_name,
-      };
-      setSelectedConversation(updatedConv);
-      setConversations((prev) =>
-        prev.map((c) => (String(c.id) === String(selectedConversation.id) ? updatedConv : c))
-      );
-
-      const msgsRes = await fetch(resolvedEndpoints.conversationHistory(selectedConversation.id), {
-        method: 'GET',
-        headers: resolvedAuthHeaders,
-      });
-      const msgs = await parseJsonSafe(msgsRes, resolvedEndpoints.conversationHistory(selectedConversation.id));
-      setMessages(transformMessages(msgs || []));
-      setWaitingForAI(false);
-    } catch (error) {
-      console.error('Failed to switch agent:', error);
-    } finally {
-      setSwitchingAgent(false);
+  const handleStartNewConversation = () => {
+    setSelectedConversation(null);
+    setMessages([]);
+    setWaitingForAI(false);
+    if (tenants.length > 1) {
+      setPendingConversationType('ai');
+      setShowStoreModal(true);
+    } else {
+      handleTypeSelection('ai');
     }
   };
 
@@ -1436,9 +1364,7 @@ const loadMessages = async (conversationId) => {
                 </View>
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={styles.headerTitle}>
-                  {selectedConversation?.conversation_type === 'ai' ? "AI Agent" : 'Support Chat'}
-                </Text>
+                <Text style={styles.headerTitle}>AI Agent</Text>
                 <Text style={styles.headerSubtitle}>{userName}</Text>
               </View>
               <View style={styles.headerActions}>
@@ -1448,20 +1374,10 @@ const loadMessages = async (conversationId) => {
                     onPress={() => {
                       setSelectedConversation(null);
                       setMessages([]);
-                      setShowTypeSelector(false);
                       setWaitingForAI(false);
                     }}
                   >
                     <Text style={styles.headerBtnText}>Dashboard</Text>
-                  </TouchableOpacity>
-                )}
-                {selectedConversation && (
-                  <TouchableOpacity
-                    style={[styles.headerBtn, switchingAgent && styles.headerBtnDisabled]}
-                    onPress={handleSwitchAgent}
-                    disabled={switchingAgent}
-                  >
-                    <Text style={styles.headerBtnText}>Switch</Text>
                   </TouchableOpacity>
                 )}
                 <TouchableOpacity style={styles.headerBtn} onPress={() => setIsOpen(false)}>
@@ -1471,29 +1387,7 @@ const loadMessages = async (conversationId) => {
             </View>
 
             <View style={styles.messagesPanel}>
-              {showTypeSelector ? (
-                <ConversationTypeSelector
-                  onSelect={(type) => {
-                    if (tenants.length > 1) {
-                     setPendingConversationType(type);
-                    if (type === 'ai') {
-                      setShowStoreModal(true);
-                    }
-                   else {
-                      handleTypeSelection(type);
-                    }
-                  }
-                  else{
-                      handleTypeSelection(type);
-                  }
-                  }}
-                  onCancel={() => {
-                    setShowTypeSelector(false);
-                    setMessage('');
-                    setSending(false);
-                  }}
-                />
-              ) : !selectedConversation ? (
+              {!selectedConversation ? (
                 <ScrollView contentContainerStyle={styles.emptyWrap}>
                   {loadingConversations ? (
                     <View style={styles.emptyLoaderWrap}>
@@ -1546,12 +1440,7 @@ const loadMessages = async (conversationId) => {
                         ))}
                       <TouchableOpacity
                         style={styles.startBtn}
-                        onPress={() => {
-                          setSelectedConversation(null);
-                          setMessages([]);
-                          setShowTypeSelector(true);
-                          setWaitingForAI(false);
-                        }}
+                        onPress={handleStartNewConversation}
                       >
                         <View style={styles.startBtnIcon}>
                           <Icon name="add-circle" size={18} color="#fff" />
@@ -1567,12 +1456,7 @@ const loadMessages = async (conversationId) => {
                       </View>
                       <TouchableOpacity
                         style={styles.startBtn}
-                        onPress={() => {
-                          setSelectedConversation(null);
-                          setMessages([]);
-                          setShowTypeSelector(true);
-                          setWaitingForAI(false);
-                        }}
+                        onPress={handleStartNewConversation}
                       >
                         <View style={styles.startBtnIcon}>
                           <Icon name="add-circle" size={18} color="#fff" />
@@ -1657,12 +1541,7 @@ const loadMessages = async (conversationId) => {
                             </Text>
                             <TouchableOpacity
                               style={styles.feedbackStartBtn}
-                              onPress={() => {
-                                setSelectedConversation(null);
-                                setMessages([]);
-                                setShowTypeSelector(true);
-                                setWaitingForAI(false);
-                              }}
+                              onPress={handleStartNewConversation}
                             >
                               <Text style={styles.feedbackStartBtnText}>Start New Conversation</Text>
                             </TouchableOpacity>
@@ -2045,7 +1924,6 @@ const styles = StyleSheet.create({
   },
   headerActions: { flexDirection: 'row', gap: 8, alignItems: 'center' },
   headerBtn: { paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, backgroundColor: 'rgba(255,255,255,0.15)' },
-  headerBtnDisabled: { opacity: 0.6 },
   headerBtnText: { color: '#fff', fontSize: 12, fontWeight: '600' },
 
   messagesPanel: { flex: 1, backgroundColor: '#F5F5F5' },
@@ -2252,53 +2130,6 @@ const styles = StyleSheet.create({
   recordingDot: { width: 8, height: 8, borderRadius: 999, backgroundColor: '#DC2626' },
   recordingText: { fontSize: 11, color: '#DC2626', fontWeight: '600' },
   wsStatus: { marginTop: 6, fontSize: 11, color: '#9CA3AF' },
-
-  typeSelector: {
-    padding: 16,
-    gap: 10,
-    backgroundColor: '#fff',
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-    margin: 12,
-  },
-  typeTitle: { textAlign: 'center', fontSize: 16, fontWeight: '700', color: '#111' },
-  typeSubtitle: { textAlign: 'center', fontSize: 12, color: '#6B7280' },
-  typeCard: {
-    marginTop: 12,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: '#D1FAE5',
-    padding: 12,
-    backgroundColor: '#ECFDF5',
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-  },
-  typeCardIcon: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: '#DCFCE7',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  typeCardBody: { flex: 1 },
-  typeCardTitle: { fontSize: 14, fontWeight: '700', color: '#111' },
-  typeCardText: { marginTop: 2, fontSize: 12, color: '#4B5563' },
-  typeCardAction: {
-    backgroundColor: '#16A34A',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 999,
-  },
-  typeCardActionText: { color: '#fff', fontSize: 12, fontWeight: '700' },
-  typeBtn: { paddingVertical: 10, borderRadius: 10, alignItems: 'center' },
-  typeAi: { backgroundColor: '#ECFDF5' },
-  typeSupport: { backgroundColor: '#16A34A' },
-  typeCancel: { backgroundColor: '#F3F4F6' },
-  typeBtnText: { color: '#fff', fontWeight: '700' },
-  typeCancelText: { color: '#111', fontWeight: '600' },
 
   storeOverlay: {
     backgroundColor: 'rgba(0,0,0,0.48)',

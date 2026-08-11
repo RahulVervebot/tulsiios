@@ -616,3 +616,38 @@ export const sendCallPushNotification = async (targetEmail, callerName, callType
     return false;
   }
 };
+
+export const sendMissedCallPushNotification = async (targetEmail, callerName, callType) => {
+  try {
+    if (!targetEmail) return false;
+    const profileDoc = await firestore().collection('callProfiles').doc(targetEmail).get();
+    const playerId = profileDoc.data()?.oneSignalPlayerId;
+    if (!playerId) return false;
+    const onesignalid = await AsyncStorage.getItem('onesignalid');
+    const onesignalkey = await AsyncStorage.getItem('onesignalkey');
+    const label = callType === 'video' ? 'Video' : 'Voice';
+    const payload = {
+      app_id: onesignalid,
+      include_player_ids: [playerId],
+      headings: { en: `Missed ${label} Call` },
+      contents: { en: `You missed a ${label.toLowerCase()} call from ${callerName}` },
+      data: { type: 'missed_call', callType, callerName },
+      priority: 7,
+      ttl: 86400,
+    };
+    const response = await fetch('https://api.onesignal.com/notifications', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Key ${onesignalkey}`,
+      },
+      body: JSON.stringify(payload),
+    });
+    const data = await response.json();
+    console.log('[MissedCallPush] sent to', targetEmail, '| status:', response.status);
+    return response.ok && !!data?.id;
+  } catch (e) {
+    console.log('[MissedCallPush] error:', e?.message);
+    return false;
+  }
+};

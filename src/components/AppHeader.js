@@ -36,10 +36,12 @@ const AppHeader = ({
     })();
     return () => { mounted = false; };
   }, []);
-  
+
+
   const cartItemCount = cart.reduce((sum, item) => sum + (item.qty || 0), 0);
   const printItemCount = print.reduce((sum, item) => sum + (item.qty || 0), 0);
-  
+
+
   const renderBackground = () => {
     if (backgroundType === "image") {
       return (
@@ -113,7 +115,7 @@ const renderContent = () => (
           )}
         </TouchableOpacity>
       )}
-        {!hidePrintIcon && (
+       {!hidePrintIcon && (
       <TouchableOpacity
         style={styles.rightIcon}
         activeOpacity={0.7}
@@ -134,8 +136,7 @@ const renderContent = () => (
   </View>
 );
 
-
-  return <View>{renderBackground()}</View>;
+return <View>{renderBackground()}</View>;
 };
 
 const styles = StyleSheet.create({
@@ -241,6 +242,5 @@ const styles = StyleSheet.create({
   headerUser: { fontSize: 12, fontWeight: '400', color: '#000', paddingHorizontal: 10 },
   headerName: { fontSize: 16, fontWeight: '700', color: '#000', paddingHorizontal: 10 },
 });
-
 
 export default AppHeader;
