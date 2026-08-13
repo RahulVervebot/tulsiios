@@ -16,7 +16,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import API_ENDPOINTS, { initICMSBase } from '../../../icms_config/api';
 
 const toString = (val, fallback = '') =>
-  val === undefined || val === null ? fallback : String(val);
+val === undefined || val === null ? fallback : String(val);
 const toArray = val => (Array.isArray(val) ? val : []);
 
 const buildUpdatePayload = item => {

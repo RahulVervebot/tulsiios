@@ -260,9 +260,9 @@ const InvoiceRow = ({ item, index, categoryMetaByDept = {}, isExpanded, selected
               ['(Inv) itemNo', item.itemNo], 
               ['(Inv) Description', item.description],
               ['(Inv) Qty Shipped', item.qty],
-              ['POS Barcode', item.barcode ?? 0], 
+              ['POS Barcode', item.barcode ?? 0],
               ['POS Department', item.department ?? 0],
-              ['Unit in Case', `${item.pieces ?? 0}`],       
+              ['Unit in Case', `${item.pieces ?? 0}`],
               ['Unit Cost', newcost !== '--' ? `$${newcost}` : '--'],
               // ['Unit Price', `$${item.sellingPrice ?? 0}`],
               ...(margin !== 0 ? [['Category Margin', `${margin}%`]] : []),
@@ -273,7 +273,7 @@ const InvoiceRow = ({ item, index, categoryMetaByDept = {}, isExpanded, selected
             ].map(([label, value], idx, arr) => (
               <View key={idx} style={[styles.expandedRow, idx === arr.length - 1 && { borderBottomWidth: 0 }]}>
                 <Text style={[styles.expandedLabel, { fontSize: labelSize }]}>{label}:</Text>
-                {label === 'Unit in Case'
+                  {label === 'Unit in Case'
                   ? renderValueWithDelta(label, value, piecesDelta)
                   : label === 'Unit Cost'
                   ? renderValueWithDelta(label, value, cpDelta)
@@ -286,7 +286,7 @@ const InvoiceRow = ({ item, index, categoryMetaByDept = {}, isExpanded, selected
                       style={[styles.expandedValue, { fontSize: valueSize }]}
                       numberOfLines={label === 'Description' || label === 'POS Description' ? 0 : 1}
                     >
-                      {value}
+                   {value}
                     </Text>
                   )}
               </View>
@@ -294,7 +294,6 @@ const InvoiceRow = ({ item, index, categoryMetaByDept = {}, isExpanded, selected
 
             {/* Action buttons */}
             <View style={styles.buttonContainer}>
-
               {!isStockUpdated && (
                 <>
                    <TouchableOpacity
@@ -338,7 +337,7 @@ const InvoiceRow = ({ item, index, categoryMetaByDept = {}, isExpanded, selected
                 </TouchableOpacity>
                 </>
               )}
-  {!hasBarcode &&(
+             {!hasBarcode &&(
                 <>
                 <TouchableOpacity
                   onPress={() => onLinkProduct(item)}
@@ -350,7 +349,6 @@ const InvoiceRow = ({ item, index, categoryMetaByDept = {}, isExpanded, selected
                     {hasBarcode ? '🔗 Change Linked Product' : '🔗 Link Product'}
                   </Text>
                 </TouchableOpacity>
-
                 </>
               )}
               {!hideUnlinkButton && (

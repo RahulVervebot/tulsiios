@@ -9,10 +9,6 @@ let _navigationRef  = null;
 let _pendingCall    = null;
 const _shownCallIds = new Set();
 let _answeredCallId = null;
-// Stores { callUUID, callType } when _onAnswer fires before nav is ready.
-// checkLogin() in App.js reads and clears this synchronously.
-// Set when _onAnswer fires before nav is ready (killed-app). checkLogin reads this synchronously.
-
 let _killedAppPending = null;
 
 export const setCallKeepNav = (ref) => { _navigationRef = ref; };
@@ -64,23 +60,10 @@ export function displayIncomingCall(callData) {
   if (_shownCallIds.has(callData.callId)) return;
   _shownCallIds.add(callData.callId);
   _pendingCall = callData;
-
-  if (AppState.currentState === 'active') {
-    console.log('[CallKeep] app active — in-app overlay handles ringing');
-    return;
-  }
-
-  markCallKitActive(callData.callId);
-  try {
-    RNCallKeep.displayIncomingCall(
-      callData.callId,
-      callData.callerEmail || callData.callerId || 'unknown',
-      callData.callerName  || callData.callerId || 'Incoming Call',
-      'generic',
-      callData.callType === 'video',
-    );
-  } catch (e) {
-    console.log('[CallKeep] displayIncomingCall error:', e?.message);
+  // Native CallKit screen is shown by AppDelegate.swift (reportNewIncomingCall).
+  // This function just registers the pending call so _onAnswer can read callType.
+  if (AppState.currentState !== 'active') {
+    markCallKitActive(callData.callId);
   }
 }
 
@@ -106,24 +89,22 @@ function _onAnswer({ callUUID }) {
 
   // Mark accepted in native UserDefaults so getPendingAcceptedCall() knows this was
   // a real accept (not just any incoming push). Fire-and-forget — no await needed.
+
   if (PendingCallModule?.markCallAccepted) {
     PendingCallModule.markCallAccepted().catch(() => {});
   }
 
   const nav = _navigationRef?.current;
   if (!nav?.isReady?.()) {
-    // App was killed — nav not ready yet.
-    // Store synchronously so checkLogin() can read it before its first await resolves.
-    const callType = _pendingCall?.callType ?? 'voice';
-    _killedAppPending = { callUUID, callType };
+    // App was killed — nav not ready yet. checkLogin() polls getPendingAcceptedCall()
+    // which reads callType from native UserDefaults (set by storePendingVoipCall).
+    _killedAppPending = { callUUID, callType: _pendingCall?.callType ?? 'voice' };
     _pendingCall = null;
-    // Dismiss the native CallKit UI
     try { RNCallKeep.endCall(callUUID); } catch (_) {}
     return;
   }
 
-  // App was open/backgrounded — nav ready, navigate immediately via root navigator
-  // so the call screen lands on the root stack (ReturnToCallBar can find it with pop()).
+  // App was open/backgrounded — nav ready.
   const callType = _pendingCall?.callType ?? 'voice';
   const screen   = callType === 'video' ? 'VideoCallScreen' : 'VoiceCallScreen';
   _pendingCall   = null;
@@ -146,6 +127,13 @@ async function _onEnd({ callUUID }) {
     return;
   }
 
+  // If the app is active when _onEnd fires, it means AppDelegate called endCall()
+  // to silently dismiss the native CallKit UI — the in-app overlay is handling
+  // ringing. This is not a real decline, so do not write 'rejected' to Firestore.
+  if (AppState.currentState === 'active') {
+    return;
+  }
+
   // User declined from native CallKit UI — write rejected and clean up.
   if (PendingCallModule?.clearPendingVoipCall) {
     PendingCallModule.clearPendingVoipCall().catch(() => {});
@@ -154,6 +142,7 @@ async function _onEnd({ callUUID }) {
   try {
     await firestore().collection('calls').doc(callUUID).update({ status: 'rejected' });
   } catch (_) {}
+
 }
 
 export function clearAnsweredCall(callId) {

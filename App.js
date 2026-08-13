@@ -301,7 +301,7 @@ function FloatingCallCard({ navigationRef, activeRouteName }) {
       if (routes[i].name === activeCall.screen) { callIdx = i; break; }
     }
     if (callIdx >= 0 && callIdx < currentIdx) {
-      nav.reset({ index: callIdx, routes: routes.slice(0, callIdx + 1) });
+      nav.dispatch(StackActions.pop(currentIdx - callIdx));
     } else if (callIdx === -1) {
       nav.dispatch(StackActions.push(activeCall.screen, activeCall.params || {}));
     }
@@ -368,6 +368,12 @@ export default function App() {
         await AsyncStorage.setItem('voipToken', token);
         const email = await AsyncStorage.getItem('callUserEmail');
         if (email) saveVoipToken(email, token);
+      });
+
+      // On every app open, re-push the stored VoIP token to Firestore so the cloud
+      // function always has a fresh token — the register event only fires on token change.
+      AsyncStorage.multiGet(['voipToken', 'callUserEmail']).then(([[, token], [, email]]) => {
+        if (token && email) saveVoipToken(email, token);
       });
 
       VoipPushNotification.addEventListener('notification', (notification) => {

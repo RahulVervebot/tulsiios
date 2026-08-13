@@ -36,6 +36,9 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
     voipRegistry?.delegate = self
     voipRegistry?.desiredPushTypes = [.voIP]
 
+    // Enable camera in background/PiP — requires com.apple.developer.avfoundation.multitasking-camera-access entitlement
+    WebRTCModuleOptions.sharedInstance().enableMultitaskingCameraAccess = true
+
     factory.startReactNative(withModuleName: "PIMS", in: window, launchOptions: launchOptions)
     return true
   }
@@ -76,12 +79,25 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
     let callerEmail = dict["callerEmail"] as? String ?? ""
     let callType    = dict["callType"]    as? String ?? "voice"
     let hasVideo    = callType == "video"
+    let appState    = UIApplication.shared.applicationState
 
-    // Store call info BEFORE reportNewIncomingCall so it's available when user accepts.
-    // accepted starts false — only set true when user actually taps Accept in CallKit.
+    print("[VoIP] ▶ push received callId=\(callId) callType=\(callType) appState=\(appState.rawValue)")
+
+    if appState == .active {
+      // App is foregrounded — the Firestore listener in IncomingCallOverlay handles
+      // ringing entirely. Skip CallKit so no native screen appears and no _onEnd fires.
+      print("[VoIP] app active — skipping CallKit, handing to RNVoip")
+      RNVoipPushNotificationManager.didReceiveIncomingPush(with: payload, forType: type.rawValue)
+      completion()
+      return
+    }
+
+    // App is backgrounded or killed — show native CallKit incoming call screen.
+    // Must call setup before reportNewIncomingCall so CXProvider is initialized.
+    // When app is killed, JS never runs so initCallKeep() in JS hasn't run yet.
+    print("[VoIP] app background/killed — calling RNCallKeep.setup + reportNewIncomingCall")
+    RNCallKeep.setup(["appName": "Tulsi", "supportsVideo": true])
     PendingCallModule.storePendingVoipCall(callId: callId, callType: callType)
-
-    // iOS 13+ requires reportNewIncomingCall synchronously in the PushKit handler.
     RNCallKeep.reportNewIncomingCall(
       callId,
       handle: callerEmail.isEmpty ? callerName : callerEmail,
@@ -94,18 +110,14 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
       supportsUngrouping: false,
       fromPushKit: true,
       payload: payload.dictionaryPayload,
-      withCompletionHandler: nil
+      withCompletionHandler: {
+        print("[VoIP] reportNewIncomingCall completion called")
+        // PushKit requires completion() to be called after CXProvider is notified.
+        completion()
+      }
     )
-
-    // App already in foreground — in-app overlay handles ringing, clear stored call
-    // so checkLogin() doesn't try to navigate (user accepts via overlay normally).
-    if UIApplication.shared.applicationState == .active {
-      RNCallKeep.endCall(withUUID: callId, reason: 2) // 2 = CXCallEndedReasonRemoteEnded
-      PendingCallModule.clearPendingVoipCall()
-    }
-
+    print("[VoIP] reportNewIncomingCall dispatched")
     RNVoipPushNotificationManager.didReceiveIncomingPush(with: payload, forType: type.rawValue)
-    completion()
   }
 
   func pushRegistry(_ registry: PKPushRegistry,
@@ -116,7 +128,7 @@ class ReactNativeDelegate: RCTDefaultReactNativeFactoryDelegate {
 override func sourceURL(for bridge: RCTBridge) -> URL? { self.bundleURL() }
   override func bundleURL() -> URL? {
 #if DEBUG
-    URL(string: "http://192.168.68.109:8081/index.bundle?platform=ios&dev=true&minify=false")
+    URL(string: "http://192.168.68.114:8081/index.bundle?platform=ios&dev=true&minify=false")
 #else
     Bundle.main.url(forResource: "main", withExtension: "jsbundle")
 #endif

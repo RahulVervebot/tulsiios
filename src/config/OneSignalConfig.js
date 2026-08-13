@@ -5,7 +5,6 @@ import { Platform } from 'react-native';
 import OneSignal from 'react-native-onesignal';
 import firestore from '@react-native-firebase/firestore';
 let isInitialized = false;
-
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const normalizeStoreUrl = (value) => String(value || '').trim().toLowerCase();
 export const initializeOneSignal = async () => {
@@ -47,10 +46,8 @@ export const initializeOneSignal = async () => {
         });
       });
     }
-
     // Give SDK/APNs time to finish registration
     await wait(4000);
-
     const state = await OneSignal.getDeviceState?.();
     console.log('✅ OneSignal initialized');
     console.log('📱 Device state after init:', {
@@ -59,7 +56,6 @@ export const initializeOneSignal = async () => {
       pushToken: state?.pushToken,
       userId: state?.userId,
     });
-
     isInitialized = true;
     console.log('🚀 ===== ONESIGNAL INIT COMPLETE =====\n');
     return true;
@@ -618,6 +614,7 @@ export const sendCallPushNotification = async (targetEmail, callerName, callType
 };
 
 export const sendMissedCallPushNotification = async (targetEmail, callerName, callType) => {
+
   try {
     if (!targetEmail) return false;
     const profileDoc = await firestore().collection('callProfiles').doc(targetEmail).get();

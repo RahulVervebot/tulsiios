@@ -333,12 +333,14 @@ export default function VoiceCallScreen({ route, navigation }) {
       // sendCallPushNotification(targetEmail, myName || myEmail, 'voice', callId).catch(() => {});
 
       // ── Forward after 30s if agent hasn't answered ───────────────────────
+
       forwardTimerRef.current = setTimeout(async () => {
         if (callStatusRef.current !== STATUS.CALLING) return;
         try {
           const storeDoc = await firestore().collection('tulsi').doc('storelist').get();
           const supervisorList = storeDoc.data()?.supervisor || [];
           if (!supervisorList.length) return;
+          if (supervisorList.includes(myEmail)) return; // don't forward calls placed by a supervisor
           const supervisor = supervisorList[0];
           // Look up supervisor name from callProfiles
           const supProfile = await firestore().collection('callProfiles').doc(supervisor).get();

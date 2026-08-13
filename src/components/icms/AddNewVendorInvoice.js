@@ -322,15 +322,16 @@ const AddNewVendorInvoice = () => {
         throw new Error(`Store invoice failed (${storeResponse.status}): ${t}`);
       }
 
-      console.log("row response:",storeResponse);
-      handleViewPendingInvoices();
-
-      sendNotificationToStoreUsers(
-        'Invoice Saved',
-        'Invoice saved successfully, please visit pending invoice list to check.',
-        '',
-        { type: 'invoice_saved' }
-      ).catch((notifyErr) => console.warn('Invoice saved notification failed:', notifyErr));
+      const storeResponseText = await storeResponse.text();
+      console.log("row response text:", storeResponseText);
+      const storeResponseJson = storeResponseText ? JSON.parse(storeResponseText) : null;
+    if (storeResponseJson?.message === 'Raw Invoice stored successfully') {
+    handleViewPendingInvoices();
+     }
+    else {
+     Alert.alert('Error', storeResponseJson?.message || 'Failed to save invoice');
+      setSavePopupVisible(false);
+    }
     } catch (e) {
       console.error('Upload/store failed:', e);
       setSavePopupVisible(false);

@@ -37,7 +37,7 @@ const makeUUID = () =>
   'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
     const r = (Math.random() * 16) | 0;
     return (c === 'x' ? r : (r & 0x3) | 0x8).toString(16);
-  });
+});
 
 const ICE_SERVERS = [
   { urls: 'stun:stun.l.google.com:19302' },
@@ -74,7 +74,6 @@ export default function VideoCallScreen({ route, navigation }) {
   const [addSearch, setAddSearch] = useState('');
   const [addUsers, setAddUsers] = useState([]);
   const [addingParticipant, setAddingParticipant] = useState(false);
-
   const pcRef = useRef(null);
   const localStreamRef = useRef(null);
   const remoteStreamRef = useRef(null);
@@ -92,25 +91,29 @@ export default function VideoCallScreen({ route, navigation }) {
   const callRoleRef = useRef(null); // 'caller' | 'callee'
   const callWasConnectedRef = useRef(false);
   const pipViewRef = useRef(null);
+  const isMinimizedRef = useRef(false);
 
   const { setActiveCall, setMiniRemoteURL, setMiniDuration } = useActiveCall();
 
   const setStatus = (s) => {
     callStatusRef.current = s;
     setCallStatus(s);
-    if (s === STATUS.IDLE) {
-      setActiveCall(null);
-    } else {
-      setActiveCall({
-        screen: 'VideoCallScreen',
-        label: remoteUserRef.current
-          ? `Video call with ${remoteUserRef.current.name || remoteUserRef.current.email}`
-          : 'Video Call',
-        params: activeCallIdRef.current
-          ? { incomingCallId: activeCallIdRef.current }
-          : {},
-      });
-    }
+    // Defer context update so it never fires during another component's render cycle
+    setTimeout(() => {
+      if (s === STATUS.IDLE) {
+        setActiveCall(null);
+      } else {
+        setActiveCall({
+          screen: 'VideoCallScreen',
+          label: remoteUserRef.current
+            ? `Video call with ${remoteUserRef.current.name || remoteUserRef.current.email}`
+            : 'Video Call',
+          params: activeCallIdRef.current
+            ? { incomingCallId: activeCallIdRef.current }
+            : {},
+        });
+      }
+    }, 0);
   };
 
   useEffect(() => {
@@ -165,7 +168,7 @@ export default function VideoCallScreen({ route, navigation }) {
     setStatus(STATUS.RINGING);
     firestore().collection('calls').doc(incomingCallId).get().then((snap) => {
       const data = snap.data();
-      if (!data || data.status === 'ended' || data.status === 'rejected') {
+      if (!data || data.status === 'ended' || data.status === 'rejected' || data.status === 'cancelled') {
         setStatus(STATUS.IDLE);
         return;
       }
@@ -211,12 +214,12 @@ export default function VideoCallScreen({ route, navigation }) {
     return () => sub?.remove?.();
   }, []);
 
-
   // Refresh stream URLs and re-render RTCViews without unmounting them.
   // On iOS Metal the surface freezes when the screen loses focus — the fix is:
   // 1. Hide RTCViews (opacity 0) so Metal releases the stale surface
   // 2. Update the streamURL state with a fresh toURL() call
   // 3. Show them again — Metal binds fresh to the new URL
+
   const refreshVideo = useCallback((reacquire = false) => {
     if (callStatusRef.current === STATUS.IDLE) return;
 
@@ -261,11 +264,16 @@ export default function VideoCallScreen({ route, navigation }) {
   useEffect(() => {
     const sub = AppState.addEventListener('change', (nextState) => {
       if (nextState === 'active') {
+        isMinimizedRef.current = false;
         try { stopIOSPIP(pipViewRef); } catch (_) {}
+        if (!cameraOffRef.current) {
+          localStreamRef.current?.getVideoTracks().forEach((t) => { t.enabled = true; });
+        }
         setTimeout(() => refreshVideo(true), 300);
       } else if (nextState === 'background') {
         if (callStatusRef.current !== STATUS.IDLE) {
-          localStreamRef.current?.getVideoTracks().forEach((t) => { t.enabled = false; });
+          isMinimizedRef.current = true;
+          localStreamRef.current?.getVideoTracks().forEach((t) => { t.enabled = true; });
           try { startIOSPIP(pipViewRef); } catch (_) {}
         }
       }
@@ -277,15 +285,22 @@ export default function VideoCallScreen({ route, navigation }) {
   }, [refreshVideo]);
 
   // When user navigates back to this screen (from FloatingCallCard tap),
-  // stop PiP and reacquire camera so the full-screen call resumes correctly.
+  // stop PiP and re-enable camera. useFocusEffect only fires when the screen
+  // truly gains focus (blur → focus cycle); with StackActions.push('MainDrawer')
+  // VideoCallScreen stays mounted and may not blur, so we also use isMinimizedRef.
+  
   useFocusEffect(
     useCallback(() => {
       if (callStatusRef.current === STATUS.IDLE) return;
+      isMinimizedRef.current = false;
       try { stopIOSPIP(pipViewRef); } catch (_) {}
+      // Re-enable video tracks disabled by minimize button, then refresh Metal surface
+      if (!cameraOffRef.current) {
+        localStreamRef.current?.getVideoTracks().forEach((t) => { t.enabled = true; });
+      }
       refreshVideo(true);
     }, [refreshVideo])
   );
-
 
   const buildPC = () => {
     const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
@@ -427,6 +442,7 @@ export default function VideoCallScreen({ route, navigation }) {
           const storeDoc = await firestore().collection('tulsi').doc('storelist').get();
           const supervisorList = storeDoc.data()?.supervisor || [];
           if (!supervisorList.length) return;
+          if (supervisorList.includes(myEmail)) return; // don't forward calls placed by a supervisor
           const supervisor = supervisorList[0];
           const supProfile = await firestore().collection('callProfiles').doc(supervisor).get();
           const supName = supProfile.data()?.name || supervisor;
@@ -512,10 +528,15 @@ export default function VideoCallScreen({ route, navigation }) {
         });
       });
 
-      // Watch for remote end/reject so callee disconnects immediately
+      // Watch for remote end/reject so callee disconnects when caller hangs up.
+      // Only react once the call is in 'answered' state — ignore any snapshot
+      // that arrives before that (avoids false disconnects on stale status values).
+      let callAnswered = false;
       const unsubStatus = callRef.onSnapshot((snap) => {
         const data = snap.data();
-        if (data?.status === 'ended' || data?.status === 'rejected' || data?.status === 'cancelled') {
+        if (!data) return;
+        if (data.status === 'answered') { callAnswered = true; return; }
+        if (callAnswered && (data.status === 'ended' || data.status === 'rejected' || data.status === 'cancelled')) {
           endCall(false);
         }
       });
@@ -709,11 +730,9 @@ export default function VideoCallScreen({ route, navigation }) {
         <TouchableOpacity
           style={styles.minimizeBtn}
           onPress={() => {
+            isMinimizedRef.current = true;
             localStreamRef.current?.getVideoTracks().forEach((t) => { t.enabled = false; });
             try { startIOSPIP(pipViewRef); } catch (_) {}
-            // Push MainDrawer ON TOP — VideoCallScreen stays mounted beneath so
-            // RTCPIPView keeps its native backing and PiP continues outside the app.
-            // FloatingCallCard tap resets the stack back to VideoCallScreen.
             navigation.dispatch(StackActions.push('MainDrawer'));
           }}
         >
@@ -877,7 +896,6 @@ export default function VideoCallScreen({ route, navigation }) {
       </View>
     );
   }
-
   // IDLE — call is always initiated externally; render nothing
   return <View style={styles.callScreen} />;
 }
