@@ -1,10 +1,10 @@
-import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, DeviceEventEmitter } from 'react-native';
 import React, { useEffect, useState, useMemo } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { GoogleSignin } from '@react-native-google-signin/google-signin';
 import AppHeader from "../components/AppHeader";
 import reportbg from '../assets/images/report-bg.png';
-import { removeOneSignalTagsOnLogout } from '../config/OneSignalConfig';
+import { removeOneSignalTagsOnLogout, clearUserCallProfile } from '../config/OneSignalConfig';
 
 const LIGHT_GREEN = '#e6f6ec';
 
@@ -16,9 +16,18 @@ export default function UserScreen({ navigation }) {
 
   const handleLogout = async () => {
   try { await GoogleSignin.signOut(); } catch (e) { console.log('Google signout error:', e); }
+  const callUserEmail = await AsyncStorage.getItem('callUserEmail');
+  // Clear this device's push routing in Firestore BEFORE resetting navigation —
+  // once the Login screen shows, the user may force-close the app immediately,
+  // killing any cleanup still in flight and leaving stale tokens registered.
+  await clearUserCallProfile(callUserEmail);
   await AsyncStorage.multiRemove(['access_token', 'userRole', 'userEmail', 'userName','onesignalid','onesignalkey','tulsi_ai_backend','tulsifrontendurl','tulsi_websocket','icms_url','local_icms_url','developer_mode','callUserEmail','callUserName']);
+  DeviceEventEmitter.emit('userLoggedOut');
   navigation.reset({ index: 0, routes: [{ name: 'Login' }] });
-  await removeOneSignalTagsOnLogout();
+
+  // Not awaited — tag cleanup can take up to ~12s polling OneSignal state, and
+  // must not delay/block navigation or risk being killed before it matters.
+  removeOneSignalTagsOnLogout();
   };
 
   useEffect(() => {
@@ -118,16 +127,6 @@ export default function UserScreen({ navigation }) {
       <Text style={styles.buttonText}>User Setting</Text>
     </TouchableOpacity>
   )}
-
-  {/* {user_role !== 'customer' && (
-    <TouchableOpacity
-      style={[styles.button, styles.primary]}
-      onPress={() => navigation.navigate('SignupScreen')}
-      activeOpacity={0.85}
-    >
-      <Text style={styles.buttonText}>Go to Signup</Text>
-    </TouchableOpacity>
-  )} */}
 
   <TouchableOpacity
     style={[styles.button, styles.danger]}

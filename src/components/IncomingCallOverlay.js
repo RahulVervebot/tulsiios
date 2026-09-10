@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
-  View, Text, TouchableOpacity, StyleSheet, Vibration, Modal, AppState,
+  View, Text, TouchableOpacity, StyleSheet, Vibration, Modal, AppState, DeviceEventEmitter,
 } from 'react-native';
 import firestore from '@react-native-firebase/firestore';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -12,20 +12,39 @@ import { endCallKeep } from '../config/CallKeepConfig';
 import { sendMissedCallPushNotification } from '../config/OneSignalConfig';
 
 export default function IncomingCallOverlay({ navigationRef }) {
-
   const [myEmail, setMyEmail] = useState('');
   const [ringingCall, setRingingCall] = useState(null);
+  const [callToast, setCallToast] = useState(null);
   const shownRef = useRef(new Set());
   const confAlertShownRef = useRef(new Set());
   const ringingCallRef = useRef(null);
+  const toastTimerRef = useRef(null);
+  
+  const showCallToast = (text) => {
+    clearTimeout(toastTimerRef.current);
+    setCallToast(text);
+    toastTimerRef.current = setTimeout(() => setCallToast(null), 4000);
+  };
 
   useEffect(() => {
-    AsyncStorage.getItem('callUserEmail').then((email) => {
-      if (email) setMyEmail(email);
+    const loadEmail = () => {
+      AsyncStorage.getItem('callUserEmail').then((email) => {
+        setMyEmail(email || '');
+        console.log("incoming email", email);
+      });
+    };
+    loadEmail();
+    const appStateSub = AppState.addEventListener('change', (state) => {
+      if (state === 'active') loadEmail();
     });
+    const logoutSub = DeviceEventEmitter.addListener('userLoggedOut', () => setMyEmail(''));
+    return () => {
+      appStateSub.remove();
+      logoutSub.remove();
+    };
   }, []);
-  
-  // ─── 1-to-1 call listener ─────────────────────────────────────────────────
+
+  // ────────────────────────────────────────── 1-to-1 call listener ─────────────────────────────────────────────────
   useEffect(() => {
     if (!myEmail) return;
     const subscribeTime = Date.now();
@@ -70,13 +89,21 @@ export default function IncomingCallOverlay({ navigationRef }) {
           if (data.type !== 'voice' && data.type !== 'video') return;
           const createdMs = data.createdAt?.toMillis?.() ?? 0;
           if (createdMs && subscribeTime - createdMs > 30000) return;
-          // Already on a call screen — don't interrupt
+          // Already on a call screen — don't interrupt with the ringing modal, but let
+          // the busy user know someone tried to reach them via a brief toast.
           const currentRoute = navigationRef.current?.getCurrentRoute?.()?.name;
           if (
             currentRoute === 'VoiceCallScreen' ||
             currentRoute === 'VideoCallScreen' ||
             currentRoute === 'ConferenceCallScreen'
-          ) return;
+          ) {
+            if (data.status === 'calling' && !data.missedBusy) {
+              shownRef.current.add(docId);
+              const callerName = data.callerName || data.callerEmail || data.callerId || 'Someone';
+              showCallToast(`${callerName} is calling you…`);
+            }
+            return;
+          }
           shownRef.current.add(docId);
           // When app is backgrounded/killed, CallKit native screen is visible — don't show
           // our in-app modal on top of it. When app is active, CallKit has no visible UI
@@ -120,12 +147,22 @@ export default function IncomingCallOverlay({ navigationRef }) {
           const createdMs = data.createdAt?.toMillis?.() ?? 0;
           if (createdMs && subscribeTime - createdMs > 45000) return;
           const currentRoute = navigationRef.current?.getCurrentRoute?.()?.name;
-          if (
-            currentRoute === 'VoiceCallScreen' ||
-            currentRoute === 'VideoCallScreen' ||
-            currentRoute === 'ConferenceCallScreen'
-          ) return;
+          // Already in a conference — don't interrupt with another one.
+          if (currentRoute === 'ConferenceCallScreen') return;
           confAlertShownRef.current.add(roomId);
+          // Already on a 1:1 call screen — this conference invite is very likely the
+          // other party upgrading that same call into a group call (VideoCallScreen's
+          // inviteParticipant ends the 1:1 call and creates this room). Auto-join rather
+          // than showing a modal, so the original call partner lands in the conference
+          // instead of just getting dropped back to MainDrawer with no way in.
+          if (currentRoute === 'VoiceCallScreen' || currentRoute === 'VideoCallScreen') {
+            rootNavigate('ConferenceCallScreen', {
+              roomId,
+              isCreator: false,
+              callType: data.callType || 'video',
+            });
+            return;
+          }
           const callerName = data.createdByName || data.createdBy || 'Someone';
           const callTypeLabel = data.callType === 'voice' ? 'Group Voice' : 'Group Video';
           const incoming = {
@@ -180,13 +217,23 @@ export default function IncomingCallOverlay({ navigationRef }) {
     rootNavigate(screen, params);
   };
 
-  if (!ringingCall) return null;
+  if (!ringingCall) {
+    if (!callToast) return null;
+    return (
+      <View style={styles.toastWrap} pointerEvents="none">
+        <View style={styles.toastCard}>
+          <Icon name="call" size={16} color="#fff" style={{ marginRight: 8 }} />
+          <Text style={styles.toastText} numberOfLines={1}>{callToast}</Text>
+        </View>
+      </View>
+    );
+  }
 
   const isVideo = ringingCall.callType === 'video' || ringingCall.callType === 'conference_video';
   const label = ringingCall.isConference
     ? `Incoming ${ringingCall.callTypeLabel} Call`
     : `Incoming ${isVideo ? 'Video' : 'Voice'} Call`;
-
+  
   return (
     <Modal
       transparent
@@ -222,8 +269,8 @@ export default function IncomingCallOverlay({ navigationRef }) {
       </View>
     </Modal>
   );
-}
 
+}
 const styles = StyleSheet.create({
   overlay: {
     flex: 1,
@@ -293,6 +340,28 @@ const styles = StyleSheet.create({
   },
   actionLabel: {
     color: '#D1D5DB',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  toastWrap: {
+    position: 'absolute',
+    top: 56,
+    left: 16,
+    right: 16,
+    alignItems: 'center',
+    zIndex: 9999,
+  },
+  toastCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(28,28,30,0.92)',
+    borderRadius: 20,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    maxWidth: '100%',
+  },
+  toastText: {
+    color: '#fff',
     fontSize: 13,
     fontWeight: '600',
   },

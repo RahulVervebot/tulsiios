@@ -40,10 +40,11 @@ function formatCallTime(ts) {
 }
 
 function callStatusLabel(status, isOutgoing) {
-  if (status === 'ended')    return { label: 'Completed',  color: '#16A34A' };
-  if (status === 'rejected') return { label: isOutgoing ? 'Declined' : 'Declined', color: '#DC2626' };
-  if (status === 'calling')  return { label: isOutgoing ? 'No Answer' : 'Missed',  color: '#F59E0B' };
-  if (status === 'answered') return { label: 'Answered',   color: '#16A34A' };
+  if (status === 'ended')     return { label: 'Answered',   color: '#16A34A' };
+  if (status === 'answered')  return { label: 'Answered',   color: '#16A34A' };
+  if (status === 'rejected')  return { label: 'Declined',   color: '#DC2626' };
+  if (status === 'cancelled') return { label: isOutgoing ? 'No Answer' : 'Missed', color: '#DC2626' };
+  if (status === 'calling')   return { label: isOutgoing ? 'No Answer' : 'Missed', color: '#DC2626' };
   return { label: status || '—', color: '#6B7280' };
 }
 
@@ -72,7 +73,7 @@ function ContactsTab({ myEmail, myName }) {
 
       // Use callUserEmail (myEmail prop) as identity — not the Google/device login email
       const agent = agentList.includes(myEmail);
-      if (agent) await AsyncStorage.setItem('userRole', 'Agent');
+      // if (agent) await AsyncStorage.setItem('userRole', 'Agent');
 
       // Spread data first, then enforce doc.id as email so key is always unique.
       let contacts = profilesSnap.docs.map((doc) => ({
@@ -443,10 +444,16 @@ function HistoryTab({ myEmail }) {
 
 const getImageSource = (val) => (typeof val === 'number' ? val : { uri: val });
 
-export default function SupportScreen({ navigation }) {
+export default function SupportScreen({ navigation, route }) {
   const [myEmail,   setMyEmail]   = useState('');
   const [myName,    setMyName]    = useState('');
-  const [activeTab, setActiveTab] = useState(TAB_CONTACTS);
+  const [activeTab, setActiveTab] = useState(route?.params?.initialTab || TAB_CONTACTS);
+
+  useEffect(() => {
+    if (route?.params?.initialTab) {
+      setActiveTab(route.params.initialTab);
+    }
+  }, [route?.params?.initialTab]);
 
   useEffect(() => {
     const validateAndLoad = async () => {

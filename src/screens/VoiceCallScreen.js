@@ -22,7 +22,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import Icon from 'react-native-vector-icons/MaterialIcons';
 import InCallManager from 'react-native-incall-manager';
 import { useFocusEffect } from '@react-navigation/native';
-import { sendMissedCallPushNotification } from '../config/OneSignalConfig';
+import { sendMissedCallPushNotification, sendCallPushNotification } from '../config/OneSignalConfig';
 import { useActiveCall } from '../context/ActiveCallContext';
 import { reportCallActive, endCallKeep, clearAnsweredCall } from '../config/CallKeepConfig';
 
@@ -80,20 +80,23 @@ export default function VoiceCallScreen({ route, navigation }) {
   const setStatus = (s) => {
     callStatusRef.current = s;
     setCallStatus(s);
-    if (s === STATUS.IDLE) {
-      setActiveCall(null);
-    } else {
-      setActiveCall({
-        screen: 'VoiceCallScreen',
-        label: remoteUserRef.current
-          ? `Voice call with ${remoteUserRef.current.name || remoteUserRef.current.email}`
-          : 'Voice Call',
-        callId: activeCallIdRef.current,
-        params: activeCallIdRef.current
-          ? { incomingCallId: activeCallIdRef.current }
-          : {},
-      });
-    }
+    // Defer context update so it never fires during another component's render cycle
+    setTimeout(() => {
+      if (s === STATUS.IDLE) {
+        setActiveCall(null);
+      } else {
+        setActiveCall({
+          screen: 'VoiceCallScreen',
+          label: remoteUserRef.current
+            ? `Voice call with ${remoteUserRef.current.name || remoteUserRef.current.email}`
+            : 'Voice Call',
+          callId: activeCallIdRef.current,
+          params: activeCallIdRef.current
+            ? { incomingCallId: activeCallIdRef.current }
+            : {},
+        });
+      }
+    }, 0);
   };
 
   useEffect(() => {
@@ -168,7 +171,12 @@ export default function VoiceCallScreen({ route, navigation }) {
 
   useEffect(() => {
     if (callStatus === STATUS.CONNECTED) {
-      timerRef.current = setInterval(() => setCallDuration((d) => { setMiniDuration(d + 1); return d + 1; }), 1000);
+      let elapsed = 0;
+      timerRef.current = setInterval(() => {
+        elapsed += 1;
+        setCallDuration(elapsed);
+        setMiniDuration(elapsed);
+      }, 1000);
     } else {
       clearInterval(timerRef.current);
       if (callStatus === STATUS.IDLE) setCallDuration(0);
@@ -311,6 +319,10 @@ export default function VoiceCallScreen({ route, navigation }) {
           setStatus(STATUS.CONNECTED);
         }
         if (data.status === 'ended' || data.status === 'rejected') {
+          if (data.conferenceRoomId) {
+            joinUpgradedConference(data.conferenceRoomId, 'voice');
+            return;
+          }
           endCall(false);
         }
         if (data.status === 'busy') {
@@ -427,6 +439,10 @@ export default function VoiceCallScreen({ route, navigation }) {
       const unsubStatus = callRef.onSnapshot((snap) => {
         const data = snap.data();
         if (data?.status === 'ended' || data?.status === 'rejected' || data?.status === 'cancelled') {
+          if (data.conferenceRoomId) {
+            joinUpgradedConference(data.conferenceRoomId, 'voice');
+            return;
+          }
           endCall(false);
         }
       });
@@ -443,19 +459,47 @@ export default function VoiceCallScreen({ route, navigation }) {
     const wasCalling = callStatusRef.current === STATUS.CALLING;
     const calleeEmail = remoteUserRef.current?.email;
     const callId = activeCallIdRef.current;
-    setActiveCall(null);
+    setTimeout(() => setActiveCall(null), 0);
+    const finalStatus = callWasConnectedRef.current ? 'ended' : 'cancelled';
     if (updateDb && callDocRef.current) {
-      try { await callDocRef.current.update({ status: 'ended' }); } catch (_) {}
+      try { await callDocRef.current.update({ status: finalStatus }); } catch (_) {}
     }
     cleanup();
     if (callId) { clearAnsweredCall(callId); endCallKeep(callId); }
     try { InCallManager?.stopRingback?.(); } catch (_) {}
     try { InCallManager?.stop(); } catch (_) {}
-    if (wasCalling && callRoleRef.current === 'caller' && calleeEmail && !callWasConnectedRef.current) {
+    if (wasCalling && callRoleRef.current === 'caller' && calleeEmail && !callWasConnectedRef.current && finalStatus === 'cancelled') {
       sendMissedCallPushNotification(calleeEmail, myName || myEmail, 'voice').catch(() => {});
     }
     setStatus(STATUS.IDLE);
     navigation.reset({ index: 0, routes: [{ name: 'MainDrawer' }] });
+  };
+
+  // Fires when our 1:1 call was ended because the other party upgraded it into
+  // a group conference (tagged via conferenceRoomId) — join that room instead
+  // of running the normal hang-up cleanup, which would reset us to MainDrawer.
+  const joinUpgradedConference = (roomId, upgradeCallType) => {
+    if (endCallFiredRef.current) return;
+    endCallFiredRef.current = true;
+    clearCallTimers();
+    unsubsRef.current.forEach((u) => u?.());
+    unsubsRef.current = [];
+    // Close the 1:1 peer connection only — leave the mic track live so
+    // ConferenceCallScreen's own getUserMedia() call can hand off without a
+    // full audio-session teardown-then-restart.
+    pcRef.current?.close();
+    pcRef.current = null;
+    localStreamRef.current = null;
+    callDocRef.current = null;
+    try { InCallManager?.stopRingback?.(); } catch (_) {}
+    try { InCallManager?.stop(); } catch (_) {}
+    setTimeout(() => setActiveCall(null), 0);
+    setStatus(STATUS.IDLE);
+    navigation.navigate('ConferenceCallScreen', {
+      roomId,
+      isCreator: false,
+      callType: upgradeCallType,
+    });
   };
 
   const clearCallTimers = () => {
@@ -493,18 +537,18 @@ export default function VoiceCallScreen({ route, navigation }) {
 
   const openAddSheet = async () => {
     try {
-      const userRole = await AsyncStorage.getItem('userRole');
-      const isAgent = userRole === 'Agent';
 
       const [storeDoc, profilesSnap] = await Promise.all([
         firestore().collection('tulsi').doc('storelist').get(),
         firestore().collection('callProfiles').get(),
       ]);
-      const agentList = storeDoc.data()?.Agent || [];
+        const agentList = storeDoc.data()?.Agent || [];
+       const agent = agentList.includes(myEmail);
+      // const agentList = storeDoc.data()?.Agent || [];
 
       let all = profilesSnap.docs.map((d) => ({ ...d.data(), email: d.id }));
 
-      if (!isAgent) {
+      if (!agent) {
         // Non-agents: only allowed to call agents (same as SupportScreen contacts tab)
         all = all.filter((u) => agentList.includes(u.email));
       }
@@ -542,8 +586,11 @@ export default function VoiceCallScreen({ route, navigation }) {
         createdAt:     firestore.FieldValue.serverTimestamp(),
       });
 
+      // Mark the existing 1:1 call as ended, tagged with the new room ID so the
+      // other party's own 'ended' listener can redirect them into the conference
+      // instead of running its normal hang-up cleanup (navigation.reset to MainDrawer).
       if (callDocRef.current) {
-        try { await callDocRef.current.update({ status: 'ended' }); } catch (_) {}
+        try { await callDocRef.current.update({ status: 'ended', conferenceRoomId: roomId }); } catch (_) {}
       }
 
       // sendCallPushNotification(guest.email, me.name, 'conference_voice', roomId).catch(() => {});
@@ -554,10 +601,12 @@ export default function VoiceCallScreen({ route, navigation }) {
       setShowAddSheet(false);
       setAddingParticipant(false);
 
-      localStreamRef.current?.getTracks().forEach((t) => t.stop());
-      localStreamRef.current = null;
+      // Close the 1:1 peer connection only — leave the mic track live so
+      // ConferenceCallScreen's own getUserMedia() call (right after navigating)
+      // can hand off without a full audio-session teardown-then-restart.
       pcRef.current?.close();
       pcRef.current = null;
+      localStreamRef.current = null;
       unsubsRef.current.forEach((u) => u?.());
       unsubsRef.current = [];
       try { InCallManager?.stopRingback?.(); } catch (_) {}
@@ -565,7 +614,7 @@ export default function VoiceCallScreen({ route, navigation }) {
 
       endCallFiredRef.current = true;
       setStatus(STATUS.IDLE);
-      setActiveCall(null);
+      setTimeout(() => setActiveCall(null), 0);
 
       navigation.replace('ConferenceCallScreen', {
         roomId,
@@ -684,10 +733,11 @@ export default function VoiceCallScreen({ route, navigation }) {
                       <Text style={styles.sheetUserName}>{item.name || item.email}</Text>
                       <Text style={styles.sheetUserEmail}>{item.email}</Text>
                     </View>
-                    {addingParticipant
+                    {/* {addingParticipant
                       ? <ActivityIndicator size="small" color="#319241" />
                       : <Icon name="call" size={20} color="#319241" />
-                    }
+                    } */}
+                     <Icon name="call" size={20} color="#319241" />
                   </TouchableOpacity>
                 )}
                 ListEmptyComponent={

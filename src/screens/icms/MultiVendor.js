@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from "react";
-import { View, StyleSheet, ImageBackground, ScrollView, Text, FlatList } from "react-native";
+import { View, StyleSheet, ImageBackground, ScrollView, Text, FlatList,  Alert } from "react-native";
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
@@ -15,7 +15,6 @@ import {capitalizeWords} from '../../functions/product-function';
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 export default function MultiVendor({ route }) {
-  
   const { id, category, backgroundUri } = route.params || {};
   const insets = useSafeAreaInsets();
   const [showCreate, setShowCreate] = useState(false);
@@ -31,8 +30,13 @@ export default function MultiVendor({ route }) {
     console.log("✅ Vendor results received:", results);
     console.log("📦 Barcode:", barcode);
     setVendorResults(results);
+    if(results.length === 0){
+     Alert.alert("Product Not Fount");
+    }
+  
     setSelectedBarcode(barcode);
   }
+
   useEffect(() => {
 
     const loadPermission = async () => {
@@ -126,6 +130,7 @@ export default function MultiVendor({ route }) {
     </ImageBackground>
   );
 }
+
 const styles = StyleSheet.create({
   screen: {
     flex: 1,

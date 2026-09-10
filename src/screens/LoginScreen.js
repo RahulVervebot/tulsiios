@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+
 import {
   View,
   StyleSheet,
@@ -15,14 +16,23 @@ import {
   Image,
   ImageBackground,
 } from 'react-native';
+
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+
 import AsyncStorage from '@react-native-async-storage/async-storage';
+
 import { useFocusEffect } from '@react-navigation/native';
+
 import LoginBackground from '../assets/images/Login_screen_white.png';
+
 import LinearGradient from 'react-native-linear-gradient';
+
 import { dbPromise } from '../firebaseConfig';
+
 import { registerDeviceWithStoreUrl, tagDeviceWithStoreUrl, tagDeviceWithUserRole, saveUserCallProfile } from '../config/OneSignalConfig';
+
 import Icon from 'react-native-vector-icons/MaterialIcons';
+
 import { S3_ASYNC_KEYS } from '../config/S3Config';
 
 export default function LoginScreen({ navigation }) {
@@ -373,7 +383,8 @@ export default function LoginScreen({ navigation }) {
         return;
       }
 
-      const { pos_role, access_token, expiry, user_full_name, user_context, is_promotion_accessible, is_show_cost_price, is_show_credit_sale, is_product_edit_permission_in_app,is_product_billing_in_app, is_allow_tulsi_ai, is_allow_tulsi_chat_support, is_user_setting_visible_in_app,enable_developer_mode_in_app,uid } = data.result || {};
+      const { pos_role, access_token, expiry, user_full_name, user_context, is_promotion_accessible, is_show_cost_price, is_show_credit_sale, is_product_edit_permission_in_app,is_product_billing_in_app, is_allow_tulsi_ai, is_allow_tulsi_chat_support, is_user_setting_visible_in_app,enable_developer_mode_in_app,is_contact,uid } = data.result || {};
+
       await AsyncStorage.multiSet([
         ['userRole', String(pos_role || '')],
         ['access_token', String(access_token || '')],
@@ -394,6 +405,7 @@ export default function LoginScreen({ navigation }) {
         ['is_allow_tulsi_chat_support', String(is_allow_tulsi_chat_support || 'false')],
         ['is_user_setting_visible_in_app', String(is_user_setting_visible_in_app || 'false')],
         ['enable_developer_mode_in_app', String(enable_developer_mode_in_app || 'false')],
+        ['is_contact', String(is_contact || 'false')],
         ['user_id', String(uid || '')],
       ]);
 

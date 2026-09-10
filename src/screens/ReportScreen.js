@@ -8,8 +8,10 @@ import TopCustumerList from '../assets/icons/Top-Customers-List.png';
 import TopSellingProducts from '../assets/icons/Top-Selling-Products.png'
 import TopSellingCategories from '../assets/icons/Top-Selling-Categories.png'
 import SessionReports from '../assets/icons/Session-report.png'
+import CreditSaleReports from '../assets/icons/Credit-Sale-report.png'
 import Orders from '../assets/icons/Orders.png'
 import { useNavigation } from '@react-navigation/native';
+
 const PANEL_RADIUS = 28;
 
 export default function ReportScreen() {
@@ -59,7 +61,7 @@ export default function ReportScreen() {
             activeOpacity={1}
             onPress={() => navigation.navigate('OrderHold')}
           >
-            <Row icon={Orders} label="Credit Sale Report" />
+            <Row icon={CreditSaleReports} label="Credit Sale Report" />
           </TouchableOpacity>
           <TouchableOpacity
             activeOpacity={1}
@@ -182,16 +184,16 @@ const getStyles = (isTablet) => StyleSheet.create({
     }),
   },
   rowIconWrap: {
-    width: isTablet ? 68 : 56,
-    height: isTablet ? 68 : 56,
+    width: isTablet ? 70 : 56,
+    height: isTablet ? 70 : 56,
     borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#fff',
+    backgroundColor: '#d7f2df',
   },
   rowIcon: {
-    width: isTablet ? 40 : 32,
-    height: isTablet ? 40 : 32,
+    width: isTablet ? 70 : 56,
+    height: isTablet ? 70 : 56,
   },
   rowTitle: {
     flex: 1,

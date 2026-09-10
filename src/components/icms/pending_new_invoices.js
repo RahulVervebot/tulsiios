@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -9,15 +9,29 @@ import {
   TextInput,
   Modal,
   Alert,
+  Image,
+  ScrollView,
+  Dimensions,
+  Animated,
+  PanResponder,
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Icon from 'react-native-vector-icons/MaterialIcons';
 import AppHeader from '../AppHeader';
 import API_ENDPOINTS, { initICMSBase } from '../../../icms_config/api';
-
+import InvoiceGenerating from '../../assets/images/Invoice_Generating.gif';
+import ReviewCarefully from '../../assets/images/Review_Carefully.gif';
+import ApproveRegenerate from '../../assets/images/Approve_or_regenerate.gif';
 const HEADER_FALLBACK = '#ffffff';
 const STAGE_COUNT = 4;
+const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
+const REEL_WIDTH = Math.round(SCREEN_WIDTH * 0.7);
+const REEL_HEIGHT = Math.round(REEL_WIDTH * (16 / 9));
+const IMAGES_MODAL_HEIGHT = Math.round(SCREEN_HEIGHT * 0.7);
+const IMAGES_MODAL_WIDTH = Math.min(Math.round(SCREEN_WIDTH * 0.92), 480);
+const IMAGES_SLIDE_WIDTH = IMAGES_MODAL_WIDTH - 36;
+const PREVIEW_LOADING_SLIDES = [InvoiceGenerating, ReviewCarefully, ApproveRegenerate];
 
 const formatDateOnly = (value) => {
   if (!value) return '-';
@@ -52,6 +66,124 @@ const getStatusTone = (status) => {
   };
 };
 
+function distanceBetweenTouches(touches) {
+  const [a, b] = touches;
+  return Math.hypot(a.pageX - b.pageX, a.pageY - b.pageY);
+}
+
+function ZoomableImage({ uri, width, height, onZoomChange }) {
+  const scale = useRef(new Animated.Value(1)).current;
+  const translateX = useRef(new Animated.Value(0)).current;
+  const translateY = useRef(new Animated.Value(0)).current;
+
+  const currentScale = useRef(1);
+  const currentTranslate = useRef({ x: 0, y: 0 });
+  const initialPinchDistance = useRef(null);
+  const initialPinchScale = useRef(1);
+  const lastTouchCount = useRef(0);
+  const panStart = useRef({ x: 0, y: 0 });
+  const lastTapTime = useRef(0);
+
+  const clamp = (value, min, max) => Math.min(Math.max(value, min), max);
+
+  const applyTransform = (nextScale, nextX, nextY) => {
+    const boundedScale = clamp(nextScale, 1, 4);
+    const maxOffsetX = ((boundedScale - 1) * width) / 2;
+    const maxOffsetY = ((boundedScale - 1) * height) / 2;
+    const boundedX = boundedScale <= 1 ? 0 : clamp(nextX, -maxOffsetX, maxOffsetX);
+    const boundedY = boundedScale <= 1 ? 0 : clamp(nextY, -maxOffsetY, maxOffsetY);
+
+    currentScale.current = boundedScale;
+    currentTranslate.current = { x: boundedX, y: boundedY };
+
+    scale.setValue(boundedScale);
+    translateX.setValue(boundedX);
+    translateY.setValue(boundedY);
+  };
+
+  const resetTransform = () => {
+    applyTransform(1, 0, 0);
+    if (onZoomChange) onZoomChange(false);
+  };
+
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: (evt) => evt.nativeEvent.touches.length === 2,
+      onStartShouldSetPanResponderCapture: (evt) => evt.nativeEvent.touches.length === 2,
+      onMoveShouldSetPanResponder: (evt) =>
+        evt.nativeEvent.touches.length === 2 || currentScale.current > 1.02,
+      onMoveShouldSetPanResponderCapture: (evt) =>
+        evt.nativeEvent.touches.length === 2 || currentScale.current > 1.02,
+      onPanResponderTerminationRequest: () => false,
+      onPanResponderGrant: (evt) => {
+        const touches = evt.nativeEvent.touches;
+        lastTouchCount.current = touches.length;
+        if (touches.length === 2) {
+          initialPinchDistance.current = distanceBetweenTouches(touches);
+          initialPinchScale.current = currentScale.current;
+        } else {
+          panStart.current = {
+            x: touches[0].pageX - currentTranslate.current.x,
+            y: touches[0].pageY - currentTranslate.current.y,
+          };
+        }
+      },
+      onPanResponderMove: (evt) => {
+        const touches = evt.nativeEvent.touches;
+
+        if (touches.length === 2) {
+          if (lastTouchCount.current !== 2 || initialPinchDistance.current == null) {
+            initialPinchDistance.current = distanceBetweenTouches(touches);
+            initialPinchScale.current = currentScale.current;
+          }
+          const distance = distanceBetweenTouches(touches);
+          const ratio = distance / initialPinchDistance.current;
+          const nextScale = initialPinchScale.current * ratio;
+          applyTransform(nextScale, currentTranslate.current.x, currentTranslate.current.y);
+          if (onZoomChange) onZoomChange(nextScale > 1.05);
+        } else if (touches.length === 1 && currentScale.current > 1) {
+          const nextX = touches[0].pageX - panStart.current.x;
+          const nextY = touches[0].pageY - panStart.current.y;
+          applyTransform(currentScale.current, nextX, nextY);
+        }
+
+        lastTouchCount.current = touches.length;
+      },
+      onPanResponderRelease: () => {
+        if (lastTouchCount.current <= 1 && currentScale.current <= 1.05) {
+          const now = Date.now();
+          if (now - lastTapTime.current < 280) {
+            resetTransform();
+          }
+          lastTapTime.current = now;
+        }
+        initialPinchDistance.current = null;
+        lastTouchCount.current = 0;
+        if (currentScale.current <= 1) {
+          resetTransform();
+        }
+      },
+      onPanResponderTerminate: () => {
+        initialPinchDistance.current = null;
+        lastTouchCount.current = 0;
+      },
+    })
+  ).current;
+
+  return (
+    <View style={[styles.zoomableImageWrap, { width, height }]} {...panResponder.panHandlers}>
+      <Animated.Image
+        source={{ uri }}
+        resizeMode="contain"
+        style={[
+          { width, height },
+          { transform: [{ translateX }, { translateY }, { scale }] },
+        ]}
+      />
+    </View>
+  );
+}
+
 export default function PendingNewInvoices() {
   const [headerBg, setHeaderBg] = useState({ type: 'color', value: HEADER_FALLBACK });
   const [loading, setLoading] = useState(false);
@@ -59,17 +191,30 @@ export default function PendingNewInvoices() {
   const [jobs, setJobs] = useState([]);
   const [expandedJobId, setExpandedJobId] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
-  const [notifyModalVisible, setNotifyModalVisible] = useState(false);
-  const [pendingNotifyJobId, setPendingNotifyJobId] = useState('');
-  const [notifiedJobIds, setNotifiedJobIds] = useState(new Set());
+  const [teamReviewModalVisible, setTeamReviewModalVisible] = useState(false);
+  const [teamReviewJobId, setTeamReviewJobId] = useState('');
+  const [teamReviewReasons, setTeamReviewReasons] = useState([]);
+  const [teamReviewReasonsLoading, setTeamReviewReasonsLoading] = useState(false);
+  const [teamReviewReasonsError, setTeamReviewReasonsError] = useState('');
+  const [selectedTeamReviewReason, setSelectedTeamReviewReason] = useState('');
+  const [customTeamReviewReason, setCustomTeamReviewReason] = useState('');
+  const [teamReviewSubmitLoading, setTeamReviewSubmitLoading] = useState(false);
   const [previewModalVisible, setPreviewModalVisible] = useState(false);
   const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewLoadingSliderIndex, setPreviewLoadingSliderIndex] = useState(0);
   const [previewError, setPreviewError] = useState('');
   const [previewData, setPreviewData] = useState(null);
   const [previewJobId, setPreviewJobId] = useState('');
   const [previewActionLoading, setPreviewActionLoading] = useState(false);
   const [regenerateModalVisible, setRegenerateModalVisible] = useState(false);
   const [regeneratePrompt, setRegeneratePrompt] = useState('');
+  const [imagesModalVisible, setImagesModalVisible] = useState(false);
+  const [imagesSliderIndex, setImagesSliderIndex] = useState(0);
+  const [imagesZoomed, setImagesZoomed] = useState(false);
+  const [activeTab, setActiveTab] = useState('PROCESSING');
+  const [recreateModalVisible, setRecreateModalVisible] = useState(false);
+  const [recreateJobId, setRecreateJobId] = useState('');
+  const [recreateLoading, setRecreateLoading] = useState(false);
 
   useEffect(() => {
     const loadHeader = async () => {
@@ -134,61 +279,6 @@ export default function PendingNewInvoices() {
     }, [fetchPendingJobs]),
   );
 
-  const openNotifyModal = useCallback((jobId) => {
-    if (!jobId) return;
-    setPendingNotifyJobId(String(jobId));
-    setNotifyModalVisible(true);
-  }, []);
-
-  const handleNotifyConfirm = useCallback(async () => {
-    const jobId = String(pendingNotifyJobId || '').trim();
-    if (!jobId) {
-      setNotifyModalVisible(false);
-      return;
-    }
-
-    setNotifyModalVisible(false);
-    try {
-      await initICMSBase();
-      const token = await AsyncStorage.getItem('access_token');
-      const icmsStore = await AsyncStorage.getItem('icms_store');
-      const storeurl = await AsyncStorage.getItem('storeurl');
-      const body = {
-        notificationUpdate: true,
-        data: [
-          {
-            invoiceId: jobId,
-            IsNotify: true,
-          },
-        ],
-      };
-
-      const response = await fetch(API_ENDPOINTS.UPDATE_ROWINOVICE, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          access_token: token ?? '',
-          mode: 'MOBILE',
-          store: icmsStore ?? '',
-          app_url: storeurl ?? '',
-        },
-        body: JSON.stringify(body),
-      });
-
-      if (!response.ok) {
-        const message = await response.text().catch(() => '');
-        throw new Error(message || `Request failed (${response.status})`);
-      }
-console.log("response notify",response);
-      setNotifiedJobIds((prev) => new Set(prev).add(jobId));
-    } catch (error) {
-      console.log('Pending new invoice notify error:', error?.message || error);
-      setErrorMessage(error?.message || 'Unable to notify Tulsi team.');
-    } finally {
-      setPendingNotifyJobId('');
-    }
-  }, [pendingNotifyJobId]);
-
   const getIcmsHeaders = useCallback(async () => {
     await initICMSBase();
     const token = await AsyncStorage.getItem('access_token');
@@ -202,6 +292,94 @@ console.log("response notify",response);
       app_url: storeurl ?? '',
     };
   }, []);
+
+  const loadTeamReviewReasons = useCallback(async () => {
+    setTeamReviewReasonsLoading(true);
+    setTeamReviewReasonsError('');
+    try {
+      const headers = await getIcmsHeaders();
+      const response = await fetch(API_ENDPOINTS.TEAM_REVIEW_REASONS, {
+        method: 'GET',
+        headers,
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(data?.message || `Request failed (${response.status})`);
+      }
+      setTeamReviewReasons(Array.isArray(data?.reasons) ? data.reasons : []);
+    } catch (error) {
+      console.log('Team review reasons error:', error?.message || error);
+      setTeamReviewReasonsError(error?.message || 'Unable to load reasons.');
+    } finally {
+      setTeamReviewReasonsLoading(false);
+    }
+  }, [getIcmsHeaders]);
+
+  const openTeamReviewModal = useCallback((jobId) => {
+    if (!jobId) return;
+    setTeamReviewJobId(String(jobId));
+    setSelectedTeamReviewReason('');
+    setCustomTeamReviewReason('');
+    setTeamReviewModalVisible(true);
+    loadTeamReviewReasons();
+  }, [loadTeamReviewReasons]);
+
+  const closeTeamReviewModal = useCallback(() => {
+    setTeamReviewModalVisible(false);
+    setTeamReviewJobId('');
+    setTeamReviewReasons([]);
+    setTeamReviewReasonsError('');
+    setSelectedTeamReviewReason('');
+    setCustomTeamReviewReason('');
+  }, []);
+
+  const handleRequestTeamReview = useCallback(async () => {
+    const normalizedJobId = String(teamReviewJobId || '').trim();
+    if (!normalizedJobId) return;
+
+    const isOther = selectedTeamReviewReason === 'Other';
+    const reason = (isOther ? customTeamReviewReason : selectedTeamReviewReason).trim();
+    if (!reason) return;
+
+    setTeamReviewSubmitLoading(true);
+    try {
+      const headers = await getIcmsHeaders();
+      const requestedBy = (await AsyncStorage.getItem('userEmail')) || '';
+
+      const response = await fetch(API_ENDPOINTS.REQUEST_TEAM_REVIEW, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          jobId: normalizedJobId,
+          reason,
+          requestedBy,
+        }),
+      });
+
+      const data = await response.json().catch(() => ({}));
+      console.log('REQUEST_TEAM_REVIEW response:', data);
+
+      if (response.ok && data?.status === 'REVIEW_BY_TEAM') {
+        Alert.alert('Request submitted successfully');
+        closeTeamReviewModal();
+        fetchPendingJobs();
+      } else {
+        Alert.alert(data?.message || 'Failed to send');
+      }
+    } catch (error) {
+      console.log('Request team review error:', error?.message || error);
+      Alert.alert(error?.message || 'Failed to send');
+    } finally {
+      setTeamReviewSubmitLoading(false);
+    }
+  }, [
+    teamReviewJobId,
+    selectedTeamReviewReason,
+    customTeamReviewReason,
+    getIcmsHeaders,
+    closeTeamReviewModal,
+    fetchPendingJobs,
+  ]);
 
   const loadPreview = useCallback(async (jobId) => {
 
@@ -237,8 +415,10 @@ console.log("response notify",response);
     if (!normalizedJobId) return;
 
     setPreviewJobId(normalizedJobId);
-    setPreviewModalVisible(true);
     setPreviewData(null);
+    setPreviewLoading(true);
+    setPreviewLoadingSliderIndex(0);
+    setPreviewModalVisible(true);
     await loadPreview(normalizedJobId);
   }, [loadPreview]);
 
@@ -247,6 +427,19 @@ console.log("response notify",response);
     setPreviewData(null);
     setPreviewError('');
     setPreviewJobId('');
+  }, []);
+
+  const openImagesModal = useCallback(() => {
+    setImagesSliderIndex(0);
+    setImagesZoomed(false);
+    setPreviewModalVisible(false);
+    setImagesModalVisible(true);
+  }, []);
+
+  const closeImagesModal = useCallback(() => {
+    setImagesModalVisible(false);
+    setImagesZoomed(false);
+    setPreviewModalVisible(true);
   }, []);
 
   const handleApprove = useCallback(async () => {
@@ -327,6 +520,52 @@ console.log("response notify",response);
     }
   }, [previewJobId, regeneratePrompt, getIcmsHeaders, loadPreview]);
 
+  const openRecreateModal = useCallback((jobId) => {
+    if (!jobId) return;
+    setRecreateJobId(String(jobId));
+    setRecreateModalVisible(true);
+  }, []);
+
+  const closeRecreateModal = useCallback(() => {
+    if (recreateLoading) return;
+    setRecreateModalVisible(false);
+    setRecreateJobId('');
+  }, [recreateLoading]);
+
+  const handleRecreateSubmit = useCallback(async (resumeFromStage) => {
+    const normalizedJobId = String(recreateJobId || '').trim();
+    if (!normalizedJobId) return;
+
+    setRecreateLoading(true);
+    try {
+      const headers = await getIcmsHeaders();
+      const response = await fetch(API_ENDPOINTS.RECREATE_REGEX, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          jobId: normalizedJobId,
+          resumeFromStage,
+        }),
+      });
+
+      const data = await response.json().catch(() => ({}));
+      console.log('RECREATE_REGEX response:', data);
+      if (!response.ok) {
+        throw new Error(data?.message || `Request failed (${response.status})`);
+      }
+
+      Alert.alert('Re-create started successfully');
+      setRecreateModalVisible(false);
+      setRecreateJobId('');
+      fetchPendingJobs();
+    } catch (error) {
+      console.log('Recreate regex error:', error?.message || error);
+      Alert.alert(error?.message || 'Unable to re-create.');
+    } finally {
+      setRecreateLoading(false);
+    }
+  }, [recreateJobId, getIcmsHeaders, fetchPendingJobs]);
+
   const sortedJobs = useMemo(() => {
     const normalizedQuery = searchQuery.trim().toLowerCase();
     const filteredJobs = normalizedQuery
@@ -343,6 +582,18 @@ console.log("response notify",response);
       return bTime - aTime;
     });
   }, [jobs, searchQuery]);
+
+  const failedJobs = useMemo(
+    () => sortedJobs.filter((item) => String(item?.status || '').toUpperCase() === 'FAILED'),
+    [sortedJobs],
+  );
+
+  const processingJobs = useMemo(
+    () => sortedJobs.filter((item) => String(item?.status || '').toUpperCase() !== 'FAILED'),
+    [sortedJobs],
+  );
+
+  const displayedJobs = activeTab === 'FAILED' ? failedJobs : processingJobs;
 
   const renderStepper = (stageValue) => {
     const currentStage = Math.max(0, Math.min(STAGE_COUNT, Number(stageValue || 0)));
@@ -390,7 +641,6 @@ console.log("response notify",response);
     const isExpanded = expandedJobId === key;
     const statusTone = getStatusTone(item?.status);
     const stageNumber = Math.max(0, Math.min(STAGE_COUNT, Number(item?.stage || 0)));
-    const isNotified = notifiedJobIds.has(String(item?.jobId || ''));
 
     return (
       <TouchableOpacity
@@ -413,17 +663,15 @@ console.log("response notify",response);
                 {item?.status || '-'}
               </Text>
             </View>
-            <TouchableOpacity
-              style={[styles.notifyIconBtn, isNotified && styles.notifyIconBtnDisabled]}
-              onPress={() => openNotifyModal(item?.jobId)}
-              disabled={!item?.jobId || isNotified}
-            >
-              <Icon
-                name={isNotified ? 'notifications-active' : 'notifications-none'}
-                size={16}
-                color={isNotified ? '#94A3B8' : '#fff'}
-              />
-            </TouchableOpacity>
+            {['waiting_for_review', 'failed'].includes(String(item?.status || '').toLowerCase()) ? (
+              <TouchableOpacity
+                style={styles.notifyIconBtn}
+                onPress={() => openTeamReviewModal(item?.jobId)}
+                disabled={!item?.jobId}
+              >
+                <Icon name="help-outline" size={16} color="#fff" />
+              </TouchableOpacity>
+            ) : null}
           </View>
         </View>
 
@@ -439,10 +687,9 @@ console.log("response notify",response);
                 <Text style={styles.metaValue}>{formatDateOnly(item?.createdAt)}</Text>
               </View>
             </View>
-
             {renderStepper(stageNumber)}
 
-            {String(item?.stageCode || '').toLowerCase() === 'waiting_for_review' ? (
+            {String(item?.status || '').toLowerCase() === 'waiting_for_review' ? (
               <View style={styles.progressCard}>
                 <TouchableOpacity
                   style={styles.previewBtn}
@@ -452,6 +699,20 @@ console.log("response notify",response);
                 >
                   <Icon name="visibility" size={18} color="#fff" />
                   <Text style={styles.previewBtnText}>Preview Extracted Data</Text>
+                </TouchableOpacity>
+              </View>
+            ) : null}
+
+            {String(item?.status || '').toLowerCase() === 'failed' ? (
+              <View style={styles.progressCard}>
+                <TouchableOpacity
+                  style={styles.previewBtn}
+                  onPress={() => openRecreateModal(item?.jobId)}
+                  disabled={!item?.jobId}
+                  activeOpacity={0.85}
+                >
+                  <Icon name="refresh" size={18} color="#fff" />
+                  <Text style={styles.previewBtnText}>Re-Create</Text>
                 </TouchableOpacity>
               </View>
             ) : null}
@@ -483,8 +744,26 @@ console.log("response notify",response);
             <TouchableOpacity style={styles.refreshBtn} onPress={fetchPendingJobs}>
               <Icon name="refresh" size={22} color="#fff" />
             </TouchableOpacity>
+            {failedJobs.length > 0 ? (
+              <TouchableOpacity
+                style={[styles.failedIconBtn, activeTab === 'FAILED' && styles.failedIconBtnActive]}
+                onPress={() => setActiveTab(activeTab === 'FAILED' ? 'PROCESSING' : 'FAILED')}
+              >
+                <Icon
+                  name="error-outline"
+                  size={22}
+                  color={activeTab === 'FAILED' ? '#fff' : '#B91C1C'}
+                />
+                <View style={styles.failedBadge}>
+                  <Text style={styles.failedBadgeText}>
+                    {failedJobs.length > 99 ? '99+' : failedJobs.length}
+                  </Text>
+                </View>
+              </TouchableOpacity>
+            ) : null}
           </View>
         </View>
+
         {loading ? (
           <View style={styles.centerState}>
             <ActivityIndicator size="large" color="#319241" />
@@ -499,43 +778,163 @@ console.log("response notify",response);
             </TouchableOpacity>
           </View>
         ) : (
-          <FlatList
-            data={sortedJobs}
-            keyExtractor={(item, index) =>
-              String(item?.jobId || `${item?.invoiceNo || 'job'}-${index}`)
-            }
-            renderItem={renderItem}
-            contentContainerStyle={styles.listContent}
-            ListEmptyComponent={
-              <View style={styles.centerState}>
-                <Text style={styles.stateText}>No pending invoice jobs found.</Text>
-              </View>
-            }
-          />
+          <View style={activeTab === 'FAILED' ? styles.failedListWrap : styles.processingListWrap}>
+            <FlatList
+              data={displayedJobs}
+              keyExtractor={(item, index) =>
+                String(item?.jobId || `${item?.invoiceNo || 'job'}-${index}`)
+              }
+              renderItem={renderItem}
+              contentContainerStyle={styles.listContent}
+              ListEmptyComponent={
+                <View style={styles.centerState}>
+                  <Text style={styles.stateText}>
+                    {activeTab === 'FAILED'
+                      ? 'No failed invoice jobs found.'
+                      : 'No pending invoice jobs found.'}
+                  </Text>
+                </View>
+              }
+            />
+          </View>
         )}
       </View>
 
-      <Modal visible={notifyModalVisible} transparent animationType="fade">
+      <Modal visible={teamReviewModalVisible} transparent animationType="fade">
         <View style={styles.modalBackdrop}>
           <TouchableOpacity
             style={styles.modalBackdropTouch}
-            onPress={() => setNotifyModalVisible(false)}
+            onPress={closeTeamReviewModal}
           />
           <View style={styles.modalCard}>
-            <Text style={styles.modalTitle}>Send Notification?</Text>
-            <Text style={styles.modalText}>
-              Do you want to notify Tulsi team for this pending invoice job?
-            </Text>
+            <Text style={styles.modalTitle}>Not satisfied? Hand off to the team</Text>
+
+            {teamReviewReasonsLoading ? (
+              <View style={styles.previewCenterState}>
+                <ActivityIndicator size="small" color="#319241" />
+                <Text style={styles.stateText}>Loading reasons...</Text>
+              </View>
+            ) : teamReviewReasonsError ? (
+              <Text style={styles.errorText}>{teamReviewReasonsError}</Text>
+            ) : (
+              <View style={styles.reasonList}>
+                {teamReviewReasons.map((reason) => {
+                  const isSelected = selectedTeamReviewReason === reason;
+                  return (
+                    <TouchableOpacity
+                      key={reason}
+                      style={[styles.reasonOption, isSelected && styles.reasonOptionSelected]}
+                      onPress={() => setSelectedTeamReviewReason(reason)}
+                    >
+                      <View style={[styles.reasonRadio, isSelected && styles.reasonRadioSelected]}>
+                        {isSelected ? <View style={styles.reasonRadioDot} /> : null}
+                      </View>
+                      <Text style={styles.reasonOptionText}>{reason}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+
+                {selectedTeamReviewReason === 'Other' ? (
+                  <TextInput
+                    style={styles.reasonOtherInput}
+                    placeholder="Type your reason"
+                    placeholderTextColor="#7B8A81"
+                    value={customTeamReviewReason}
+                    onChangeText={setCustomTeamReviewReason}
+                    multiline
+                  />
+                ) : null}
+              </View>
+            )}
+
             <View style={styles.modalActions}>
               <TouchableOpacity
-                style={[styles.modalBtn, styles.modalBtnPrimary]}
-                onPress={handleNotifyConfirm}
+                style={[
+                  styles.modalBtn,
+                  styles.modalBtnPrimary,
+                  (!selectedTeamReviewReason ||
+                    (selectedTeamReviewReason === 'Other' && !customTeamReviewReason.trim()) ||
+                    teamReviewSubmitLoading) &&
+                    styles.modalBtnDisabled,
+                ]}
+                onPress={handleRequestTeamReview}
+                disabled={
+                  !selectedTeamReviewReason ||
+                  (selectedTeamReviewReason === 'Other' && !customTeamReviewReason.trim()) ||
+                  teamReviewSubmitLoading
+                }
               >
-                <Text style={styles.modalBtnText}>Yes</Text>
+                {teamReviewSubmitLoading ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <Text style={styles.modalBtnText}>Request Review</Text>
+                )}
               </TouchableOpacity>
               <TouchableOpacity
                 style={[styles.modalBtn, styles.modalBtnGhost]}
-                onPress={() => setNotifyModalVisible(false)}
+                onPress={closeTeamReviewModal}
+                disabled={teamReviewSubmitLoading}
+              >
+                <Text style={styles.modalBtnGhostText}>Cancel</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal visible={recreateModalVisible} transparent animationType="fade">
+        <View style={styles.modalBackdrop}>
+          <TouchableOpacity
+            style={styles.modalBackdropTouch}
+            onPress={closeRecreateModal}
+          />
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>Re-Create Invoice</Text>
+            <Text style={styles.modalText}>
+              Choose how you would like to re-create this failed job.
+            </Text>
+
+            {recreateLoading ? (
+              <View style={styles.previewCenterState}>
+                <ActivityIndicator size="small" color="#319241" />
+                <Text style={styles.stateText}>Processing...</Text>
+              </View>
+            ) : (
+              <View style={styles.recreateOptionsList}>
+                <TouchableOpacity
+                  style={styles.recreateOption}
+                  onPress={() => handleRecreateSubmit(1)}
+                  activeOpacity={0.85}
+                >
+                  <Icon name="fast-forward" size={20} color="#319241" />
+                  <View style={styles.recreateOptionTextWrap}>
+                    <Text style={styles.recreateOptionTitle}>Resume from where it failed</Text>
+                    <Text style={styles.recreateOptionSubtitle}>
+                      Continue processing from the last completed stage.
+                    </Text>
+                  </View>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.recreateOption}
+                  onPress={() => handleRecreateSubmit(0)}
+                  activeOpacity={0.85}
+                >
+                  <Icon name="replay" size={20} color="#D97706" />
+                  <View style={styles.recreateOptionTextWrap}>
+                    <Text style={styles.recreateOptionTitle}>Restart from the beginning</Text>
+                    <Text style={styles.recreateOptionSubtitle}>
+                      Re-process this invoice from scratch.
+                    </Text>
+                  </View>
+                </TouchableOpacity>
+              </View>
+            )}
+
+            <View style={styles.modalActions}>
+              <TouchableOpacity
+                style={[styles.modalBtn, styles.modalBtnGhost]}
+                onPress={closeRecreateModal}
+                disabled={recreateLoading}
               >
                 <Text style={styles.modalBtnGhostText}>Cancel</Text>
               </TouchableOpacity>
@@ -547,6 +946,35 @@ console.log("response notify",response);
       <Modal visible={previewModalVisible} transparent animationType="fade">
         <View style={styles.modalBackdrop}>
           <TouchableOpacity style={styles.modalBackdropTouch} onPress={closePreviewModal} />
+          {previewLoading ? (
+            <View style={styles.reelBox}>
+              <ScrollView
+                horizontal
+                pagingEnabled
+                showsHorizontalScrollIndicator={false}
+                decelerationRate="fast"
+                snapToInterval={REEL_WIDTH}
+                snapToAlignment="center"
+                style={styles.reelSlider}
+                onMomentumScrollEnd={(e) => {
+                  const idx = Math.round(e.nativeEvent.contentOffset.x / REEL_WIDTH);
+                  setPreviewLoadingSliderIndex(idx);
+                }}
+              >
+                {PREVIEW_LOADING_SLIDES.map((src, idx) => (
+                  <Image key={idx} source={src} style={styles.reelSlide} resizeMode="contain" />
+                ))}
+              </ScrollView>
+              <View style={styles.reelDotsRow}>
+                {PREVIEW_LOADING_SLIDES.map((_, idx) => (
+                  <View
+                    key={idx}
+                    style={[styles.reelDot, previewLoadingSliderIndex === idx && styles.reelDotActive]}
+                  />
+                ))}
+              </View>
+            </View>
+          ) : (
           <View style={styles.previewModalCard}>
             {regenerateModalVisible ? (
               <>
@@ -580,21 +1008,28 @@ console.log("response notify",response);
               </>
             ) : (
               <>
-            <Text style={styles.modalTitle}>Invoice Preview</Text>
 
-            {previewLoading ? (
+            {previewError ? (
               <View style={styles.previewCenterState}>
-                <ActivityIndicator size="large" color="#319241" />
-                <Text style={styles.stateText}>Loading preview...</Text>
-              </View>
-            ) : previewError ? (
-              <View style={styles.previewCenterState}>
+
                 <Text style={styles.errorText}>{previewError}</Text>
               </View>
             ) : previewData ? (
               <>
-                <Text style={styles.previewSummary}>
-                  {`Total Rows: ${previewData?.totalRowCount ?? 0}`}
+               <View style={styles.previewTitleRow}>
+                 <Text style={styles.modalTitle}>Invoice Preview</Text>
+                 {Array.isArray(previewData?.invoiceImgUrls) && previewData.invoiceImgUrls.length > 0 ? (
+                   <TouchableOpacity
+                     style={styles.previewEyeButton}
+                     onPress={openImagesModal}
+                     hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                   >
+                     <Icon name="visibility" size={22} color="#10261A" />
+                   </TouchableOpacity>
+                 ) : null}
+               </View>
+               <Text style={styles.previewSummary}>
+                {`Total Rows: ${previewData?.totalRowCount ?? 0}`}
                 </Text>
                 <FlatList
                   style={styles.previewTableScroll}
@@ -669,6 +1104,78 @@ console.log("response notify",response);
               </>
             )}
           </View>
+          )}
+        </View>
+      </Modal>
+
+      <Modal visible={imagesModalVisible} transparent animationType="fade">
+        <View style={styles.modalBackdrop}>
+          <TouchableOpacity style={styles.modalBackdropTouch} onPress={closeImagesModal} />
+          <View style={styles.imagesModalCard}>
+            <View style={styles.imagesModalHeader}>
+              <Text style={styles.imagesModalHeaderTitle}>
+                {`Invoice Images${
+                  Array.isArray(previewData?.invoiceImgUrls) && previewData.invoiceImgUrls.length > 1
+                    ? ` (${imagesSliderIndex + 1}/${previewData.invoiceImgUrls.length})`
+                    : ''
+                }`}
+              </Text>
+              <TouchableOpacity
+                style={styles.imagesModalCloseBtn}
+                onPress={closeImagesModal}
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+              >
+                <Icon name="close" size={22} color="#10261A" />
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.imagesModalBody}>
+              <ScrollView
+                horizontal
+                pagingEnabled
+                scrollEnabled={!imagesZoomed}
+                showsHorizontalScrollIndicator={false}
+                decelerationRate="fast"
+                snapToInterval={IMAGES_SLIDE_WIDTH}
+                snapToAlignment="center"
+                style={styles.imagesSlider}
+                onMomentumScrollEnd={(e) => {
+                  const idx = Math.round(e.nativeEvent.contentOffset.x / IMAGES_SLIDE_WIDTH);
+                  setImagesSliderIndex(idx);
+                  setImagesZoomed(false);
+                }}
+              >
+                {(Array.isArray(previewData?.invoiceImgUrls) ? previewData.invoiceImgUrls : []).map((uri, idx) => (
+                  <View key={idx} style={styles.imagesSlideWrap}>
+                    <ZoomableImage
+                      uri={uri}
+                      width={IMAGES_SLIDE_WIDTH}
+                      height={styles.imagesSlideWrap.height}
+                      onZoomChange={setImagesZoomed}
+                    />
+                  </View>
+                ))}
+              </ScrollView>
+            </View>
+
+            <View style={styles.imagesModalFooter}>
+              <View style={styles.reelDotsRow}>
+                {(Array.isArray(previewData?.invoiceImgUrls) ? previewData.invoiceImgUrls : []).map((_, idx) => (
+                  <View
+                    key={idx}
+                    style={[styles.reelDot, imagesSliderIndex === idx && styles.reelDotActive]}
+                  />
+                ))}
+              </View>
+              <Text style={styles.imagesZoomHint}>Pinch to zoom · Double-tap to reset</Text>
+              <TouchableOpacity
+                style={[styles.modalBtn, styles.modalBtnGhost, styles.imagesCloseBtn]}
+                onPress={closeImagesModal}
+              >
+                <Text style={styles.modalBtnGhostText}>Close</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
         </View>
       </Modal>
     </View>
@@ -712,6 +1219,44 @@ const styles = StyleSheet.create({
     height: 46,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  failedIconBtn: {
+    width: 46,
+    height: 46,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#B91C1C',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  failedIconBtnActive: {
+    backgroundColor: '#B91C1C',
+    borderColor: '#B91C1C',
+  },
+  failedBadge: {
+    position: 'absolute',
+    top: -8,
+    right: -12,
+    minWidth: 18,
+    height: 18,
+    borderRadius: 9,
+    paddingHorizontal: 4,
+    backgroundColor: '#B91C1C',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1.5,
+    borderColor: '#fff',
+  },
+  failedBadgeText: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#fff',
+  },
+  processingListWrap: {
+    flex: 1,
+  },
+  failedListWrap: {
+    flex: 1,
   },
   listContent: {
     paddingHorizontal: 16,
@@ -766,9 +1311,6 @@ const styles = StyleSheet.create({
     backgroundColor: '#0F8B65',
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  notifyIconBtnDisabled: {
-    backgroundColor: '#E2E8F0',
   },
   expandedBlock: {
     marginTop: 14,
@@ -934,6 +1476,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: 'rgba(15, 23, 42, 0.35)',
     paddingHorizontal: 20,
+    
   },
   modalBackdropTouch: {
     ...StyleSheet.absoluteFillObject,
@@ -949,6 +1492,14 @@ const styles = StyleSheet.create({
     fontSize: 17,
     fontWeight: '800',
     color: '#10261A',
+  },
+  previewTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  previewEyeButton: {
+    padding: 4,
   },
   modalText: {
     marginTop: 8,
@@ -981,6 +1532,84 @@ const styles = StyleSheet.create({
     color: '#334155',
     fontWeight: '700',
   },
+  modalBtnDisabled: {
+    opacity: 0.5,
+  },
+  recreateOptionsList: {
+    marginTop: 14,
+    gap: 10,
+  },
+  recreateOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    backgroundColor: '#F6FBF7',
+    borderWidth: 1,
+    borderColor: '#CFE3D5',
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+  },
+  recreateOptionTextWrap: {
+    flex: 1,
+  },
+  recreateOptionTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#10261A',
+  },
+  recreateOptionSubtitle: {
+    marginTop: 2,
+    fontSize: 12,
+    color: '#5F6F66',
+  },
+  reasonList: {
+    marginTop: 12,
+    gap: 8,
+  },
+  reasonOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingVertical: 8,
+  },
+  reasonOptionSelected: {},
+  reasonRadio: {
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    borderWidth: 2,
+    borderColor: '#94A3B8',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  reasonRadioSelected: {
+    borderColor: '#319241',
+  },
+  reasonRadioDot: {
+    width: 9,
+    height: 9,
+    borderRadius: 5,
+    backgroundColor: '#319241',
+  },
+  reasonOptionText: {
+    flex: 1,
+    fontSize: 14,
+    color: '#10261A',
+  },
+  reasonOtherInput: {
+    marginTop: 4,
+    backgroundColor: '#F6FBF7',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#CFE3D5',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    color: '#10261A',
+    fontSize: 14,
+    minHeight: 60,
+    textAlignVertical: 'top',
+  },
   regeneratePromptInput: {
     marginTop: 12,
     backgroundColor: '#F6FBF7',
@@ -1002,10 +1631,124 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     padding: 18,
   },
+  imagesModalCard: {
+    width: IMAGES_MODAL_WIDTH,
+    height: IMAGES_MODAL_HEIGHT,
+    backgroundColor: '#fff',
+    borderRadius: 20,
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.25,
+    shadowRadius: 16,
+    elevation: 10,
+  },
+  imagesModalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: '#EEF2F0',
+    backgroundColor: '#fff',
+  },
+  imagesModalHeaderTitle: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#10261A',
+    flexShrink: 1,
+    paddingRight: 12,
+  },
+  imagesModalCloseBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#F1F5F2',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  imagesModalBody: {
+    flex: 1,
+    backgroundColor: '#0B1F14',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  imagesSlider: {
+    flexGrow: 0,
+  },
+  imagesSlideWrap: {
+    width: IMAGES_SLIDE_WIDTH,
+    height: IMAGES_MODAL_HEIGHT - 170,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  imagesModalFooter: {
+    paddingHorizontal: 16,
+    paddingTop: 10,
+    paddingBottom: 16,
+    borderTopWidth: 1,
+    borderTopColor: '#EEF2F0',
+    backgroundColor: '#fff',
+  },
+  imagesCloseBtn: {
+    marginTop: 10,
+    width: '100%',
+  },
+  imagesZoomHint: {
+    marginTop: 8,
+    fontSize: 11,
+    color: '#7B8A79',
+    textAlign: 'center',
+  },
+  zoomableImageWrap: {
+    overflow: 'hidden',
+  },
   previewCenterState: {
     paddingVertical: 30,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  reelBox: {
+    width: REEL_WIDTH,
+    alignSelf: 'center',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 20,
+  },
+  reelSlider: {
+    width: REEL_WIDTH,
+    height: REEL_HEIGHT,
+    borderRadius: 18,
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 10,
+    elevation: 6,
+  },
+  reelSlide: {
+    width: REEL_WIDTH,
+    height: REEL_HEIGHT,
+  },
+  reelDotsRow: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: 14,
+  },
+  reelDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    marginHorizontal: 4,
+    backgroundColor: 'rgba(0,0,0,0.2)',
+  },
+  reelDotActive: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#319241',
   },
   previewSummary: {
     marginTop: 10,
@@ -1053,6 +1796,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 8,
     marginTop: 16,
+    
   },
   modalBtnApprove: {
     backgroundColor: '#0F8B65',

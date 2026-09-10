@@ -23,11 +23,14 @@ import CreateCategoryModal from '../components/CreateCategoryModal';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import SaslePrint from '../assets/icons/sale_print.svg'
 import MixMatch from '../assets/icons/mix_match.svg';
-import QuantityDiscount from '../assets/icons/quantity_discount.svg';
+import MixMatchedQty from '../assets/icons/quantity_discount.svg';
+import QuantityDiscount from '../assets/icons/quantity_discount2.svg';
 import CreateProductModal from '../components/CreateProductModal';
 import CreateProduct from '../assets/icons/create_product.svg';
 import CreateCategory from '../assets/icons/create_category.svg'
 import CategoryList from '../assets/icons/category_list.svg';
+import DeleteProductList from '../assets/icons/Delete_product_list.svg';
+
 const PANEL_RADIUS = 28;
 
 // Enable LayoutAnimation on Android
@@ -155,7 +158,7 @@ export default function POSScreen() {
                     right={null}
                   />
                   <Row
-                    icon={QuantityDiscount}
+                    icon={MixMatchedQty}
                     label="Mix Match Quantity Based Product"
                     isChild
                     onPress={() => navigation.navigate('MixMatchQuantityBasedOfferScreen')}
@@ -241,7 +244,7 @@ export default function POSScreen() {
                     right={null}
                   />
                   <Row
-                    icon={CategoryList}
+                    icon={DeleteProductList}
                     label="Deleted Product List"
                     isChild
                     isLast
@@ -368,16 +371,16 @@ const getStyles = (isTablet) =>
       gap: isTablet ? 14 : 10,
     },
     rowIcon: {
-      width: isTablet ? 40 : 32,
-      height: isTablet ? 40 : 32,
+   width: isTablet ? 70 : 56,
+    height: isTablet ? 70 : 56,
     },
     rowIconWrap: {
-      width: isTablet ? 68 : 56,
-      height: isTablet ? 68 : 56,
+      width: isTablet ? 70 : 56,
+      height: isTablet ? 70 : 56,
       borderRadius: 14,
       alignItems: 'center',
       justifyContent: 'center',
-      backgroundColor: '#fff',
+      backgroundColor: '#d7f2df',
     },
     rowIconWrapChild: {
       width: isTablet ? 56 : 48,

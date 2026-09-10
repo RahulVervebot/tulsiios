@@ -130,7 +130,7 @@ const styles = StyleSheet.create({
   },
   statBox: {
     flex: 1,
-    backgroundColor: "#FFF7E6",
+    backgroundColor: "#d7f2df",
     borderRadius: 10,
     paddingVertical: 10,
     paddingHorizontal: 12,

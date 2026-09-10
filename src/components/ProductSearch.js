@@ -401,7 +401,7 @@ const runQueryWithBarcode = async (barcode) => {
       >
         <TextInput
           style={styles.input}
-          placeholder="Search by name, barcode, or category..."
+          placeholder="Search Products by name, barcode, category..."
           placeholderTextColor={PLACEHOLDER}
           value={searchText}
           onChangeText={handleSearch}

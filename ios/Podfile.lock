@@ -3063,6 +3063,8 @@ PODS:
     - ReactCommon/turbomodule/core
     - SocketRocket
     - Yoga
+  - react-native-document-scanner-plugin (1.0.1):
+    - React-Core
   - react-native-image-picker (8.2.1):
     - boost
     - DoubleConversion
@@ -4021,6 +4023,7 @@ DEPENDENCIES:
   - React-microtasksnativemodule (from `../node_modules/react-native/ReactCommon/react/nativemodule/microtasks`)
   - react-native-blob-util (from `../node_modules/react-native-blob-util`)
   - react-native-document-picker (from `../node_modules/react-native-document-picker`)
+  - react-native-document-scanner-plugin (from `../node_modules/react-native-document-scanner-plugin`)
   - react-native-image-picker (from `../node_modules/react-native-image-picker`)
   - react-native-image-resizer (from `../node_modules/react-native-image-resizer`)
   - react-native-onesignal (from `../node_modules/react-native-onesignal`)
@@ -4199,6 +4202,8 @@ EXTERNAL SOURCES:
     :path: "../node_modules/react-native-blob-util"
   react-native-document-picker:
     :path: "../node_modules/react-native-document-picker"
+  react-native-document-scanner-plugin:
+    :path: "../node_modules/react-native-document-scanner-plugin"
   react-native-image-picker:
     :path: "../node_modules/react-native-image-picker"
   react-native-image-resizer:
@@ -4384,6 +4389,7 @@ SPEC CHECKSUMS:
   React-microtasksnativemodule: dcf5321c9a41659a6718df8a5f202af1577c6825
   react-native-blob-util: 6e927777936bbb9e6ad688c1caf54319d3e604f6
   react-native-document-picker: 81c7c0b077976b1c1e957c42190631b92df0adec
+  react-native-document-scanner-plugin: a852d8a2591da259a5610055c1f0fb58e3f40693
   react-native-image-picker: 3fdb6ccf85f1fe3e58dac88cdf2e393439c5757e
   react-native-image-resizer: 17b2d73c030975b6543395c7e7368bc8774c5efa
   react-native-onesignal: e1f82b98767a9014d2c46f395b083330cfa29cea

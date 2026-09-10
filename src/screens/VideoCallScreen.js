@@ -27,7 +27,7 @@ import firestore from '@react-native-firebase/firestore';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Icon from 'react-native-vector-icons/MaterialIcons';
 import InCallManager from 'react-native-incall-manager';
-import { sendMissedCallPushNotification } from '../config/OneSignalConfig';
+import { sendMissedCallPushNotification, sendCallPushNotification } from '../config/OneSignalConfig';
 import { useActiveCall } from '../context/ActiveCallContext';
 import { useFocusEffect } from '@react-navigation/native';
 import { StackActions } from '@react-navigation/native';
@@ -92,7 +92,7 @@ export default function VideoCallScreen({ route, navigation }) {
   const callWasConnectedRef = useRef(false);
   const pipViewRef = useRef(null);
   const isMinimizedRef = useRef(false);
-
+  const [isAgent,setIsAgent]    = useState('');
   const { setActiveCall, setMiniRemoteURL, setMiniDuration } = useActiveCall();
 
   const setStatus = (s) => {
@@ -181,7 +181,12 @@ export default function VideoCallScreen({ route, navigation }) {
 
   useEffect(() => {
     if (callStatus === STATUS.CONNECTED) {
-      timerRef.current = setInterval(() => setCallDuration((d) => { setMiniDuration(d + 1); return d + 1; }), 1000);
+      let elapsed = 0;
+      timerRef.current = setInterval(() => {
+        elapsed += 1;
+        setCallDuration(elapsed);
+        setMiniDuration(elapsed);
+      }, 1000);
     } else {
       clearInterval(timerRef.current);
       if (callStatus === STATUS.IDLE) setCallDuration(0);
@@ -201,6 +206,7 @@ export default function VideoCallScreen({ route, navigation }) {
   }, [callStatus === STATUS.IDLE]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Auto-adjust speaker when wired headset is plugged/unplugged
+
   useEffect(() => {
     const sub = DeviceEventEmitter.addListener('WiredHeadset', (event) => {
       const isPlugged = event?.isPlugged ?? false;
@@ -340,6 +346,7 @@ export default function VideoCallScreen({ route, navigation }) {
   };
 
   // ─── Outgoing call ────────────────────────────────────────────────────────
+
   const startCall = async (targetUser) => {
     try {
       const targetEmail = targetUser.email;
@@ -415,6 +422,10 @@ export default function VideoCallScreen({ route, navigation }) {
           setStatus(STATUS.CONNECTED);
         }
         if (data.status === 'ended' || data.status === 'rejected') {
+          if (data.conferenceRoomId) {
+            joinUpgradedConference(data.conferenceRoomId, 'video');
+            return;
+          }
           endCall(false);
         }
         if (data.status === 'busy') {
@@ -461,7 +472,7 @@ export default function VideoCallScreen({ route, navigation }) {
         } catch (_) {}
       }, 30_000);
 
-      // ── Auto-end after 60s if nobody answered ───────────────────────────
+      // ────────────────────── Auto-end after 60s if nobody answered ───────────────────────────
       endTimerRef.current = setTimeout(() => {
         if (callStatusRef.current === STATUS.CALLING) {
           endCall(true);
@@ -477,6 +488,7 @@ export default function VideoCallScreen({ route, navigation }) {
   };
 
   // ─── Incoming call ────────────────────────────────────────────────────────
+
   const answerCall = async (callData) => {
     if (!callData) return;
     try {
@@ -537,6 +549,10 @@ export default function VideoCallScreen({ route, navigation }) {
         if (!data) return;
         if (data.status === 'answered') { callAnswered = true; return; }
         if (callAnswered && (data.status === 'ended' || data.status === 'rejected' || data.status === 'cancelled')) {
+          if (data.conferenceRoomId) {
+            joinUpgradedConference(data.conferenceRoomId, 'video');
+            return;
+          }
           endCall(false);
         }
       });
@@ -553,17 +569,45 @@ export default function VideoCallScreen({ route, navigation }) {
     const wasCalling = callStatusRef.current === STATUS.CALLING;
     const calleeEmail = remoteUserRef.current?.email;
     const callId = activeCallIdRef.current;
-    setActiveCall(null);
+    setTimeout(() => setActiveCall(null), 0);
+    const finalStatus = callWasConnectedRef.current ? 'ended' : 'cancelled';
     if (updateDb && callDocRef.current) {
-      try { await callDocRef.current.update({ status: 'ended' }); } catch (_) {}
+      try { await callDocRef.current.update({ status: finalStatus }); } catch (_) {}
     }
     cleanup();
     if (callId) { clearAnsweredCall(callId); endCallKeep(callId); }
-    if (wasCalling && callRoleRef.current === 'caller' && calleeEmail && !callWasConnectedRef.current) {
+    if (wasCalling && callRoleRef.current === 'caller' && calleeEmail && !callWasConnectedRef.current && finalStatus === 'cancelled') {
       sendMissedCallPushNotification(calleeEmail, myName || myEmail, 'video').catch(() => {});
     }
     setStatus(STATUS.IDLE);
     navigation.reset({ index: 0, routes: [{ name: 'MainDrawer' }] });
+  };
+
+  // Fires when our 1:1 call was ended because the other party upgraded it into
+  // a group conference (tagged via conferenceRoomId) — join that room instead
+  // of running the normal hang-up cleanup, which would reset us to MainDrawer.
+
+  const joinUpgradedConference = (roomId, upgradeCallType) => {
+    if (endCallFiredRef.current) return;
+    endCallFiredRef.current = true;
+    clearCallTimers();
+    unsubsRef.current.forEach((u) => u?.());
+    unsubsRef.current = [];
+    // Close the 1:1 peer connection only — leave the camera/mic tracks live so
+    // ConferenceCallScreen's own getUserMedia() call can hand off without a
+    // full camera-session teardown-then-restart.
+    pcRef.current?.close();
+    pcRef.current = null;
+    localStreamRef.current = null;
+    callDocRef.current = null;
+    try { InCallManager.stop(); } catch (_) {}
+    setTimeout(() => setActiveCall(null), 0);
+    setStatus(STATUS.IDLE);
+    navigation.navigate('ConferenceCallScreen', { 
+      roomId,
+      isCreator: false,
+      callType: upgradeCallType,
+    });
   };
 
   const clearCallTimers = () => {
@@ -627,19 +671,17 @@ export default function VideoCallScreen({ route, navigation }) {
 
   const openAddSheet = async () => {
     try {
-      const userRole = await AsyncStorage.getItem('userRole');
-      const isAgent = userRole === 'Agent';
+      // const userRole = await AsyncStorage.getItem('userRole');
+      // const isAgent = userRole === 'Agent';
 
       const [storeDoc, profilesSnap] = await Promise.all([
         firestore().collection('tulsi').doc('storelist').get(),
         firestore().collection('callProfiles').get(),
       ]);
       const agentList = storeDoc.data()?.Agent || [];
-
+       const agent = agentList.includes(myEmail);
       let all = profilesSnap.docs.map((d) => ({ ...d.data(), email: d.id }));
-
-      if (!isAgent) {
-        // Non-agents: only allowed to call agents (same as SupportScreen contacts tab)
+      if (!agent) {
         all = all.filter((u) => agentList.includes(u.email));
       }
 
@@ -676,12 +718,16 @@ export default function VideoCallScreen({ route, navigation }) {
         createdAt:     firestore.FieldValue.serverTimestamp(),
       });
 
-      // Mark the existing 1:1 call as ended so the other party's screen also triggers endCall
+      // Mark the existing 1:1 call as ended, tagged with the new room ID so the
+      // other party's own 'ended' listener can redirect them into the conference
+      // instead of running its normal hang-up cleanup (navigation.reset to MainDrawer).
       if (callDocRef.current) {
-        try { await callDocRef.current.update({ status: 'ended' }); } catch (_) {}
+        try { await callDocRef.current.update({ status: 'ended', conferenceRoomId: roomId }); } catch (_) {}
       }
 
-      // Notify invitee and existing call partner
+      // Notify invitee and existing call partner so they can join the new conference room —
+      // without this, the original call partner's screen just ends the 1:1 call above with
+      // no way back in, since the conference room was never announced to them.
       // sendCallPushNotification(guest.email, me.name, 'conference_video', roomId).catch(() => {});
       // if (other) {
       //   sendCallPushNotification(other.email, me.name, 'conference_video', roomId).catch(() => {});
@@ -690,19 +736,22 @@ export default function VideoCallScreen({ route, navigation }) {
       setShowAddSheet(false);
       setAddingParticipant(false);
 
-      // Stop local tracks — ConferenceCallScreen will re-acquire them
-      localStreamRef.current?.getTracks().forEach((t) => t.stop());
-      localStreamRef.current = null;
+      // Close the 1:1 peer connection only — leave the camera/mic tracks live.
+      // ConferenceCallScreen acquires its own getUserMedia() stream right after
+      // navigating; stopping these tracks first forces a full camera session
+      // teardown-then-restart (visible as a black/delayed video feed), whereas
+      // leaving them running lets the OS hand off to the new session faster.
+    
       pcRef.current?.close();
       pcRef.current = null;
+      localStreamRef.current = null;
       unsubsRef.current.forEach((u) => u?.());
       unsubsRef.current = [];
       try { InCallManager.stop(); } catch (_) {}
 
       endCallFiredRef.current = true;
       setStatus(STATUS.IDLE);
-      setActiveCall(null);
-
+      setTimeout(() => setActiveCall(null), 0);
       // Navigate to ConferenceCallScreen as creator
       navigation.replace('ConferenceCallScreen', {
         roomId,
@@ -721,7 +770,7 @@ export default function VideoCallScreen({ route, navigation }) {
     return `${m}:${sec}`;
   };
 
-  // ─── Active video call UI ─────────────────────────────────────────────────
+  // ──────────────────────────────────────── Active video call UI ────────────────────────────────────────────
   if (callStatus !== STATUS.IDLE) {
     return (
       <View style={styles.callScreen}>
@@ -731,7 +780,7 @@ export default function VideoCallScreen({ route, navigation }) {
           style={styles.minimizeBtn}
           onPress={() => {
             isMinimizedRef.current = true;
-            localStreamRef.current?.getVideoTracks().forEach((t) => { t.enabled = false; });
+            localStreamRef.current?.getVideoTracks().forEach((t) => { t.enabled = true; });
             try { startIOSPIP(pipViewRef); } catch (_) {}
             navigation.dispatch(StackActions.push('MainDrawer'));
           }}
@@ -829,6 +878,7 @@ export default function VideoCallScreen({ route, navigation }) {
             <Icon name="person-add" size={24} color="#fff" />
             <Text style={styles.controlLabel}>Add</Text>
           </TouchableOpacity>
+
         </View>
 
         {/* Add Participant sheet */}
@@ -880,10 +930,11 @@ export default function VideoCallScreen({ route, navigation }) {
                       <Text style={styles.sheetUserName}>{item.name || item.email}</Text>
                       <Text style={styles.sheetUserEmail}>{item.email}</Text>
                     </View>
-                    {addingParticipant
+                    {/* {addingParticipant
                       ? <ActivityIndicator size="small" color="#319241" />
                       : <Icon name="videocam" size={20} color="#319241" />
-                    }
+                    } */}
+                    <Icon name="videocam" size={20} color="#319241" />
                   </TouchableOpacity>
                 )}
                 ListEmptyComponent={
@@ -896,8 +947,11 @@ export default function VideoCallScreen({ route, navigation }) {
       </View>
     );
   }
+
   // IDLE — call is always initiated externally; render nothing
+
   return <View style={styles.callScreen} />;
+
 }
 
 const styles = StyleSheet.create({

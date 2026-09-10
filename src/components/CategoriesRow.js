@@ -91,7 +91,7 @@ export default function CategoriesRow() {
         <TextInput
           value={search}
           onChangeText={setSearch}
-          placeholder="Search"
+          placeholder="Search Category"
           placeholderTextColor="#9CA3AF"
           style={styles.searchInput}
         />

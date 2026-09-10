@@ -19,7 +19,6 @@ const InvoiceRow = ({ item, index, categoryMetaByDept = {}, isExpanded, selected
     const labelSize = Math.max(11, base - 1 / fontScale);
     const valueSize = Math.max(12, base / fontScale);
     const cellSize = Math.max(12, base / fontScale);
-
     const isSelected = selectedIds.has(item.ProductId);
     const barcodeValue = String(item.barcode ?? '').trim();
     const hasBarcode = barcodeValue.length > 0;
@@ -150,7 +149,7 @@ const InvoiceRow = ({ item, index, categoryMetaByDept = {}, isExpanded, selected
             <Text style={[styles.deltaArrow, { color: delta.color }]}>{delta.arrow}</Text>
             {activePrevKey === delta.key && (
               <View style={styles.prevHint}>
-                <Text style={styles.prevHintText}>Prev: {delta.prevText}</Text>
+                <Text style={styles.prevHintText}>{delta.prevText}</Text>
               </View>
             )}
           </TouchableOpacity>
@@ -177,7 +176,7 @@ const InvoiceRow = ({ item, index, categoryMetaByDept = {}, isExpanded, selected
             <Text style={[styles.compactDeltaArrow, { color: delta.color }]}>{delta.arrow}</Text>
             {activePrevKey === `compact-${delta.key}` && (
               <View style={styles.compactPrevHint}>
-                <Text style={styles.prevHintText}>Prev: {delta.prevText}</Text>
+                <Text style={styles.prevHintText}>{delta.prevText}</Text>
               </View>
             )}
           </TouchableOpacity>
@@ -230,9 +229,7 @@ const InvoiceRow = ({ item, index, categoryMetaByDept = {}, isExpanded, selected
           <Text style={[styles.cell, { flex: 0.8, fontSize: cellSize, color: textColor }]} numberOfLines={1}>
             {typeof index === 'number' ? index + 1 : '-'}
           </Text>
-
  
-
           <Text
             style={[styles.cell, { flex: 2.8, fontSize: cellSize, color: textColor }]}
             numberOfLines={1}

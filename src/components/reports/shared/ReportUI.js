@@ -177,7 +177,7 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     paddingHorizontal: 10,
     borderRadius: 10,
-    backgroundColor: "#FFF7E6",
+    backgroundColor: "#d7f2df",
   },
   summaryTitle: { fontSize: 14, fontWeight: "800", color: "#111", flex: 1 },
   summaryRight: { alignItems: "flex-end" },

@@ -20,7 +20,7 @@ import {
   useWindowDimensions,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Camera, CameraType } from 'react-native-camera-kit';
+import DocumentScanner, { ResponseType } from 'react-native-document-scanner-plugin';
 import { launchImageLibrary } from 'react-native-image-picker';
 import { request, PERMISSIONS, RESULTS } from 'react-native-permissions';
 import ImageResizer from 'react-native-image-resizer';
@@ -32,6 +32,9 @@ import reportbg from '../../assets/images/report-bg.png';
 import tulsiBg from '../../assets/images/bg-tulsi-2.jpeg';
 import AppHeader from '../AppHeader';
 import { Picker } from '@react-native-picker/picker';
+import GeneratingInvoiceGif from '../../assets/images/Generating_Invoice.gif';
+import MatchInvoiceGif from '../../assets/images/read_and_match.gif';
+import SaveInvoiceGif from '../../assets/images/save_invoice.gif';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const COLORS = {
@@ -51,16 +54,15 @@ const GREEN_DARK = '#256f3a';
 const GREY_LIGHT = '#eef1f4';
 const GREY_DARK = '#5b6675';
 
+const GENERATE_GIF_SLIDES = [GeneratingInvoiceGif, MatchInvoiceGif, SaveInvoiceGif];
+
 const OcrScreen = () => {
   const navigation = useNavigation();
   const insets = useSafeAreaInsets();
   const getImageSource = val => (typeof val === 'number' ? val : { uri: val });
   const wasCameraOpenRef = React.useRef(false);
-  const cameraRef = useRef(null);
-  const previewTimeoutRef = useRef(null);
   const lastFetchedPreviewRef = useRef(null); // Persists across OCRPreviewComponent remounts
   const [selectedImage, setSelectedImage] = useState(null);
-  const [snapPreview, setSnapPreview] = useState(null);
   const [modalVisible, setModalVisible] = useState(false);
   const [saveInvoiceVisible, setSaveInvoiceVisible] = useState(false);
   const [previewModalVisible, setPreviewModalVisible] = useState(false);
@@ -68,6 +70,7 @@ const OcrScreen = () => {
   const [invoiceList, setInvoiceList] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isGenerate, setIsGenerate] = useState(false);
+  const [generateGifIndex, setGenerateGifIndex] = useState(0);
   const [isResponseImg, setIsResponseImg] = useState(false);
   const [vendorModalVisible, setVendorModalVisible] = useState(false);
   // Vendor dropdown related
@@ -82,8 +85,6 @@ const OcrScreen = () => {
   // OCR + table
   const [allocrJsons, setOcrJsons] = useState([]);
   const [tableData, setTableData] = useState([]);
-  // Camera visibility
-  const [showCamera, setShowCamera] = useState(false);
   // URLs
   const [ocrurl, setOcrUrl] = useState(null);
   const { width: windowWidth } = useWindowDimensions();
@@ -126,15 +127,17 @@ const OcrScreen = () => {
     })();
   }, [])
 
-  // Cleanup preview timeout when camera closes
+  // Cycle through the generating-invoice gif slides while generating
   useEffect(() => {
-    return () => {
-      if (previewTimeoutRef.current) {
-        clearTimeout(previewTimeoutRef.current);
-        previewTimeoutRef.current = null;
-      }
-    };
-  }, []);
+    if (!(isGenerate || buttonLoading.generate)) {
+      setGenerateGifIndex(0);
+      return;
+    }
+    const interval = setInterval(() => {
+      setGenerateGifIndex(prev => (prev + 1) % GENERATE_GIF_SLIDES.length);
+    }, 1500);
+    return () => clearInterval(interval);
+  }, [isGenerate, buttonLoading.generate]);
 
   // detectInvoiceMismatch
 
@@ -228,7 +231,6 @@ const normalize = (s) =>
 
   const handleSearchVendor = async query => {
     const trimmedQuery = String(query || '').trim();
-
     if (!trimmedQuery || trimmedQuery.length < 2) {
       setSearchResults([]);
       setVendorSearchLoading(false);
@@ -403,7 +405,7 @@ const normalize = (s) =>
       setSelectedDatabaseName('');
       setSelectedVendorSlug('');
     }
-  };
+  }; 
 
   // ====== Camera handlers (CameraKit) ======
   const requestCameraPerm = async () => {
@@ -428,48 +430,31 @@ const normalize = (s) =>
         Alert.alert('Permission needed', 'Camera permission is required.');
         return;
       }
-      setShowCamera(true);
-      setIsResponseImg(true);
+
+      // Opens the native document scanner: live edge detection with a green
+      // highlight around the detected document, cropped/perspective-corrected
+      // on capture — so only the document itself is captured, not the background.
+      const { scannedImages, status } = await DocumentScanner.scanDocument({
+        responseType: ResponseType.ImageFilePath,
+        croppedImageQuality: 90,
+      });
+
+      if (status !== 'success' || !scannedImages?.length) return;
+
+      const compressedUris = [];
+      for (const uri of scannedImages) {
+        const compressedUri = await compressImageIfNeeded(uri);
+        if (compressedUri) compressedUris.push({ uri: compressedUri, base64: null });
+      }
+
+      if (compressedUris.length) {
+        setSnappedImages(prev => [...prev, ...compressedUris]);
+        setIsResponseImg(true);
+      }
     } catch (error) {
-      console.warn('Camera permission error:', error);
+      console.warn('Document scanner error:', error);
     } finally {
       setBtnLoading('selectInvoice', false);
-    }
-  };
-
-  const handleCloseCamera = () => setShowCamera(false);
-
-  const snapPhoto = async () => {
-    if (!cameraRef.current) return;
-    setBtnLoading('snap', true);
-    try {
-      const photo = await cameraRef.current.capture();
-      
-      // Compress image if needed before storing
-      const compressedUri = await compressImageIfNeeded(photo?.uri);
-      
-      if (compressedUri) {
-        // CameraKit returns { uri: 'file://...' }
-        setSnappedImages(prev => [...prev, { uri: compressedUri, base64: null }]);
-        
-        // Show preview for 3 seconds
-        setSnapPreview(compressedUri);
-
-        // Clear previous timeout if any
-        if (previewTimeoutRef.current) {
-          clearTimeout(previewTimeoutRef.current);
-        }
-
-        // Hide preview after 3 seconds
-        previewTimeoutRef.current = setTimeout(() => {
-          setSnapPreview(null);
-          previewTimeoutRef.current = null;
-        }, 3000);
-      }
-    } catch (e) {
-      console.warn('Error snapping photo:', e);
-    } finally {
-      setBtnLoading('snap', false);
     }
   };
 
@@ -518,7 +503,6 @@ const normalize = (s) =>
         if (compressedAssets.length > 0) {
           setSnappedImages(prev => [...prev, ...compressedAssets]);
           setIsResponseImg(true);
-          setShowCamera(false);
         }
       }
     } catch (error) {
@@ -578,7 +562,6 @@ const normalize = (s) =>
 
     setIsGenerate(true);
     setBtnLoading('generate', true);
-    setShowCamera(false);
     try {
       setUploadedFilenames([]);
       setUploadedImageURLs([]);
@@ -762,7 +745,6 @@ const mismatch = detectInvoiceMismatch(queryResponsesByIndexLocal, 70);
   };
 
   const clearAll = () => {
-    setShowCamera(false);
     setSnappedImages([]);
     setOcrJsons([]);
     setTableData([]);
@@ -921,7 +903,7 @@ const mismatch = detectInvoiceMismatch(queryResponsesByIndexLocal, 70);
                         isDone && styles.stepDotDone,
                       ]}
                     >
-                      <Text style={[styles.stepDotText, (isActive || isDone) && styles.stepDotTextActive]}>
+                      <Text style={[styles.stepDotText,isActive && styles.stepDotTextActive,isDone && styles.stepDotTextDone ]}>
                         {isDone ? '✓' : item.id}
                       </Text>
                     </View>
@@ -1036,9 +1018,16 @@ const mismatch = detectInvoiceMismatch(queryResponsesByIndexLocal, 70);
                   <Text style={styles.stepBtnLightText}>Back</Text>
                 </TouchableOpacity>
                 <ButtonWithLoader
-                  label={showCamera ? 'Camera Active' : 'Upload Invoice'}
+                  label="Scan Document"
                   onPress={handleOpenCamera}
                   loading={buttonLoading.selectInvoice}
+                  style={[styles.stepBtn, isNarrow && styles.stepBtnFull, styles.btnLightselectInvoice]}
+                  textStyle={styles.btnLightText}
+                />
+                <ButtonWithLoader
+                  label="From Gallery"
+                  onPress={pickFromGallery}
+                  loading={buttonLoading.gallery}
                   style={[styles.stepBtn, isNarrow && styles.stepBtnFull, styles.btnLightselectInvoice]}
                   textStyle={styles.btnLightText}
                 />
@@ -1058,12 +1047,7 @@ const mismatch = detectInvoiceMismatch(queryResponsesByIndexLocal, 70);
 
           {step === 3 && (
             <View style={[styles.stepBtnRow, isNarrow && styles.stepBtnRowStack]}>
-              {(isGenerate || buttonLoading.generate) ? (
-                <View style={styles.loadingWrap}>
-                  <ActivityIndicator size="small" color="#319241" />
-                  <Text style={styles.loadingText}>Generating invoice data...</Text>
-                </View>
-              ) : (
+              {(isGenerate || buttonLoading.generate) ? null : (
                 <View style={styles.actionButtonRow}>
                   <ButtonWithLoader
                     label="Save"
@@ -1139,6 +1123,30 @@ const mismatch = detectInvoiceMismatch(queryResponsesByIndexLocal, 70);
           </View>
         </Modal>
 
+        {/* Generating Invoice Overlay */}
+        <Modal
+          visible={isGenerate || buttonLoading.generate}
+          transparent
+          animationType="fade"
+          onRequestClose={() => {}}
+        >
+          <View style={styles.generateModalOverlay}>
+            <Image
+              source={GENERATE_GIF_SLIDES[generateGifIndex]}
+              style={styles.generateGifImage}
+              resizeMode="contain"
+            />
+            <View style={styles.generateGifDotsRow}>
+              {GENERATE_GIF_SLIDES.map((_, idx) => (
+                <View
+                  key={idx}
+                  style={[styles.generateGifDot, generateGifIndex === idx && styles.generateGifDotActive]}
+                />
+              ))}
+            </View>
+          </View>
+        </Modal>
+
         {step === 3 && (
           <SearchTableComponent
             tableData={tableData}
@@ -1164,55 +1172,6 @@ const mismatch = detectInvoiceMismatch(queryResponsesByIndexLocal, 70);
         )}
       </ScrollView>
 
-      {/* Camera Fullscreen */}
-      {showCamera && (
-        <View style={styles.cameraSheet}>
-          <Camera
-            ref={cameraRef}
-            style={styles.cameraPreview}
-            cameraType={CameraType.Back}
-            zoomMode="on"
-          />
-          <View style={[styles.cameraControls, isNarrow && styles.cameraControlsNarrow]}>
-            <ButtonWithLoader
-              label="Snap Photo"
-              onPress={snapPhoto}
-              loading={buttonLoading.snap}
-              style={[styles.cameraActionBtn, styles.btnGrey]}
-              textStyle={styles.btnGreyText}
-            />
-            <ButtonWithLoader
-              label="From Gallery"
-              onPress={pickFromGallery}
-              loading={buttonLoading.gallery}
-              style={[styles.cameraActionBtn, styles.btnLight]}
-              textStyle={styles.btnLightText}
-            />
-            <TouchableOpacity
-              style={[
-                styles.btn,
-                styles.cameraActionBtn,
-                styles.btnDanger,
-              ]}
-              onPress={handleCloseCamera}
-              hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
-            >
-              <Text style={styles.btnText}>Close</Text>
-            </TouchableOpacity>
-          </View>
-          
-          {/* Snap Preview - shows for 3 seconds after capture */}
-          {snapPreview && (
-            <View style={styles.snapPreviewContainer}>
-              <Image
-                source={{ uri: snapPreview }}
-                style={styles.snapPreviewImage}
-              />
-              <Text style={styles.snapPreviewText}>✓ Picture captured</Text>
-            </View>
-          )}
-        </View>
-      )}
       {/* Save modal */}
       {tableData.length > 0 && (
          <SaveInvoiceModal
@@ -1338,6 +1297,9 @@ const styles = StyleSheet.create({
   stepDotTextActive: {
     color: '#fff',
   },
+    stepDotTextDone:{
+  color: '#2f8f43',
+  },
   stepLabel: {
     fontSize: 11,
     color: '#6e7f74',
@@ -1445,6 +1407,36 @@ const styles = StyleSheet.create({
     color: '#334155',
     fontSize: 13,
     fontWeight: '600',
+  },
+  generateModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 24,
+  },
+  generateGifImage: {
+    width: '80%',
+    height: '50%',
+  },
+  generateGifDotsRow: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: 8,
+  },
+  generateGifDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    marginHorizontal: 4,
+    backgroundColor: 'rgba(0,0,0,0.2)',
+  },
+  generateGifDotActive: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#319241',
   },
 
   btnRow: {
@@ -1616,58 +1608,6 @@ const styles = StyleSheet.create({
   },
   fullImage: { width: '90%', height: '80%', borderRadius: 10 },
 
-  cameraSheet: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: COLORS.bg,
-  },
-  cameraPreview: {
-    flex: 1,
-  },
-  cameraControls: {
-    padding: 12,
-    flexDirection: 'row',
-    justifyContent: 'space-evenly',
-    borderTopWidth: 1,
-    borderColor: COLORS.border,
-    backgroundColor: COLORS.card,
-    gap: 10,
-  },
-  cameraControlsNarrow: {
-    flexWrap: 'wrap',
-    gap: 10,
-    justifyContent: 'space-between',
-  },
-  cameraActionBtn: {
-    flexBasis: 0,
-    minWidth: 110,
-  },
-  snapPreviewContainer: {
-    position: 'absolute',
-    bottom: 90,
-    left: 12,
-    backgroundColor: '#000000DD',
-    borderRadius: 12,
-    overflow: 'hidden',
-    padding: 8,
-    alignItems: 'center',
-    gap: 6,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 6,
-    elevation: 8,
-  },
-  snapPreviewImage: {
-    width: 100,
-    height: 120,
-    borderRadius: 8,
-  },
-  snapPreviewText: {
-    color: '#fff',
-    fontSize: 12,
-    fontWeight: '600',
-    letterSpacing: 0.3,
-  },
   screen: {
     flex: 1,
   },

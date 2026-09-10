@@ -7,6 +7,7 @@ import UserNotifications
 import OneSignal
 import PushKit
 @main
+
 class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterDelegate, PKPushRegistryDelegate {
   var window: UIWindow?
   var reactNativeDelegate: ReactNativeDelegate?
@@ -29,9 +30,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
     OneSignal.promptForPushNotifications(userResponse: { accepted in
       print("OneSignal: User accepted push notification: \(accepted)")
     })
-
     UNUserNotificationCenter.current().delegate = self
-
     voipRegistry = PKPushRegistry(queue: DispatchQueue.main)
     voipRegistry?.delegate = self
     voipRegistry?.desiredPushTypes = [.voIP]
@@ -85,7 +84,11 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
 
     if appState == .active {
       // App is foregrounded — the Firestore listener in IncomingCallOverlay handles
-      // ringing entirely. Skip CallKit so no native screen appears and no _onEnd fires.
+      // ringing entirely. Reporting the call to CallKit here (even to immediately end
+      // it) makes the native CallKit UI flash briefly and can cause CallKit to consider
+      // the call already terminated at the OS level, which then blocks the real
+      // answer/connect flow — visible as "rings then disconnects, caller stuck on
+      // Calling". So skip CallKit entirely and hand straight to RNVoip/JS.
       print("[VoIP] app active — skipping CallKit, handing to RNVoip")
       RNVoipPushNotificationManager.didReceiveIncomingPush(with: payload, forType: type.rawValue)
       completion()
@@ -128,7 +131,7 @@ class ReactNativeDelegate: RCTDefaultReactNativeFactoryDelegate {
 override func sourceURL(for bridge: RCTBridge) -> URL? { self.bundleURL() }
   override func bundleURL() -> URL? {
 #if DEBUG
-    URL(string: "http://192.168.68.114:8081/index.bundle?platform=ios&dev=true&minify=false")
+    URL(string: "http://192.168.68.104:8081/index.bundle?platform=ios&dev=true&minify=false")
 #else
     Bundle.main.url(forResource: "main", withExtension: "jsbundle")
 #endif

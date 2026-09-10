@@ -4,7 +4,6 @@ import {
   StyleSheet, ActivityIndicator, KeyboardAvoidingView, Platform, Alert, ScrollView,
 } from 'react-native';
 import firestore from '@react-native-firebase/firestore';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import Icon from 'react-native-vector-icons/MaterialIcons';
 
 export default function AddMembersModal({
@@ -29,8 +28,9 @@ export default function AddMembersModal({
     setSelected(new Set(currentParticipants || []));
     setLoading(true);
 
-    AsyncStorage.getItem('userRole').then((userRole) => {
-      const agent = userRole === 'Agent';
+    firestore().collection('tulsi').doc('storelist').get().then((storeDoc) => {
+      const agentList = storeDoc.data()?.Agent || [];
+      const agent = agentList.includes(myEmail);
       setIsAgent(agent);
 
       if (!agent) {
@@ -45,10 +45,7 @@ export default function AddMembersModal({
       }
 
       // Agents: load all callProfiles with domain filter support
-      Promise.all([
-        firestore().collection('tulsi').doc('storelist').get(),
-        firestore().collection('callProfiles').get(),
-      ]).then(([storeDoc, snap]) => {
+      firestore().collection('callProfiles').get().then((snap) => {
         let contacts = snap.docs.map((d) => ({
           email: d.id,
           name: d.data().name || d.id,
@@ -76,6 +73,7 @@ export default function AddMembersModal({
     () => users.filter((u) => !current.includes(u.email) && selected.has(u.email)),
     [users, selected, current],
   );
+
   const toRemove = useMemo(
     () => users.filter((u) => current.includes(u.email) && !selected.has(u.email)),
     [users, selected, current],
@@ -232,9 +230,9 @@ export default function AddMembersModal({
             <View style={styles.chips}>
               {toAdd.map((u) => (
                 <TouchableOpacity key={u.email} style={styles.chipAdd} onPress={() => toggle(u.email)}>
-                  <Icon name="person-add" size={12} color="#7C3AED" style={{ marginRight: 3 }} />
+                  <Icon name="person-add" size={12} color="#319241" style={{ marginRight: 3 }} />
                   <Text style={styles.chipAddText}>{u.name}</Text>
-                  <Icon name="close" size={12} color="#7C3AED" style={{ marginLeft: 3 }} />
+                  <Icon name="close" size={12} color="#319241" style={{ marginLeft: 3 }} />
                 </TouchableOpacity>
               ))}
               {toRemove.map((u) => (
@@ -444,7 +442,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#EDE9FE', borderRadius: 20,
     paddingHorizontal: 10, paddingVertical: 5,
   },
-  chipAddText:    { fontSize: 12, color: '#7C3AED', fontWeight: '600' },
+  chipAddText:    { fontSize: 12, color: '#319241', fontWeight: '600' },
   chipRemove: {
     flexDirection: 'row', alignItems: 'center',
     backgroundColor: '#FEE2E2', borderRadius: 20,
@@ -481,11 +479,11 @@ const styles = StyleSheet.create({
   },
   avatarDefault:  { backgroundColor: '#DCFCE7' },
   avatarInGroup:  { backgroundColor: '#319241' },
-  avatarAdding:   { backgroundColor: '#7C3AED' },
+  avatarAdding:   { backgroundColor: '#319241' },
   avatarRemoving: { backgroundColor: '#DC2626' },
 
   userName:         { fontSize: 14, fontWeight: '600', color: '#111827' },
-  userNameAdding:   { color: '#7C3AED' },
+  userNameAdding:   { color: '#319241' },
   userNameRemoving: { color: '#DC2626' },
   userEmail:        { fontSize: 12, color: '#6B7280' },
   userDomain:       { fontSize: 11, color: '#9CA3AF', marginTop: 1 },
@@ -499,9 +497,9 @@ const styles = StyleSheet.create({
   addBadge: {
     backgroundColor: '#EDE9FE', borderRadius: 12,
     paddingHorizontal: 10, paddingVertical: 4,
-    borderWidth: 1, borderColor: '#C4B5FD',
+    borderWidth: 1, borderColor: '#d4f3d9',
   },
-  addBadgeText:    { fontSize: 11, fontWeight: '700', color: '#7C3AED' },
+  addBadgeText:    { fontSize: 11, fontWeight: '700', color: '#319241' },
   removeBadge: {
     backgroundColor: '#FEE2E2', borderRadius: 12,
     paddingHorizontal: 10, paddingVertical: 4,

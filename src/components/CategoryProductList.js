@@ -20,7 +20,6 @@ import ProductModal from './ProductModal';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import PrinterIcon from '../assets/icons/Printericon.svg'; 
 import CartIcon from "../assets/icons/cart.svg";
-
 export default function CategoryProductList({ id, category, showFloatingCart = false }) {
   const navigation = useNavigation();
   const [products, setProducts] = useState([]);
@@ -128,11 +127,13 @@ const openDetails = (item) => sheetRef.current?.open(item);
 
           <View style={styles.cardInner}>
 
-            {!!item.productImage && (
+            {item.productImage ? (
               <Image
                 source={{ uri: `data:image/webp;base64,${item.productImage}` }}
                 style={styles.productImage}
               />
+            ) : (
+              <View style={styles.productImage} />
             )}
 
             <Text style={styles.productName} numberOfLines={1}>
@@ -194,12 +195,10 @@ const openDetails = (item) => sheetRef.current?.open(item);
                 )}
               </View>
             </View>
-
           </View>
         </View>
       </TouchableOpacity>
     );
-
   };
 
   return (

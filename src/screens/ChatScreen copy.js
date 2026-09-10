@@ -8,23 +8,34 @@ import {
 } from 'react-native';
 
 const { PHAssetHelper } = NativeModules;
+
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+
 import firestore from '@react-native-firebase/firestore';
+
 import AsyncStorage from '@react-native-async-storage/async-storage';
+
 import Icon from 'react-native-vector-icons/MaterialIcons';
+
 import { launchCamera, launchImageLibrary } from 'react-native-image-picker';
+
 import DocumentPicker from 'react-native-document-picker';
+
 import DateTimePicker from '@react-native-community/datetimepicker';
+
 import {
   downloadFromS3, isFileDownloaded,
   deleteLocalFile, getLocalPath, getPresignedDownloadUrl,
 } from '../config/S3Config';
+
 import {
   sendChatPushNotification, markChatAsRead, incrementUnread,
 } from '../functions/chat/chatUtils';
+
 import {
   addToUploadQueue, persistFileForQueue,
 } from '../functions/chat/uploadQueue';
+
 import { startUploadManager, subscribeUpload, cancelUpload } from '../functions/chat/UploadManager';
 
 import AddMembersModal from '../components/chat/AddMembersModal';
@@ -455,7 +466,7 @@ const vStyles = StyleSheet.create({
   },
 });
 
-// ────────────────────────── Shared Media Library ──────────────────────────────────────
+// ──────────────────────────── Shared Media Library ──────────────────────────────────────
 
 const TYPE_FILTERS = [
   { key: 'all',   label: 'All',       icon: 'perm-media'       },
@@ -530,6 +541,10 @@ function SharedMediaModal({ messages, myEmail, onClose, onViewImage }) {
     })();
   }, [messages]);
 
+  // Only items with an actual local copy can be deleted from device storage.
+  // Sent items keep a local cache after upload (see uploadQueue.js), so senders
+  // can delete their own media the same way receivers delete downloaded media.
+  // Older items sent before this local cache existed won't have one, so no delete option.
   const canDelete = (msg) => !!downloadedMap[msg.mediaKey];
 
   // Filter messages by type then date
@@ -1694,10 +1709,12 @@ export default function ChatScreen({ route, navigation }) {
       const msgRef = await firestore()
         .collection('chats').doc(chatId)
         .collection('messages').add(msgData);
+
       const preview =
         type === 'text'  ? payload.text :
         type === 'image' ? '📷 Photo' :
         type === 'video' ? '🎬 Video' : '📎 File';
+
       await firestore().collection('chats').doc(chatId).update({
         lastMessage:     { ...msgData, text: preview, id: msgRef.id },
         lastMessageTime: firestore.FieldValue.serverTimestamp(),
@@ -1774,6 +1791,12 @@ export default function ChatScreen({ route, navigation }) {
     setSending(false);
   };
 
+
+  // When user taps Send:
+  //  1. Write every message to Firestore immediately (status:'uploading') so it appears in chat
+  //  2. Copy the local file to a persistent path so it survives app restarts
+  //  3. Push the upload job to AsyncStorage queue
+  //  4. Start processing the queue in the background
   const handleSendAttachments = async (caption) => {
     if (!pendingAttachments.length || uploading) return;
     const items = [...pendingAttachments];
@@ -2194,7 +2217,7 @@ export default function ChatScreen({ route, navigation }) {
   );
 }
 
-// ─────────────────────────── Styles ───────────────────────────────────────────
+// ─── Styles ───────────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
   center: { alignItems: 'center', justifyContent: 'center' },

@@ -3,6 +3,8 @@ import { View, Text, StyleSheet, useWindowDimensions, Platform, TouchableOpacity
 import CustomHeader from '../components/CustomHeader';
 import reportbg from '../assets/images/report-bg.png';
 import Create_invoice from '../assets/icons/create_new_invoice.svg';
+import AddNewVendorInvoice from '../assets/icons/Add_new_vendor_invoice.svg';
+import MultiVendor from '../assets/icons/Multivendor_icon.svg';
 import InvoiceList from '../assets/icons/invoice_list.svg';
 import ProductsIcon from '../assets/icons/red_products.svg';
 import Pending_invoice from '../assets/icons/pending_invoices.svg';
@@ -48,13 +50,13 @@ export default function ICMSScreen() {
             <Row icon={Create_invoice} label="Add Invoices" />
           </TouchableOpacity>
           <TouchableOpacity activeOpacity={1} onPress={() => navigation.navigate('AddNewVendorInvoice')}>
-            <Row icon={Create_invoice} label="Add New Vendor Invoice" />
+            <Row icon={AddNewVendorInvoice} label="Add New Vendor Invoice" />
           </TouchableOpacity>
           <TouchableOpacity activeOpacity={1} onPress={() => navigation.navigate('InvoiceList')}>
             <Row icon={InvoiceList} label="Invoice List" />
           </TouchableOpacity>
              <TouchableOpacity activeOpacity={1} onPress={() => navigation.navigate('MultiVendor')}>
-            <Row icon={InvoiceList} label="Multi Vendor Products" />
+            <Row icon={MultiVendor} label="Multi Vendor Products" />
           </TouchableOpacity>
           <TouchableOpacity activeOpacity={1} onPress={() => navigation.navigate('RedProducts')}>
             <Row icon={ProductsIcon} label="Unlinked Product" />
@@ -104,16 +106,16 @@ const getStyles = (isTablet) => StyleSheet.create({
     }),
   },
   rowIconWrap: {
-    width: isTablet ? 94 : 78,
-    height: isTablet ? 94 : 78,
+    width: isTablet ? 70 : 56,
+    height: isTablet ? 70 : 56,
     alignItems: 'center',
     justifyContent: 'center',
     borderRadius: 16,
-    backgroundColor: '#fff',
+    backgroundColor: '#d7f2df',
   },
   rowIcon: {
-    width: isTablet ? 62 : 52,
-    height: isTablet ? 62 : 52,
+    width: isTablet ? 70 : 56,
+    height: isTablet ? 70 : 56,
   },
   rowTitle: {
     flex: 1,

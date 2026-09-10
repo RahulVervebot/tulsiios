@@ -122,7 +122,7 @@ async function _onEnd({ callUUID }) {
   // We called endCall() ourselves after answering — not a real decline, skip Firestore.
   // Do NOT clear _answeredCallId here; iOS may fire this event more than once for the
   // same UUID (e.g. system + our explicit endCall). Keep the guard active until the
-  // call screen calls endCallKeep() which explicitly clears it via clearAnsweredCall().
+  // call screen calls endCallKeep() which explicitly clears it via clearAnsweredCall(). 
   if (_answeredCallId === callUUID) {
     return;
   }

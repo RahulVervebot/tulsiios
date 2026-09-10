@@ -14,7 +14,6 @@ import {
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import API_ENDPOINTS, { initICMSBase, setICMSBase } from '../../../icms_config/api';
 
-
 const OCRPreviewComponent = ({
   filenames,
   vendorName,
@@ -25,7 +24,6 @@ const OCRPreviewComponent = ({
   setHighlightedImages,
   lastFetchedPreviewRef, // Parent's ref - persists across remounts
 }) => {
-
   const [selectedImage, setSelectedImage] = useState(null);
   const [modalVisible, setModalVisible] = useState(false);
   const [isLoadingPreview, setIsLoadingPreview] = useState(false);
@@ -94,46 +92,55 @@ const OCRPreviewComponent = ({
           row.extendedPrice || ''
         }`.trim(),
       );
+      const totalpage = imageURIs.length;
 
-      const payload = {
-        data: {
-          filename: filenames,
-          vendorName: vendorName,
-          imageURLs: imageURIs,
-          missingDataList: missingDataList,
-        },
-      };
-   
       try {
-       console.log('🔄 Fetching OCR preview data...', payload);
         setPreviewError('');
         const token = await AsyncStorage.getItem('access_token');
-         const icms_store = await AsyncStorage.getItem('icms_store');
-         const storeurl = await AsyncStorage.getItem('storeurl');
-        const response = await fetch(API_ENDPOINTS.PREVIEW_OCR, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-         'store': icms_store,
-        'access_token': token,
-        'app_url': storeurl ?? '',
-        'mode': 'MOBILE',
-          },
-          body: JSON.stringify(payload),
-        });
+        const icms_store = await AsyncStorage.getItem('icms_store');
+        const storeurl = await AsyncStorage.getItem('storeurl');
+        const headers = {
+          'Content-Type': 'application/json',
+          'store': icms_store,
+          'access_token': token,
+          'app_url': storeurl ?? '',
+          'mode': 'MOBILE',
+        };
 
-        if (!response.ok) {
-          const errorText = await response.text();
-          console.error('OCR Preview API Error:', errorText);
-          Alert.alert('Error', 'Failed to fetch OCR preview.');
-          setIsLoadingPreview(false);
-          isFetchingRef.current = false;
-          return;
+        setHighlightedImages([]);
+
+        for (let page = 1; page <= totalpage; page++) {
+          const payload = {
+            data: {
+              page,
+              filename: filenames,
+              vendorName: vendorName,
+              imageURLs: imageURIs,
+              missingDataList: missingDataList,
+            },
+          };
+
+
+
+          const response = await fetch(API_ENDPOINTS.PREVIEW_OCR, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify(payload),
+          });
+
+          if (!response.ok) {
+            const errorText = await response.text();
+            console.error('OCR Preview API Error:', errorText);
+            Alert.alert('Error', `Failed to fetch OCR preview for page ${page}.`);
+            continue;
+          }
+
+          const previewResult = await response.json();
+          const pageImages = previewResult.highlightedImages || [];
+      
+
+          setHighlightedImages(prev => [...prev, ...pageImages]);
         }
-
-        const previewResult = await response.json();
-        setHighlightedImages(previewResult.highlightedImages || []);
-        console.log('🟢 OCR Preview Response',previewResult.highlightedImages[0]);
       } catch (error) {
         console.error('OCR Preview Failed:', error);
         Alert.alert('Error', error.message);
@@ -153,7 +160,7 @@ const OCRPreviewComponent = ({
 
   const closeModal = () => {
     setModalVisible(false);
-    setSelectedImage(null);
+  
   };
 
   const handleDismissPreview = index => {
@@ -162,27 +169,21 @@ const OCRPreviewComponent = ({
   return (
     <View style={styles.card}>
       <View style={styles.cardBody}>
-        {isLoadingPreview ? (
+        {isLoadingPreview && highlightedImages.length === 0 ? (
           <View style={styles.loadingContainer}>
             <ActivityIndicator size="large" color="#319241" />
             <Text style={styles.infoText}>Preparing highlighted areas...</Text>
           </View>
         ) : highlightedImages.length > 0 ? (
-          <ScrollView 
-            horizontal 
+          <ScrollView
+            horizontal
             showsHorizontalScrollIndicator={true}
             contentContainerStyle={styles.previewRow}
           >
             {highlightedImages.map((img, index) => (
               <View key={index} style={styles.previewTile}>
                 <View style={styles.previewTileHeader}>
-                  <TouchableOpacity
-                    style={styles.previewClose}
-                    onPress={() => handleDismissPreview(index)}
-                    hitSlop={{ top: 8, left: 8, bottom: 8, right: 8 }}
-                  >
-                    <Text style={styles.previewCloseText}>×</Text>
-                  </TouchableOpacity>
+
                 </View>
                 <TouchableOpacity
                   onPress={() => openModal(img.base64Image)}
@@ -197,6 +198,11 @@ const OCRPreviewComponent = ({
                 </TouchableOpacity>
               </View>
             ))}
+            {isLoadingPreview && (
+              <View style={[styles.previewTile, styles.previewTileLoading]}>
+                <ActivityIndicator size="small" color="#319241" />
+              </View>
+            )}
           </ScrollView>
         ) : (
           <Text style={styles.infoText}>
@@ -305,6 +311,11 @@ const styles = StyleSheet.create({
   previewTileHeader: {
     alignItems: 'flex-end',
     padding: 6,
+  },
+  previewTileLoading: {
+    height: 140,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   previewImage: {
     width: '100%',

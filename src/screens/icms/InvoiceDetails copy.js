@@ -24,6 +24,7 @@ import InvoiceRow from '../../components/icms/InvoiceRow.js';
 import { useRoute } from '@react-navigation/native';
 import LinkProductModal from '../../components/icms/LinkProduct.js';
 import API_ENDPOINTS, { initICMSBase } from '../../../icms_config/api';
+
 if (
   Platform.OS === 'android' &&
   UIManager.setLayoutAnimationEnabledExperimental
@@ -175,8 +176,10 @@ export default function InvoiceDetails() {
           method: 'GET',
           headers: { accept: 'application/json', access_token: token },
         });
+        console.log("fetch categories res:",res);
         if (!res.ok) return;
         const json = await res.json().catch(() => ({}));
+        console.log("categories:",json);
         setCategories(Array.isArray(json?.categories) ? json.categories : []);
       } catch {
         setCategories([]);
@@ -262,33 +265,6 @@ export default function InvoiceDetails() {
       }
       return next;
     });
-  };
-
-  const handleBulkUpdate = () => {
-    const selectedItems = itemsRef.current.filter(item =>
-      selectedIds.has(item.ProductId),
-    );
-
-    if (selectedItems.length === 0) {
-      alert('Please select at least one row.');
-      return;
-    }
-
-    // Example: increase cost by 10%
-    const updatedItems = itemsRef.current.map(item => {
-      if (selectedIds.has(item.ProductId)) {
-        return {
-          ...item,
-          unitPrice: (Number(item.unitPrice) * 1.1).toFixed(2), // increase cost
-          extendedPrice: (Number(item.extendedPrice) * 1.1).toFixed(2),
-        };
-      }
-      return item;
-    });
-
-    itemsRef.current = updatedItems;
-    setSelectedIds(new Set()); // clear selection
-    alert(`Updated ${selectedItems.length} items successfully ✅`);
   };
 
   const handleLinkingRemove = async () => {
@@ -503,14 +479,12 @@ export default function InvoiceDetails() {
      console.log('All items:', itemsRef.current.map(item => ({ source: item?.source, itemNo: item?.itemNo })));
      console.log('Selected IDs:', Array.from(selectedIds));
      console.log('Has selections:', selectedIds.size > 0);
-
      const tableData = itemsRef.current
-
   .filter(item => {
     const source = String(item?.source ?? '').trim().toLowerCase();
     const storeValue = String(icms_store ?? '').trim().toLowerCase();
-    const sourceMatches = source === storeValue;
-    
+   const isStockUpdated = item?.isStockUpdated === true || item?.isStockUpdated === 'true';
+    const sourceMatches = source === storeValue && !isStockUpdated;
     // If rows are selected, only include selected rows
     // If no rows are selected, include all rows that match source
     if (selectedIds.size > 0) {
@@ -528,21 +502,22 @@ export default function InvoiceDetails() {
     ...item,
     tableDataCopyElement: { ...item }
   }));
-
 console.log('Filtered tableData count:', tableData.length);
 console.log('Filtered tableData:', tableData);
-    const body = {
-      invoiceName: vendorName,
+   
+       const body = {
+      jobName: "pos-quantity-and-cost-update",
+      invoiceName:vendorName,
       invoiceSavedDate: day,
-      invoiceNo: InvNumber,
+      invoiceNo:InvNumber,
       invoice: invoiceDb,
-      tableData: tableData || [],
-      email,
+       tableData: tableData || [],
+      email:email,
     };
 
     const app_url = await AsyncStorage.getItem('storeurl');
     const res = await fetch(API_ENDPOINTS.QUANTITY_SP_COSTUPDATE, {
-      method: 'PUT',
+      method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         store: icms_store ?? '',
@@ -561,6 +536,7 @@ console.log('Filtered tableData:', tableData);
       throw new Error(t || `Quantity/Price update failed (${res.status})`);
     }
 
+
     console.log("pos update res",res.json());
   }, [InvNumber, day, fetchVendorDbName, invoice, vendorName, selectedIds]);
 
@@ -578,10 +554,8 @@ console.log('Filtered tableData:', tableData);
               setPosUpdateLoading(true);
               await runQuantitySpCostUpdate();
               setTransferMessage('Quantity, Selling Price and Cost updated in POS successfully.');
-              Alert.alert("POS update successfully ");
             } catch (e) {
               setTransferMessage(e?.message || 'Failed to update POS values');
-               Alert.alert("POS update Failed Please Contact Support");
             } finally {
               setPosUpdateLoading(false);
             }
@@ -742,7 +716,14 @@ console.log('Filtered tableData:', tableData);
           </View>
           <Text style={styles.legendText}>AI Data</Text>
         </View>
-            <View style={styles.legendItem}>
+
+        <View style={styles.legendItem}>
+            <View style={[styles.legendBox, styles.legendAiBox]}>
+           <Icon name="warning" size={9} color="#7a4f00" />
+           </View>
+          <Text style={styles.legendText}>UnitCost Empty</Text>
+        </View>
+        <View style={styles.legendItem}>
           <View style={[styles.legendBox, { backgroundColor: '#16A34A' }]} />
           <Text style={styles.legendText}>isStockUpdated</Text>
         </View>

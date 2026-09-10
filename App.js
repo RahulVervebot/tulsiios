@@ -12,6 +12,7 @@ import {
   PanResponder,
   Animated,
   Dimensions,
+  DeviceEventEmitter
 } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { StackActions } from '@react-navigation/native';
@@ -85,6 +86,7 @@ import VoiceCallScreen from './src/screens/VoiceCallScreen.js';
 import ConferenceCallScreen from './src/screens/ConferenceCallScreen.js';
 import ChatScreen from './src/screens/ChatScreen.js';
 import CallLoginScreen from './src/screens/CallLoginScreen.js';
+import { removeOneSignalTagsOnLogout, clearUserCallProfile } from './src/config/OneSignalConfig.js'
 const Stack = createNativeStackNavigator();
 const Drawer = createDrawerNavigator();
 const Tab = createBottomTabNavigator();
@@ -178,12 +180,6 @@ function BottomTabs() {
               }}
             >
               <View
-                // style={{
-                //   position: 'absolute',
-                //   top: 0, left: 0, right: 0,            // ensures consistent bar height
-                //   height: 2,
-                //   backgroundColor: focused ? '#319241' : 'transparent',
-                // }}
               />
               <IconComp
                 width={size ?? 24}
@@ -250,7 +246,7 @@ function FloatingCallCard({ navigationRef, activeRouteName }) {
   }, [!!activeCall]);
 
   const panResponder = useRef(
-    PanResponder.create({
+     PanResponder.create({
       onStartShouldSetPanResponder: () => true,
       onMoveShouldSetPanResponder: (_, gs) =>
         Math.abs(gs.dx) > 4 || Math.abs(gs.dy) > 4,
@@ -277,10 +273,8 @@ function FloatingCallCard({ navigationRef, activeRouteName }) {
       },
     })
   ).current;
-
   if (!activeCall) return null;
   if (CALL_SCREENS.has(activeRouteName)) return null;
-
   const isVideo = activeCall.screen === 'VideoCallScreen';
   const duration = callDurationRef.current;
   const mm = String(Math.floor(duration / 60)).padStart(2, '0');
@@ -403,7 +397,7 @@ export default function App() {
     };
   }, []);
 
-  function ChatOverlay() {
+function ChatOverlay() {
  const insets = useSafeAreaInsets();
     return (
       <Chat
@@ -443,11 +437,10 @@ export default function App() {
       if (activeRouteName === 'Login' || !activeRouteName) {
         return;
       }
-
       try {
         const result = await getPosAuthStatus();
         if (result?.message === 'OK') {
-          console.log('Auth status: OK');
+        console.log('Auth status: OK');
         }
       } catch (error) {
         console.log('Auth check error:', error?.message);
@@ -455,8 +448,13 @@ export default function App() {
         if (error?.status === 401) {
           console.log('Unauthorized - navigating to Login');
           Alert.alert('Session Expired', 'Your session has expired. Please log in again.');
+           const callUserEmail = await AsyncStorage.getItem('callUserEmail');
           // Clear stored credentials
-           await AsyncStorage.multiRemove(['access_token','userId', 'userRole', 'userEmail', 'userName','onesignalid','onesignalkey','tulsi_ai_backend','tulsifrontendurl','tulsi_websocket','icms_url','local_icms_url','developer_mode','callUserEmail','callUserName']);
+          await clearUserCallProfile(callUserEmail);
+     
+          await AsyncStorage.multiRemove(['access_token','userId', 'userRole', 'userEmail', 'userName','onesignalid','onesignalkey','tulsi_ai_backend','tulsifrontendurl','tulsi_websocket','icms_url','local_icms_url','developer_mode','callUserEmail','callUserName']);
+          await removeOneSignalTagsOnLogout();
+           DeviceEventEmitter.emit('userLoggedOut');
           // Navigate to login
           if (navigationRef.current) {
             navigationRef.current.reset({
@@ -577,6 +575,21 @@ export default function App() {
           tryNavigate();
         }
 
+        // User tapped a missed call notification (voice, video, or group/conference) → open Calls tab
+        if (data?.type === 'missed_call') {
+          const tryNavigate = () => {
+            if (!navigationRef.current?.isReady?.()) {
+              setTimeout(tryNavigate, 300);
+              return;
+            }
+            AsyncStorage.getItem('access_token').then((token) => {
+              if (!token) return;
+              navigationRef.current.navigate('SupportScreen', { initialTab: 'history' });
+            });
+          };
+          tryNavigate();
+        }
+
         // User tapped an invoice-saved notification → open pending invoices list
         if (data?.type === 'invoice_saved') {
           const tryNavigate = () => {
@@ -653,6 +666,7 @@ export default function App() {
         // stored playerId stays current. callUserEmail is the stable identity.
         const email = await AsyncStorage.getItem('callUserEmail');
         const name  = await AsyncStorage.getItem('callUserName');
+  
         if (email) {
           saveUserCallProfile(email, name || email).catch(() => {});
         }
@@ -720,9 +734,11 @@ export default function App() {
      <Stack.Screen name="SupportScreen" component={SupportScreen} />
       <Stack.Screen name="CallLoginScreen" component={CallLoginScreen} />
       <Stack.Screen name="VideoCallScreen" component={VideoCallScreen}
-        initialParams={initialRoute === 'VideoCallScreen' ? initialParams : undefined} />
+        initialParams={initialRoute === 'VideoCallScreen' ? initialParams : undefined}
+        options={{ gestureEnabled: false }} />
       <Stack.Screen name="VoiceCallScreen" component={VoiceCallScreen}
-        initialParams={initialRoute === 'VoiceCallScreen' ? initialParams : undefined} />
+        initialParams={initialRoute === 'VoiceCallScreen' ? initialParams : undefined}
+        options={{ gestureEnabled: false }} />
       <Stack.Screen name="ConferenceCallScreen" component={ConferenceCallScreen} options={{ headerShown: false }} />
       <Stack.Screen name="ChatScreen" component={ChatScreen} options={{ headerShown: false }} />
 
@@ -731,7 +747,7 @@ export default function App() {
 
 
       
-          <Stack.Screen name="MainDrawer" component={MainDrawer} />
+          <Stack.Screen name="MainDrawer" component={MainDrawer} options={{ gestureEnabled: false }} />
       <Stack.Screen
         name="CategoryProducts"
         component={CategoryProductsScreen}

@@ -7,7 +7,7 @@ import firestore from '@react-native-firebase/firestore';
 import { rootNavigate } from '../../config/RootNavigation';
 import Icon from 'react-native-vector-icons/MaterialIcons';
 import CreateGroupModal from './CreateGroupModal';
-
+import AsyncStorage from '@react-native-async-storage/async-storage';
 function relativeTime(ts) {
   if (!ts) return '';
   const date = ts?.toDate ? ts.toDate() : new Date(ts);
@@ -24,8 +24,23 @@ export default function ChatList({ myEmail, myName }) {
   const [loading,    setLoading]    = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
+  const [isAgent,    setIsAgent]    = useState('');
 
   useEffect(() => {
+    (async () => {
+       const [storeDoc] = await Promise.all([
+        firestore().collection('tulsi').doc('storelist').get(),
+      ]);
+
+      const agentList = storeDoc.data()?.Agent || [];
+       const agent = agentList.includes(myEmail);
+         setIsAgent(agent);
+      console.log("userrole:",isAgent);
+
+    })();
+  }, []);
+
+  useEffect( () => {
     if (!myEmail) return;
     // No orderBy in the query — array-contains + orderBy requires a composite
     // Firestore index that may not exist. Sort by lastMessageTime in JS instead.
@@ -113,7 +128,7 @@ export default function ChatList({ myEmail, myName }) {
                 <Icon
                   name={item.type === 'group' ? 'group' : 'person'}
                   size={24}
-                  color={item.type === 'group' ? '#7C3AED' : '#319241'}
+                  color={item.type === '#319241'}
                 />
               </View>
               <View style={styles.meta}>
@@ -146,9 +161,11 @@ export default function ChatList({ myEmail, myName }) {
       />
 
       {/* Create Group FAB */}
-      <TouchableOpacity style={styles.fab} activeOpacity={0.85} onPress={() => setShowCreate(true)}>
-        <Icon name="group-add" size={26} color="#fff" />
-      </TouchableOpacity>
+      {isAgent && (
+        <TouchableOpacity style={styles.fab} activeOpacity={0.85} onPress={() => setShowCreate(true)}>
+          <Icon name="group-add" size={26} color="#fff" />
+        </TouchableOpacity>
+      )}
 
       <CreateGroupModal
         visible={showCreate}

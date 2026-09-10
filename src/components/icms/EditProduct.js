@@ -15,9 +15,7 @@ import {
   KeyboardAvoidingView,
   Platform
 } from 'react-native';
-
 import AsyncStorage from '@react-native-async-storage/async-storage';
-
 import API_ENDPOINTS from '../../../icms_config/api';
 
 function EditProduct({ visible, item, InvoiceDate, InvNumber, vendorName, onClose, onSave }) {

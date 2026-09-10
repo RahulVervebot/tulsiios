@@ -339,8 +339,28 @@ console.log('newRow to save:', newRow);
   };
   const isEditMode = editIndex != null && editIndex < tableData.length;
 
-  return (
+  return ( 
     <View style={styles.container}>
+        <View style={styles.legendWrap}>
+              <View style={styles.legendItem}>
+                <View style={[styles.legendBox, { backgroundColor: '#ff0000' }]} />
+                <Text style={styles.legendText}>Unlinked</Text>
+              </View>
+              <View style={styles.legendItem}>
+                <View style={[styles.legendBox, styles.legendAiBox]}>
+                  <Icon name="smart-toy" size={9} color="#7C2D12" />
+                </View>
+                <Text style={styles.legendText}>AI Data</Text>
+              </View>
+      
+              <View style={styles.legendItem}>
+                  <View style={[styles.legendBox, styles.legendAiBox]}>
+                 <Icon name="warning" size={9} color="#7a4f00" />
+                 </View>
+                <Text style={styles.legendText}>UnitCost Empty</Text>
+              </View>
+    
+            </View>
       {/* Search + Add Manual */}
       <View style={styles.topBar}>
         <View style={styles.totalWrap}>
@@ -407,7 +427,7 @@ console.log('newRow to save:', newRow);
             const piecesNum = Number(piecesStr);
             const isPiecesEmpty = !piecesStr || !Number.isFinite(piecesNum) || piecesNum === 0;
             // Red takes priority over orange; orange if pieces empty, red if no barcode/linking issue
-            const rowBg = (!hasBarcode && !linkingCorrect) ? '#ff0000' : '#fff';
+            const rowBg = (!hasBarcode) ? '#ff0000' : '#fff';
 
             return (
               <View key={`${item.itemNo}-${idx}`} style={[styles.tableRow, { backgroundColor: rowBg }]}>
@@ -495,10 +515,6 @@ console.log('newRow to save:', newRow);
                     <Text style={styles.groupTitle}>Read Only Details</Text>
                     <View style={styles.readonlyGrid}>
                       <View style={styles.readonlyCard}>
-                        <Text style={styles.readonlyLabel}>ItemNo</Text>
-                        <Text style={styles.readonlyValue}>{draft.itemNo || '-'}</Text>
-                      </View>
-                      <View style={styles.readonlyCard}>
                         <Text style={styles.readonlyLabel}>POS Name</Text>
                         <Text style={styles.readonlyValue}>{String(draft.posName ?? '-') || '-'}</Text>
                       </View>
@@ -542,18 +558,14 @@ console.log('newRow to save:', newRow);
 
                 <View style={styles.formRow}>
                   <Text style={styles.groupTitle}>Editable Fields</Text>
-                  {!isEditMode && (
-                    <>
-                      <Text style={styles.label}>Item No</Text>
-                      <TextInput
-                        style={styles.input}
-                        value={draft.itemNo}
-                        onChangeText={(t) => setDraft(prev => ({ ...prev, itemNo: t }))}
-                        placeholder="Enter item number"
-                        placeholderTextColor={COLORS.sub}
-                      />
-                    </>
-                  )}
+                  <Text style={styles.label}>Item No</Text>
+                  <TextInput
+                    style={styles.input}
+                    value={draft.itemNo}
+                    onChangeText={(t) => setDraft(prev => ({ ...prev, itemNo: t }))}
+                    placeholder="Enter item number"
+                    placeholderTextColor={COLORS.sub}
+                  />
                   <Text style={styles.label}>Description</Text>
                   <TextInput
                     style={[styles.input, { height: 72 }]}
@@ -835,5 +847,35 @@ const styles = StyleSheet.create({
   },
   modalScrollContent: {
     paddingBottom: 12,
+  },
+    legendWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+    marginHorizontal: 10,
+    marginBottom: 6,
+  },
+  legendItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  legendBox: {
+    width: 12,
+    height: 12,
+    borderRadius: 3,
+    borderWidth: 1,
+    borderColor: '#cbd5e1',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  legendAiBox: {
+    backgroundColor: '#FEE2E2',
+    borderColor: '#FCA5A5',
+  },
+  legendText: {
+    fontSize: 12,
+    color: '#334155',
+    fontWeight: '600',
   },
 });

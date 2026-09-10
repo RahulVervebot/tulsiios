@@ -65,6 +65,7 @@ export default function InvoiceStepperModal({
       await initICMSBase();
       const token = await AsyncStorage.getItem('access_token');
       const icms_store = await AsyncStorage.getItem('icms_store');
+      console.log("icms_store:",icms_store);
       const storeurl = await AsyncStorage.getItem('storeurl');
       const res = await fetch(API_ENDPOINTS.GETINVOICEDATA, {
         method: 'POST',
@@ -260,16 +261,17 @@ export default function InvoiceStepperModal({
       }));
     
     const body = {
-      invoiceName,
+      jobName: "pos-quantity-and-cost-update",
+      invoiceName:invoiceName,
       invoiceSavedDate: savedDate,
-      invoiceNo,
+      invoiceNo:invoiceNo,
       invoice: invoiceDb,
       tableData: linkedRows,
-      email,
+      email:email,
     };
 
     const res = await fetch(API_ENDPOINTS.QUANTITY_SP_COSTUPDATE, {
-      method: 'PUT',
+      method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         store: icms_store ?? '',
@@ -284,7 +286,8 @@ export default function InvoiceStepperModal({
       const t = await res.text().catch(() => '');
       throw new Error(t || `Quantity/Price update failed (${res.status})`);
     }
-    console.log("quantity udpate in pos:",res.json());
+    const data =  JSON.stringify(res);
+
 
   };
 
@@ -488,13 +491,14 @@ export default function InvoiceStepperModal({
                             <Text style={styles.previewSub}>Item: {item?.itemNo || '-'} • Total Qty: {item?.qty * item?.pieces || '-'} • Cost: {item?.unitPrice || '-'}</Text>
                           </View>
                         );
+
                       }}
                       scrollEnabled={false}
                       ListEmptyComponent={<Text style={styles.muted}>No products to display.</Text>}
                     />
                     <View style={styles.helpCard}>
                       <Text style={styles.helpText}>
-                        Review all products above. Tap Finish to update quantity, selling price and cost in POS and complete the stepper.
+                        Review all products above. Tap Finish to update quantity and cost in POS and complete the stepper.
                       </Text>
                     </View>
                   </View>

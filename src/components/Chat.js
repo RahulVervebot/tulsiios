@@ -770,6 +770,7 @@ const loadConversations = async () => {
   } catch (error) {
     console.error('Failed to load conversations:', error);
     setConversations([]);
+    setIsOpen(false);
      navigation.navigate('Login');
           Alert.alert(
             'Authentication Error',
@@ -1086,8 +1087,16 @@ const loadMessages = async (conversationId) => {
         rawConversation?.result ||
         rawConversation;
       const conversationId = conversation?.id || rawConversation?.id;
+      if(rawConversation.status_code == 401){
+           setIsOpen(false);
+          navigation.navigate('Login');
+          Alert.alert(
+            'Authentication Error',
+            'Your session has expired. Please log in again.');
+          
+      }
       if (!conversationId) {
-        console.warn('Chat createConversation missing id:', rawConversation);
+        console.warn('Chat createConversation missing id:', rawConversation.status_code);
       }
 
       const updatedConversationsUrl = selectedTenantId

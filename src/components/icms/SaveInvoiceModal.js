@@ -1,5 +1,5 @@
-import React, { useState, useCallback, useEffect } from 'react';
-import { Modal, View, Text, TextInput, TouchableOpacity, StyleSheet, Platform, ActivityIndicator,Alert } from 'react-native';
+import React, { useState, useCallback, useEffect, useMemo } from 'react';
+import { Modal, View, Text, TextInput, TouchableOpacity, StyleSheet, Platform, ActivityIndicator,Alert, ScrollView } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import API_ENDPOINTS, { initICMSBase } from '../../../icms_config/api';
@@ -8,6 +8,15 @@ import DateTimePicker from '@react-native-community/datetimepicker';
 const pad2 = (n) => String(n).padStart(2, '0');
 const formatLocalDate = (date) =>
   `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`;
+
+// simple debounce helper
+function debounce(fn, delay = 300) {
+  let t;
+  return (...args) => {
+    if (t) clearTimeout(t);
+    t = setTimeout(() => fn(...args), delay);
+  };
+}
 
 const SaveInvoiceModal = ({ isVisible, onClose,ImageURL, vendorName, defaultInvoiceNo = '', defaultInvoiceDateISO = '', tableData,cleardata,selectedVendor }) => {
   const [savedInvoiceNo, setSavedInvoiceNo] = useState('');
@@ -19,6 +28,9 @@ const SaveInvoiceModal = ({ isVisible, onClose,ImageURL, vendorName, defaultInvo
   const [ocrurl, setOcrUrl] = useState(null);
 
   const [user_email, setUserEmail] = useState('');
+
+  const [savedInvoiceResults, setSavedInvoiceResults] = useState([]);
+  const [savedInvoiceSearching, setSavedInvoiceSearching] = useState(false);
 
   useFocusEffect(
     useCallback(() => {
@@ -51,7 +63,67 @@ const SaveInvoiceModal = ({ isVisible, onClose,ImageURL, vendorName, defaultInvo
       setInvoiceDate(new Date());
     }
     setInvoiceMode('new');
+    setSavedInvoiceResults([]);
   }, [isVisible, defaultInvoiceNo, defaultInvoiceDateISO]);
+
+  const runSavedInvoiceSearch = useCallback(async (query) => {
+    const q = String(query || '').trim();
+    if (invoiceMode !== 'existing' || (q.length > 0 && q.length < 3)) {
+      setSavedInvoiceResults([]);
+      return;
+    }
+    setSavedInvoiceSearching(true);
+    try {
+      const token = await AsyncStorage.getItem('access_token');
+      const icms_store = await AsyncStorage.getItem('icms_store');
+      const slug = selectedVendor?.slug || '';
+      const url = `${API_ENDPOINTS.SearchSavedInvoices}?slug=${encodeURIComponent(slug)}&search=${encodeURIComponent(q)}`;
+      const res = await fetch(url, {
+        method: 'GET',
+        headers: {
+          'access_token': token ?? '',
+          'mode': 'MOBILE',
+          'store': icms_store ?? '',
+        },
+      });
+      if (!res.ok) {
+        setSavedInvoiceResults([]);
+        return;
+      }
+      const data = await res.json().catch(() => []);
+      setSavedInvoiceResults(Array.isArray(data) ? data : []);
+    } catch (error) {
+      console.log('SearchSavedInvoices error', error);
+      setSavedInvoiceResults([]);
+    } finally {
+      setSavedInvoiceSearching(false);
+    }
+  }, [invoiceMode, selectedVendor]);
+  const debouncedSavedInvoiceSearch = useMemo(() => debounce(runSavedInvoiceSearch, 300), [runSavedInvoiceSearch]);
+
+  const onChangeSavedInvoiceNo = (text) => {
+    setSavedInvoiceNo(text);
+    if (invoiceMode === 'existing') {
+      debouncedSavedInvoiceSearch(text);
+    } else {
+      setSavedInvoiceResults([]);
+    }
+  };
+
+  const onSelectSavedInvoiceNo = (item) => {
+    setSavedInvoiceNo(item?.SavedInvoiceNo ?? '');
+    setSavedInvoiceResults([]);
+  };
+
+  useEffect(() => {
+    if (invoiceMode === 'existing' && !savedInvoiceNo.trim()) {
+      runSavedInvoiceSearch(savedInvoiceNo);
+    } else if (invoiceMode !== 'existing') {
+      setSavedInvoiceResults([]);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [invoiceMode]);
+
   const handleSubmit = async () => {
     if (!savedInvoiceNo.trim()) {
       Alert.alert('Missing Invoice Number', 'Please enter a valid invoice number.');
@@ -259,13 +331,34 @@ const vendordetails = selectedVendor;
             </TouchableOpacity>
           </View>
           <Text style={styles.title}>Enter Invoice Number</Text>
-          <TextInput
-            style={styles.input}
-            value={savedInvoiceNo}
-            onChangeText={setSavedInvoiceNo}
-            placeholder="Enter invoice number"
-            placeholderTextColor="#aaa"
-          />
+          <View style={styles.invoiceNoWrap}>
+            <TextInput
+              style={styles.input}
+              value={savedInvoiceNo}
+              onChangeText={onChangeSavedInvoiceNo}
+              onFocus={() => { if (invoiceMode === 'existing') runSavedInvoiceSearch(savedInvoiceNo); }}
+              placeholder="Enter invoice number"
+              placeholderTextColor="#aaa"
+            />
+            {savedInvoiceSearching && (
+              <ActivityIndicator size="small" color="#319241" style={styles.invoiceNoSpinner} />
+            )}
+            {invoiceMode === 'existing' && savedInvoiceResults.length > 0 && (
+              <View style={styles.dropdownContainer}>
+                <ScrollView style={styles.dropdown} nestedScrollEnabled showsVerticalScrollIndicator>
+                  {savedInvoiceResults.map((item, i) => (
+                    <TouchableOpacity
+                      key={`${item.SavedInvoiceNo ?? ''}-${i}`}
+                      style={[styles.dropdownItem, i % 2 ? styles.dropdownOdd : styles.dropdownEven]}
+                      onPress={() => onSelectSavedInvoiceNo(item)}
+                    >
+                      <Text style={styles.dropdownText}>{item.SavedInvoiceNo}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+              </View>
+            )}
+          </View>
           <Text style={styles.label}>Invoice Date</Text>
           <TouchableOpacity
             style={styles.input}
@@ -384,6 +477,39 @@ const styles = StyleSheet.create({
   modeToggleTextActive: {
     color: '#fff',
   },
+  invoiceNoWrap: {
+    width: '100%',
+    position: 'relative',
+    zIndex: 40,
+    elevation: 40,
+  },
+  invoiceNoSpinner: {
+    position: 'absolute',
+    right: 10,
+    top: 12,
+  },
+  dropdownContainer: {
+    position: 'absolute',
+    top: 46,
+    left: 0,
+    right: 0,
+    backgroundColor: '#fff',
+    borderRadius: 10,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: '#e6e8ef',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.12,
+    shadowRadius: 4,
+    elevation: 4,
+    zIndex: 999,
+    maxHeight: 180,
+  },
+  dropdown: { paddingVertical: 4 },
+  dropdownItem: { paddingVertical: 10, paddingHorizontal: 12 },
+  dropdownEven: { backgroundColor: '#fff' },
+  dropdownOdd: { backgroundColor: '#f6f8fb' },
+  dropdownText: { fontSize: 15, color: '#222' },
   title: {
     fontSize: 18,
     fontWeight: 'bold',

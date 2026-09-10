@@ -20,7 +20,7 @@ import {
 } from 'react-native';
 import {
   RTCPeerConnection, RTCIceCandidate, RTCSessionDescription,
-  RTCView, mediaDevices,
+  RTCView, RTCPIPView, startIOSPIP, stopIOSPIP, mediaDevices,
 } from 'react-native-webrtc';
 import firestore from '@react-native-firebase/firestore';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -29,13 +29,13 @@ import InCallManager from 'react-native-incall-manager';
 import AppHeader from '../components/AppHeader';
 import { sendCallPushNotification } from '../config/OneSignalConfig';
 import { useActiveCall } from '../context/ActiveCallContext';
-import { useFocusEffect } from '@react-navigation/native';
+import { useFocusEffect, StackActions } from '@react-navigation/native';
 
 const makeUUID = () =>
   'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
     const r = (Math.random() * 16) | 0;
     return (c === 'x' ? r : (r & 0x3) | 0x8).toString(16);
-  });
+});
 
 const ICE_SERVERS = [
   { urls: 'stun:stun.l.google.com:19302' },
@@ -44,11 +44,11 @@ const ICE_SERVERS = [
   { urls: 'turn:openrelay.metered.ca:443',             username: 'openrelayproject', credential: 'openrelayproject' },
   { urls: 'turn:openrelay.metered.ca:443?transport=tcp', username: 'openrelayproject', credential: 'openrelayproject' },
 ];
-
 // Stable pair key — always smaller email first so A→B and B→A share one doc
 const pairKey = (a, b) => [a, b].sort().join('__');
 
 export default function ConferenceCallScreen({ route, navigation }) {
+
   const {
     roomId: paramRoomId,
     isCreator: paramIsCreator,
@@ -58,7 +58,6 @@ export default function ConferenceCallScreen({ route, navigation }) {
   } = route?.params || {};
 
   const isVoiceOnly = callType === 'voice';
-
   const [myEmail,       setMyEmail]       = useState('');
   const [myName,        setMyName]        = useState('');
   const [users,         setUsers]         = useState([]);        // all call profiles
@@ -78,7 +77,7 @@ export default function ConferenceCallScreen({ route, navigation }) {
   const [muted,         setMuted]        = useState(false);
   const [cameraOff,     setCameraOff]    = useState(false);
   const [speakerOn,     setSpeakerOn]    = useState(true);
-
+  const [callDuration,  setCallDuration] = useState(0);
   // refs — survive re-renders, not tied to React state
   const myEmailRef      = useRef('');
   const myNameRef       = useRef('');
@@ -88,10 +87,11 @@ export default function ConferenceCallScreen({ route, navigation }) {
   const roomRef         = useRef(null);
   const endFiredRef     = useRef(false);
   const inCallRef       = useRef(false);
-
-  const { setActiveCall } = useActiveCall();
-
-  // ─── Init ─────────────────────────────────────────────────────────────────
+  const isMinimizedRef  = useRef(false);
+  const timerRef        = useRef(null);
+  const pipViewRef      = useRef(null);
+  const { setActiveCall, setMiniDuration, setMiniRemoteURL } = useActiveCall();
+  // ────────────────────────────── Init ─────────────────────────────────────
   useEffect(() => {
     AsyncStorage.multiGet(['callUserEmail', 'callUserName']).then((pairs) => {
       const email = pairs[0][1] || '';
@@ -102,11 +102,9 @@ export default function ConferenceCallScreen({ route, navigation }) {
       setMyName(name);
     });
   }, []);
-
   useEffect(() => {
     if (myEmail) fetchUsers();
   }, [myEmail]);
-
   // Auto-join if opened as an invitee (roomId passed via push notification)
   // Also handles creator joining their own pre-created room (mid-call upgrade from 1:1)
   useEffect(() => {
@@ -116,21 +114,18 @@ export default function ConferenceCallScreen({ route, navigation }) {
       joinRoomAsCreator(paramRoomId);
     }
   }, [myEmail]);
-
   // Auto-start when launched from ChatScreen with pre-selected group members
   useEffect(() => {
     if (myEmail && preselectedUsers?.length) {
       createRoom(preselectedUsers);
     }
   }, [myEmail]);
-
   // Auto-start immediately with no invitees — user adds participants from inside the call
   useEffect(() => {
     if (myEmail && startNow && !preselectedUsers?.length && !paramRoomId) {
       createRoom([]);
     }
   }, [myEmail]);
-
   // Block back gesture/back-button while a call is active so the screen stays mounted.
   // Only block GO_BACK actions — allow explicit navigate() calls to other screens.
   useEffect(() => {
@@ -141,7 +136,6 @@ export default function ConferenceCallScreen({ route, navigation }) {
     });
     return unsub;
   }, [navigation]);
-
   const reacquireConferenceVideo = useCallback(() => {
     if (isVoiceOnly || cameraOff) return;
     if (!localStreamRef.current) return;
@@ -149,17 +143,16 @@ export default function ConferenceCallScreen({ route, navigation }) {
     const needsReacquire =
       videoTracks.length === 0 ||
       videoTracks.some((t) => t.readyState === 'ended' || t.muted);
-
     if (needsReacquire) {
-      mediaDevices.getUserMedia({ audio: false, video: { facingMode: 'user', width: 640, height: 480 } })
+         mediaDevices.getUserMedia({ audio: false, video: { facingMode: 'user', width: 640, height: 480 } })
         .then((newStream) => {
-          if (!inCallRef.current) { newStream.getTracks().forEach((t) => t.stop()); return; }
-          const newTrack = newStream.getVideoTracks()[0];
-          if (!newTrack) return;
-          Object.values(pcsRef.current).forEach((pc) => {
-            const sender = pc.getSenders?.().find((s) => s.track?.kind === 'video');
-            if (sender) sender.replaceTrack(newTrack).catch(() => {});
-          });
+        if (!inCallRef.current) { newStream.getTracks().forEach((t) => t.stop()); return; }
+        const newTrack = newStream.getVideoTracks()[0];
+        if (!newTrack) return;
+        Object.values(pcsRef.current).forEach((pc) => {
+        const sender = pc.getSenders?.().find((s) => s.track?.kind === 'video');
+        if (sender) sender.replaceTrack(newTrack).catch(() => {});
+        });
           localStreamRef.current?.getVideoTracks().forEach((t) => t.stop());
           localStreamRef.current = newStream;
           setLocalURL(newStream.toURL());
@@ -174,18 +167,34 @@ export default function ConferenceCallScreen({ route, navigation }) {
   useEffect(() => {
     const sub = AppState.addEventListener('change', (nextState) => {
       if (nextState === 'active') {
+        isMinimizedRef.current = false;
+        try { stopIOSPIP(pipViewRef); } catch (_) {}
+        if (!cameraOff) {
+          localStreamRef.current?.getVideoTracks().forEach((t) => { t.enabled = true; });
+        }
         setTimeout(() => reacquireConferenceVideo(), 300);
+      } else if (nextState === 'background') {
+        if (inCallRef.current) {
+          isMinimizedRef.current = true;
+          localStreamRef.current?.getVideoTracks().forEach((t) => { t.enabled = true; });
+          try { startIOSPIP(pipViewRef); } catch (_) {}
+        }
       }
     });
     return () => {
       sub.remove();
-      cleanup();
+      if (!inCallRef.current) cleanup();
     };
-  }, [reacquireConferenceVideo]);
+  }, [reacquireConferenceVideo, cameraOff]);
 
   useFocusEffect(
     useCallback(() => {
       if (inCallRef.current) {
+        isMinimizedRef.current = false;
+        try { stopIOSPIP(pipViewRef); } catch (_) {}
+        if (!cameraOff) {
+          localStreamRef.current?.getVideoTracks().forEach((t) => { t.enabled = true; });
+        }
         setTimeout(() => reacquireConferenceVideo(), 100);
         // Refresh all remote stream URLs — Metal/GL surface may freeze when screen loses focus
         setRemoteURLs((prev) => {
@@ -197,7 +206,7 @@ export default function ConferenceCallScreen({ route, navigation }) {
           return refreshed;
         });
       }
-    }, [reacquireConferenceVideo, remoteStreams])
+    }, [reacquireConferenceVideo, remoteStreams, cameraOff])
   );
 
   // ─── Audio routing ────────────────────────────────────────────────────────
@@ -209,6 +218,18 @@ export default function ConferenceCallScreen({ route, navigation }) {
       InCallManager.setForceSpeakerphoneOn(true);
     } catch (_) {}
     setSpeakerOn(true);
+  }, [inCall]);
+
+  // ─── Call duration timer — feeds the minimized floating card ─────────────
+  useEffect(() => {
+    if (!inCall) {
+      clearInterval(timerRef.current);
+      return;
+    }
+    timerRef.current = setInterval(() => {
+      setCallDuration((d) => { setMiniDuration(d + 1); return d + 1; });
+    }, 1000);
+    return () => clearInterval(timerRef.current);
   }, [inCall]);
 
   // ─── Fetch users (filtered by storeDomain like SupportScreen) ───────────
@@ -257,13 +278,18 @@ export default function ConferenceCallScreen({ route, navigation }) {
     pc.ontrack = (event) => {
       if (event.streams?.[0]) {
         const stream = event.streams[0];
+        const url = stream.toURL();
         setRemoteStreams((prev) => ({ ...prev, [remoteEmail]: stream }));
-        setRemoteURLs((prev) => ({ ...prev, [remoteEmail]: stream.toURL() }));
+        setRemoteURLs((prev) => ({ ...prev, [remoteEmail]: url }));
+        setMiniRemoteURL(url);
       }
     };
 
     pc.onconnectionstatechange = () => {
-      if (['disconnected', 'failed', 'closed'].includes(pc.connectionState)) {
+      // 'disconnected' is transient on mobile networks (ICE re-checks, brief network
+      // congestion — especially when another peer joins and triggers a signaling burst).
+      // Only 'failed'/'closed' are terminal — mirrors VideoCallScreen.js's pc handling.
+      if (['failed', 'closed'].includes(pc.connectionState)) {
         setRemoteStreams((prev) => {
           const next = { ...prev };
           delete next[remoteEmail];
@@ -345,11 +371,11 @@ export default function ConferenceCallScreen({ route, navigation }) {
 
       // Send push notification to each invitee
       const confCallType = isVoiceOnly ? 'conference_voice' : 'conference_video';
-      for (const invitee of invitees) {
-        sendCallPushNotification(
-          invitee.email, myNameRef.current, confCallType, rId,
-        ).catch(() => {});
-      }
+      // for (const invitee of invitees) {
+      //   sendCallPushNotification(
+      //     invitee.email, myNameRef.current, confCallType, rId,
+      //   ).catch(() => {});
+      // }
     } catch (e) {
       Alert.alert('Error', 'Could not start conference: ' + e.message);
       cleanup();
@@ -359,6 +385,7 @@ export default function ConferenceCallScreen({ route, navigation }) {
   // ─── Join pre-created room as creator (mid-call 1:1 upgrade) ─────────────
   // Room doc already exists in Firestore. Acquire media, watch participants,
   // and send offers to everyone else in the room.
+
   const joinRoomAsCreator = async (rId) => {
     try {
       await getVideoStream();
@@ -480,6 +507,7 @@ export default function ConferenceCallScreen({ route, navigation }) {
   // ICE field naming is based on pair-key order (sorted emails), NOT caller/callee role:
   //   smaller-email side always writes to 'callerCandidates', reads from 'calleeCandidates'
   //   larger-email side always writes to 'calleeCandidates', reads from 'callerCandidates'
+
   const initiateOffer = async (remoteEmail, rId) => {
     const rRef   = roomRef.current || firestore().collection('conferenceCalls').doc(rId);
     const key    = pairKey(myEmailRef.current, remoteEmail);
@@ -582,7 +610,6 @@ export default function ConferenceCallScreen({ route, navigation }) {
     if (endFiredRef.current) return;
     endFiredRef.current = true;
     inCallRef.current = false;
-    setActiveCall(null);
 
     if (updateDb && roomRef.current) {
       const me = { email: myEmailRef.current, name: myNameRef.current };
@@ -601,6 +628,11 @@ export default function ConferenceCallScreen({ route, navigation }) {
 
     cleanup();
     navigation.reset({ index: 0, routes: [{ name: 'MainDrawer' }] });
+    // Deferred: clearing the shared call context here would update ActiveCallProvider
+    // synchronously while React is still committing the navigation.reset() unmount of
+    // this screen, triggering "Cannot update a component while rendering a different
+    // component". Push it to the next tick so it lands after that commit finishes.
+    setTimeout(() => setActiveCall(null), 0);
   };
 
   const cleanup = () => {
@@ -613,6 +645,8 @@ export default function ConferenceCallScreen({ route, navigation }) {
     setLocalURL(null);
     setRemoteStreams({});
     setRemoteURLs({});
+    setMiniRemoteURL(null);
+    setMiniDuration(0);
     roomRef.current = null;
     try { InCallManager.stop(); } catch (_) {}
   };
@@ -652,9 +686,9 @@ export default function ConferenceCallScreen({ route, navigation }) {
         participants: firestore.FieldValue.arrayUnion(entry),
       });
       const confCallType = isVoiceOnly ? 'conference_voice' : 'conference_video';
-      sendCallPushNotification(
-        user.email, myNameRef.current, confCallType, roomId,
-      ).catch(() => {});
+      // sendCallPushNotification(
+      //   user.email, myNameRef.current, confCallType, roomId,
+      // ).catch(() => {});
       await initiateOffer(user.email, roomId);
       setShowAddSheet(false);
     } catch (e) {
@@ -677,13 +711,44 @@ export default function ConferenceCallScreen({ route, navigation }) {
   // ─── Active conference UI ─────────────────────────────────────────────────
   if (inCall) {
     const others = participants.filter((p) => p.email !== myEmailRef.current);
+    const pipStreamURL = !isVoiceOnly
+      ? (others.map((p) => remoteURLs[p.email]).find(Boolean) || localURL || '')
+      : '';
 
     return (
       <View style={styles.callScreen}>
         <StatusBar barStyle="light-content" />
 
+        {/* RTCPIPView must always be mounted so iOS PiP has pixel content to capture */}
+        {!isVoiceOnly && (
+          <RTCPIPView
+            ref={pipViewRef}
+            streamURL={pipStreamURL}
+            style={StyleSheet.absoluteFill}
+            objectFit="cover"
+            iosPIP={{
+              enabled: true,
+              startAutomatically: false,
+              stopAutomatically: true,
+              preferredSize: { width: 180, height: 320 },
+            }}
+          />
+        )}
+
         {/* Duration / room bar */}
         <View style={styles.roomBar}>
+          <TouchableOpacity
+            style={styles.minimizeBtn}
+            onPress={() => {
+              isMinimizedRef.current = true;
+              if (!isVoiceOnly) {
+                try { startIOSPIP(pipViewRef); } catch (_) {}
+              }
+              navigation.dispatch(StackActions.push('MainDrawer'));
+            }}
+          >
+            <Icon name="keyboard-arrow-down" size={22} color="#fff" />
+          </TouchableOpacity>
           <Icon name={isVoiceOnly ? 'call' : 'videocam'} size={16} color="#6EE7B7" style={{ marginRight: 6 }} />
           <Text style={[styles.roomBarText, { flex: 1 }]}>
             {isVoiceOnly ? 'Voice ' : 'Video '}Conference · {participants.length} participant{participants.length !== 1 ? 's' : ''}
@@ -921,6 +986,7 @@ export default function ConferenceCallScreen({ route, navigation }) {
       )}
     </View>
   );
+
 }
 
 const styles = StyleSheet.create({
@@ -979,6 +1045,12 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.5)',
   },
   roomBarText: { color: '#6EE7B7', fontSize: 13, fontWeight: '600' },
+  minimizeBtn: {
+    width: 30, height: 30, borderRadius: 15,
+    backgroundColor: 'rgba(255,255,255,0.15)',
+    alignItems: 'center', justifyContent: 'center',
+    marginRight: 8,
+  },
 
   grid: {
     flexDirection: 'row', flexWrap: 'wrap',

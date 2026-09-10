@@ -51,10 +51,10 @@ export const initializeOneSignal = async () => {
     const state = await OneSignal.getDeviceState?.();
     console.log('✅ OneSignal initialized');
     console.log('📱 Device state after init:', {
-      subscribed: state?.subscribed,
-      hasNotificationPermission: state?.hasNotificationPermission,
-      pushToken: state?.pushToken,
-      userId: state?.userId,
+    subscribed: state?.subscribed,
+    hasNotificationPermission: state?.hasNotificationPermission,
+    pushToken: state?.pushToken,
+    userId: state?.userId,
     });
     isInitialized = true;
     console.log('🚀 ===== ONESIGNAL INIT COMPLETE =====\n');
@@ -102,6 +102,15 @@ export const canReceivePush = async () => {
 export const removeOneSignalTagsOnLogout = async () => {
   try {
     console.log('\n🧹 ===== REMOVING ONESIGNAL TAGS ON LOGOUT =====');
+
+    // Tags only affect segmentation filters — they don't stop delivery.
+    // The device stays subscribed to the OneSignal app id until explicitly
+    // disabled, so notifications sent to "all subscribed users" or by
+    // direct player id would still arrive after logout without this.
+    if (OneSignal.disablePush) {
+      OneSignal.disablePush(true);
+      console.log('🔕 disablePush(true) called — device unsubscribed from push');
+    }
 
     // Check current subscription/device state
     let state = await OneSignal.getDeviceState?.();
@@ -191,6 +200,11 @@ export const tagDeviceWithStoreUrl = async (storeUrl, storeRole) => {
    const normalizedStoreUrl = normalizeStoreUrl(storeUrl);
    const normalizedStoreRole = normalizeStoreUrl(storeRole);
     console.log('\n🏷️ ===== TAGGING DEVICE =====');
+
+    // Re-enable push in case a previous logout called disablePush(true) on this device.
+    if (OneSignal.disablePush) {
+      OneSignal.disablePush(false);
+    }
     console.log('Original storeUrl:', storeUrl);
     console.log('Normalized storeUrl:', normalizedStoreUrl);
     console.log('Original storeRole:', normalizedStoreRole);
@@ -551,6 +565,22 @@ export const saveUserCallProfile = async (email, name) => {
     console.log('[CallProfile] saved for', email, 'playerId:', playerId);
   } catch (e) {
     console.log('[CallProfile] save error:', e?.message);
+  }
+};
+
+// Removes this device's push tokens from callProfiles on logout so no further
+// calls/VoIP pushes are routed to this device for that email.
+export const clearUserCallProfile = async (email) => {
+  try {
+    if (!email) return;
+    await firestore().collection('callProfiles').doc(email).update({
+      oneSignalPlayerId: firestore.FieldValue.delete(),
+      voipToken:         firestore.FieldValue.delete(),
+      updatedAt:         firestore.FieldValue.serverTimestamp(),
+    });
+    console.log('[CallProfile] cleared device tokens for', email);
+  } catch (e) {
+    console.log('[CallProfile] clearUserCallProfile error:', e?.message);
   }
 };
 

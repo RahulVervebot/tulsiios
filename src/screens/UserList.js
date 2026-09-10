@@ -63,6 +63,7 @@ export default function UserList() {
     is_allow_tulsi_chat_support: false,
     is_user_setting_visible_in_app: false,
     is_product_billing_in_app: false,
+    is_contact: false,
   });
 
   const fetchUsers = useCallback(async () => {
@@ -101,6 +102,7 @@ export default function UserList() {
       is_allow_tulsi_ai: user.is_allow_tulsi_ai || false,
       is_allow_tulsi_chat_support: user.is_allow_tulsi_chat_support || false,
       is_user_setting_visible_in_app: user.is_user_setting_visible_in_app || false,
+      is_contact: user.is_contact ||false,
     });
     setEditModalVisible(true);
   };
@@ -128,7 +130,7 @@ export default function UserList() {
     body.is_allow_tulsi_ai = editUser.is_allow_tulsi_ai;
     body.is_allow_tulsi_chat_support = editUser.is_allow_tulsi_chat_support;
     body.is_user_setting_visible_in_app = editUser.is_user_setting_visible_in_app;
-
+    body.is_contact = editUser.is_contact;
     try {
       setUpdating(true);
    const resData =  await updatePosUser(selectedUser.id, body);
@@ -247,6 +249,11 @@ export default function UserList() {
             label="User Setting"
             value={item.is_user_setting_visible_in_app}
           />
+        <PermissionItem
+            label="Contact Support"
+            value={item.is_contact}
+          />
+          
         </View>
       </View>
     </View>
@@ -504,6 +511,13 @@ export default function UserList() {
                 value={editUser.is_user_setting_visible_in_app}
                 onToggle={(val) =>
                   setEditUser({ ...editUser, is_user_setting_visible_in_app: val })
+                }
+              />
+               <ToggleRow
+                label="Contact Support"
+                value={editUser.is_contact}
+                onToggle={(val) =>
+                  setEditUser({ ...editUser, is_contact: val })
                 }
               />
             </ScrollView>

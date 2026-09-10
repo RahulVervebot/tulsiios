@@ -101,7 +101,10 @@ export default function RedProductsScreen() {
 
   const mapToLinkingItem = item => ({
     itemNo: item?.Item ?? item?.itemNumber ?? item?.ItemNo ?? item?.itemNo,
+    extendedPrice: item?.ExtendedPrice ?? item?.extendedPrice,
     description: item?.Description ?? item?.description,
+    qty: item?.Quantity ?? item?.quantity,
+    cost: item?.Price ?? item?.price,
     size: item?.Size ?? item?.size,
     ProductId: item?.ProductId ?? item?.productId ?? item?._id,
     isReviewed: item?.isReviewed,
@@ -191,17 +194,10 @@ export default function RedProductsScreen() {
               ['Item', item?.Item],
               ['Description', item?.Description],
               ['Quantity', item?.Quantity ?? item?.Qty],
-              ['Price', item?.price ?? item?.Price],
+              ['Pieces', item?.price ?? item?.pieces],
+             ['Case Cost', item?.price ?? item?.Price],
               ['Extended Price', item?.extendedPrice ?? item?.ExtendedPrice],
-              ['Barcode', item?.Barcode ?? item?.barcode],
-              ['SKU', item?.sku ?? item?.SKU],
-              ['Category', item?.category ?? item?.Category],
-              ['POS', item?.POS],
-              ['POS SKU', item?.PosSKU],
-              ['Size', item?.Size],
               ['Department', item?.Department],
-              ['Selling Price', item?.SellingPrice],
-              ['Seller Cost', item?.SellerCost],
               ['Created', formatDate(item?.createdAt)],
             ].map(([label, value], idx) => (
               <View key={`${label}-${idx}`} style={styles.expandedRow}>
@@ -211,12 +207,6 @@ export default function RedProductsScreen() {
             ))}
 
             <View style={styles.actionRow}>
-              <TouchableOpacity
-                style={[styles.actionBtn, styles.editBtn]}
-                onPress={() => openEdit(item)}
-              >
-                <Text style={styles.actionText}>Edit</Text>
-              </TouchableOpacity>
               <TouchableOpacity
                 style={[styles.actionBtn, styles.linkBtn]}
                 onPress={() => openLinkProduct(item)}
@@ -296,12 +286,12 @@ export default function RedProductsScreen() {
                 }
               />
             </View>
-            <EditRedProduct
+            {/* <EditRedProduct
               visible={editVisible}
               item={selectedItem}
               onClose={closeEdit}
               onSave={handleSave}
-            />
+            /> */}
             {linkModalVisible && (
               <LinkProductModal
                 visible={linkModalVisible}
@@ -429,7 +419,7 @@ const getStyles = isTablet =>
       backgroundColor: '#10B981',
     },
     linkBtn: {
-      backgroundColor: '#6366F1',
+      backgroundColor: '#005f9f',
     },
     actionText: {
       color: '#fff',

@@ -14,7 +14,7 @@ const getStorageKey = async () => {
 
 const PATHS = {
 VENDORS: '/api/getvendorlist',
-FINDPRODUCTFROMHICKSVILL: '/find-hicksville-products-for-mobile',
+FINDPRODUCTFROMHICKSVILL: '/api/find-hicksville-products-for-mobile',
 PRODUCTLINKING: '/api/invoice/product/update',
 SEARCHVENDOR: '/api/searchvendor',
 GETINVOICEDATA: '/api/getCompletedInvoiceData',
@@ -39,11 +39,16 @@ linkingcollectiontransfer: '/api/linkingcollectiontransfer',
 REMOVE_LINKING: '/api/remove_Linking_Bulk',
 REMOVE_LINKED_ITEM: '/api/invoice/removeLinkedItem',
 STEPPER_COUNT: '/api/step_count',
-QUANTITY_SP_COSTUPDATE: '/api/invoice/quantity_sellinprice_and_cost_update',
-SingleLinking: '/api/linkingcollectiontransfer-for-mobile/',
+QUANTITY_SP_COSTUPDATE: '/api/background-jobs',
+// QUANTITY_SP_COSTUPDATE: '/api/invoice/quantity_sellinprice_and_cost_update',
+SingleLinking: '/api/linkingcollectiontransfer-for-mobile',
 PENDINGINVOICES: '/api/icms-raw-invoices/pending-jobs',
 SAVEDINVSTATUS: '/api/invoice/updatesaveinvociestatus',
 MULTIVENDORUNITCOST: '/app/getproductcost',
+TEAM_REVIEW_REASONS: '/api/icms-raw-invoices/auto-regex/team-review-reasons',
+RECREATE_REGEX: '/api/icms-raw-invoices/auto-regex',
+SearchSavedInvoices: '/api/invoice/searchsavedinvoices',
+REQUEST_TEAM_REVIEW: '/api/icms-raw-invoices/auto-regex/request-team-review',
 };
 
 // normalize base: strip trailing slashes

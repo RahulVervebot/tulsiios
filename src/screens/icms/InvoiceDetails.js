@@ -45,6 +45,19 @@ const isItemRow = (x) =>
     x.extendedPrice != null
   );
 
+const extractErrorMessage = data => {
+  let msg = data?.message ?? data?.upstreamError?.error ?? data?.error;
+  if (typeof msg === 'string') {
+    try {
+      const parsed = JSON.parse(msg);
+      msg = parsed?.error || parsed?.message || msg;
+    } catch (e) {
+      // not JSON, use as-is
+    }
+  }
+  return msg || 'Something went wrong. Please try again.';
+};
+
 const extractRowsFromPayload = (payload, fallbackInvoice) => {
   if (Array.isArray(payload?.InvoiceData)) return payload.InvoiceData;
   if (Array.isArray(payload?.tableData)) return payload.tableData;
@@ -504,22 +517,23 @@ export default function InvoiceDetails() {
   }));
 console.log('Filtered tableData count:', tableData.length);
 console.log('Filtered tableData:', tableData);
-    const body = {
-      invoiceName: vendorName,
+       const body = {
+      jobName: "pos-quantity-and-cost-update",
+      invoiceName:vendorName,
       invoiceSavedDate: day,
-      invoiceNo: InvNumber,
+      invoiceNo:InvNumber,
       invoice: invoiceDb,
-      tableData: tableData || [],
-      email,
+       tableData: tableData || [],
+      email:email,
     };
 
     const app_url = await AsyncStorage.getItem('storeurl');
     const res = await fetch(API_ENDPOINTS.QUANTITY_SP_COSTUPDATE, {
-      method: 'PUT',
+      method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         store: icms_store ?? '',
-        pos_access_token: token ?? '',
+         pos_access_token: token ?? '',
         pos_api: `${storeurl}/api/v1` ?? '',
         mode: 'MOBILE',
        app_url: app_url ?? '',
@@ -527,14 +541,21 @@ console.log('Filtered tableData:', tableData);
       body: JSON.stringify(body),
       });
 
-    console.log("token",token,storeurl);
-    console.log("quantity update res",body);
+
+   const data = await res.json();
+    console.log("quantity udpate in pos:", data);
     if (!res.ok) {
       const t = await res.text().catch(() => '');
       throw new Error(t || `Quantity/Price update failed (${res.status})`);
     }
 
-    console.log("pos update res",res.json());
+ 
+
+    if (data?.success === false) {
+      throw new Error(extractErrorMessage(data));
+    }
+
+    return data;
   }, [InvNumber, day, fetchVendorDbName, invoice, vendorName, selectedIds]);
 
   const handlePosUpdateConfirm = useCallback(() => {
@@ -551,10 +572,11 @@ console.log('Filtered tableData:', tableData);
               setPosUpdateLoading(true);
               await runQuantitySpCostUpdate();
               setTransferMessage('Quantity, Selling Price and Cost updated in POS successfully.');
-              Alert.alert("POS update successfully ");
+              Alert.alert('Success', 'Quantity, Selling Price and Cost updated in POS successfully.');
             } catch (e) {
-              setTransferMessage(e?.message || 'Failed to update POS values');
-               Alert.alert("POS update Failed Please Contact Support");
+              const message = e?.message || 'Failed to update POS values';
+              setTransferMessage(message);
+              Alert.alert('Update Failed', message);
             } finally {
               setPosUpdateLoading(false);
             }
@@ -713,18 +735,18 @@ console.log('Filtered tableData:', tableData);
           <View style={[styles.legendBox, styles.legendAiBox]}>
             <Icon name="smart-toy" size={9} color="#7C2D12" />
           </View>
-          <Text style={styles.legendText}>AI Data</Text>
+          <Text style={styles.legendText}>AIData</Text>
         </View>
 
         <View style={styles.legendItem}>
             <View style={[styles.legendBox, styles.legendAiBox]}>
            <Icon name="warning" size={9} color="#7a4f00" />
            </View>
-          <Text style={styles.legendText}>UC_Empty</Text>
+          <Text style={styles.legendText}>EmptyUnitCost</Text>
         </View>
         <View style={styles.legendItem}>
           <View style={[styles.legendBox, { backgroundColor: '#16A34A' }]} />
-          <Text style={styles.legendText}>isStockUpdated</Text>
+          <Text style={styles.legendText}>StockUpdated</Text>
         </View>
       </View>
 

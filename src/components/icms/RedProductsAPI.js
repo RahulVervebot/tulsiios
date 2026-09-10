@@ -44,7 +44,7 @@ export async function fetchRedProducts({ startDate, endDate } = {}) {
       'Content-Type': 'application/json',
       'access_token': token ?? '',
       'mode': 'MOBILE',
-      'store': dbname,
+      'store': icms_store,
     },
     body: JSON.stringify(body),
   });
@@ -55,6 +55,7 @@ export async function fetchRedProducts({ startDate, endDate } = {}) {
   }
 
   const data = await res.json().catch(() => ({}));
+  console.log("red data:",data);
   const list = Array.isArray(data?.data)
     ? data.data
     : Array.isArray(data?.results)

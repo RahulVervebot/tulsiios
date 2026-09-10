@@ -108,17 +108,15 @@ const LinkProductModal =  ({
         const res = await fetch(API_ENDPOINTS.FINDPRODUCTFROMHICKSVILL, {
           method: 'POST',
           headers: {
-            'Content-Type': 'application/json',
-            'access_token': token,
+         'Content-Type': 'application/json',
+          'access_token': token,
           'mode': 'MOBILE',
           'store': icms_store,
           'app_url': app_url,
-          
-
           },
           body: JSON.stringify(bodyPayload),
         });
-
+        console.log('API response:', res);
         const data = await res.json();
         console.log('API response:', data);
         const matchedProducts =
@@ -142,7 +140,6 @@ const linkProduct = async (item, qty) => {
     val === undefined || val === null ? fallback : String(val);
   const safeBoolString = (val, fallback = 'false') =>
     val === undefined || val === null ? fallback : String(!!val);
-
   const data = {
     invoiceName: safeString(vendorName),
     value: {
@@ -169,7 +166,6 @@ const linkProduct = async (item, qty) => {
       StockSpliting: Boolean(linkingItem?.StockSpliting ?? true),
     },
   };
-
   console.log("Sending data:", data);
 
   try {
@@ -179,7 +175,7 @@ const linkProduct = async (item, qty) => {
     const app_url = await AsyncStorage.getItem('storeurl');
     console.log("API header:", token);
     const res = await fetch(API_ENDPOINTS.PRODUCTLINKING, {
-  
+
       method: 'PUT',
       headers: {
         'Content-Type': 'application/json',
@@ -466,8 +462,9 @@ const linkProduct = async (item, qty) => {
                 <TouchableOpacity
                   style={styles.resultItem}
                   onPress={() => setSelectedProduct(item)}>
-                  <Text style={styles.productName}>{item.name}</Text>
-                  <Text style={styles.productBarcode}>{item.upc}</Text>
+                  <Text style={styles.productName}>{item.name} - {item.size}</Text>
+                  <Text style={styles.productBarcode}>{item.upc} - {item.department}</Text>
+                  <Text style={styles.productCost}>Cost: ${item.cost} - Price: ${item.price}</Text>
                 </TouchableOpacity>
               )}
               ListEmptyComponent={
@@ -777,8 +774,9 @@ detailValue: {
     borderBottomWidth: 1,
     borderBottomColor: '#eee',
   },
-  productName: {fontSize: 16, color: '#1f1f1f'},
-  productBarcode: {fontSize: 12, color: '#666'},
+  productName: {fontSize: 14, color: '#1f1f1f'},
+  productBarcode: {fontSize: 12, color: '#666',marginTop:5},
+  productCost: {fontSize: 12, color: '#666',marginTop:5},
   noResult: {textAlign: 'center', color: '#666', marginTop: 20},
   emptyWrap: { alignItems: 'center', justifyContent: 'center', paddingVertical: 10 },
   createNewBtn: {

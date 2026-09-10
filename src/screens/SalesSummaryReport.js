@@ -9,37 +9,22 @@ import {
   Platform,
   TouchableOpacity,
 } from 'react-native';
-
 import AppHeader from '../components/AppHeader';
-
 import reportbg from '../assets/images/report-bg.png';
-
 import DateRangePickerModal from '../components/DateRangePickerModal';
-
 // Reports container + tabs
 import ReportTabs from '../components/reports/ReportTabs';
-
 import PosPaymentCollectionTab from '../components/reports/tabs/PosPaymentCollectionTab';
-
 import CashInOutTab from '../components/reports/tabs/CashInOutTab';
-
 import RefundReportTab from '../components/reports/tabs/RefundReportTab';
-
 import TaxReportTab from '../components/reports/tabs/TaxReportTab';
-
 import DepartmentWiseReportTab from '../components/reports/tabs/DepartmentWiseReportTab';
-
 // Icons for bottom selector
 import TaxSVG from '../assets/icons/Tax.svg';
-
 import DepartmentSVG from '../assets/icons/Department-wise-report.svg';
-
 import CashinoutSVG from '../assets/icons/cash-In-out.svg';
-
 import PosPaymentCollectionSVG from '../assets/icons/Pos-Payment-Collection.svg';
-
 import RefundReportSVG from '../assets/icons/RefundReport.svg';
-
 // API functions
 import {
   SaleSummaryPaymentType,
@@ -48,15 +33,13 @@ import {
   SaleSummaryTaxReport,
   SaleSummaryDepartmentAllianceReport,
 } from '../functions/reports/pos_reports';
-
 import { exportSalesSummaryToExcel } from '../functions/reports/exportReportsExcel';
-
 const PANEL_RADIUS = 28;
-
 const DEFAULT_REFUND = { total_refunds: 0, total_refunds_count: 0, refund_data: [] };
-
 export default function SaleSummaryReport() {
-  const pad = (n) => String(n).padStart(2, '0');
+
+ const pad = (n) => String(n).padStart(2, '0');
+
   const fmtLocal = (d) => {
     const y = d.getFullYear();
     const m = pad(d.getMonth() + 1);
@@ -72,21 +55,17 @@ export default function SaleSummaryReport() {
     const day = pad(d.getDate());
     return `${y}-${m}-${day}`;
   };
-
   const [pickerVisible, setPickerVisible] = useState(false);
-  // Data
   const [paymentTypeReport, setPaymentTypeReport] = useState([]);
   const [cashInOutReport, setCashInOutReport] = useState({});
   const [refundReport, setRefundReport] = useState(DEFAULT_REFUND);
   const [taxReport, setTaxReport] = useState({});
   const [departmentReport, setDepartmentReport] = useState({});
-  // Per-tab loading
   const [paymentLoading, setPaymentLoading] = useState(true);
   const [cashLoading, setCashLoading] = useState(true);
   const [refundLoading, setRefundLoading] = useState(true);
   const [taxLoading, setTaxLoading] = useState(true);
   const [deptLoading, setDeptLoading] = useState(true);
-  // Date range (defaults to today)
   const [range, setRange] = useState(() => {
     const now = new Date();
     const start = new Date(now); start.setHours(0, 0, 0, 0);
@@ -100,6 +79,7 @@ export default function SaleSummaryReport() {
   // Prevent race conditions
   const reqIdRef = useRef(0);
   // Sequential fetcher
+
   const handleSaleSummaryReport = useCallback(async (startDate, endDate) => {
     const id = ++reqIdRef.current;
     const s = fmtLocal(startDate);
@@ -246,6 +226,7 @@ export default function SaleSummaryReport() {
 
     </ImageBackground>
   );
+
 }
 
 const getStyles = (isTablet) =>
@@ -329,4 +310,4 @@ const getStyles = (isTablet) =>
     rowDivider: { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: 'rgba(0,0,0,0.12)' },
     rowIcon: { width: isTablet ? 36 : 28, height: isTablet ? 36 : 28 },
     rowTitle: { flexShrink: 1, fontSize: isTablet ? 20 : 16, fontWeight: '600', color: '#111', letterSpacing: 0.2 },
-  });
+});

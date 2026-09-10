@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   View,
   TouchableOpacity,
@@ -25,7 +25,7 @@ import invoiceClose from '../../assets/images/Close_screen.gif';
 import AppHeader from '../AppHeader';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import DateTimePicker from '@react-native-community/datetimepicker';
-import { Camera, CameraType } from 'react-native-camera-kit';
+import DocumentScanner, { ResponseType } from 'react-native-document-scanner-plugin';
 import { launchImageLibrary } from 'react-native-image-picker';
 import { request, PERMISSIONS, RESULTS } from 'react-native-permissions';
 import { sendNotificationToStoreUsers } from '../../config/OneSignalConfig';
@@ -61,13 +61,10 @@ function moveItem(arr, from, to) {
 
 const AddNewVendorInvoice = () => {
   const navigation = useNavigation();
-  const cameraRef = useRef(null);
-  const snapSliderRef = useRef(null);
   const [step, setStep] = useState(1);
   const [newVendorInput, setNewVendorInput] = useState('');
   const [newVendor, setNewVendor] = useState('');
   const [snappedImages, setSnappedImages] = useState([]); // [{id, uri, base64}]
-  const [showCamera, setShowCamera] = useState(false);
   const [buttonLoading, setButtonLoading] = useState({
     snap: false,
     gallery: false,
@@ -102,7 +99,29 @@ const AddNewVendorInvoice = () => {
       Alert.alert('Permission needed', 'Camera permission is required.');
       return;
     }
-    setShowCamera(true);
+    setBtnLoading('snap', true);
+    try {
+      // Opens the native document scanner: live edge detection with a green
+      // highlight around the detected document, cropped/perspective-corrected
+      // on capture — so only the document itself is captured, not the background.
+      const { scannedImages, status } = await DocumentScanner.scanDocument({
+        responseType: ResponseType.ImageFilePath,
+        croppedImageQuality: 90,
+      });
+
+      if (status !== 'success' || !scannedImages?.length) return;
+
+      const add = scannedImages.map((uri, idx) => ({
+        id: `${Date.now()}-${idx}`,
+        uri,
+        base64: null,
+      }));
+      setSnappedImages((prev) => [...prev, ...add]);
+    } catch (e) {
+      console.warn('Document scanner error:', e);
+    } finally {
+      setBtnLoading('snap', false);
+    }
   };
 
   const pickFromGallery = async () => {
@@ -149,22 +168,6 @@ const AddNewVendorInvoice = () => {
     }
   };
 
-  const snapPhoto = async () => {
-    if (!cameraRef.current) return;
-    setBtnLoading('snap', true);
-    try {
-      const photo = await cameraRef.current.capture();
-      setSnappedImages((prev) => [
-        ...prev,
-        { id: `${Date.now()}-${prev.length}`, uri: photo?.uri, base64: null },
-      ]);
-    } catch (e) {
-      console.warn('Error snapping photo:', e);
-    } finally {
-      setBtnLoading('snap', false);
-    }
-  };
-
   const removeSnappedImage = (index) => {
     setSnappedImages((prev) => prev.filter((_, idx) => idx !== index));
   };
@@ -177,7 +180,6 @@ const AddNewVendorInvoice = () => {
     setSaveInvoiceNo('');
     setInvoiceDate(new Date());
     setShowInvoiceDatePicker(false);
-    setShowCamera(false);
   };
 
   const getNormalizedVendorFileName = (value) =>
@@ -186,6 +188,70 @@ const AddNewVendorInvoice = () => {
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, '_')
       .replace(/^_+|_+$/g, '');
+
+  // Image compression helper to ensure images don't exceed the size limit while keeping quality as high as possible
+  const compressImageIfNeeded = async (imageUri) => {
+    try {
+      const MAX_SIZE_MB = 4.5;
+      const MAX_SIZE_BYTES = MAX_SIZE_MB * 1024 * 1024;
+
+      const fileInfo = await ReactNativeBlobUtil.fs.stat(imageUri.replace('file://', ''));
+      const fileSizeBytes = fileInfo.size;
+
+      console.log(`Original image size: ${(fileSizeBytes / (1024 * 1024)).toFixed(2)} MB`);
+
+      if (fileSizeBytes <= MAX_SIZE_BYTES) {
+        return imageUri;
+      }
+
+      let quality = Math.min(90, Math.floor((MAX_SIZE_BYTES / fileSizeBytes) * 100));
+      let width = 2560;
+      let attempts = 0;
+      const maxAttempts = 5;
+
+      while (attempts < maxAttempts) {
+        console.log(`Compression attempt ${attempts + 1}: quality=${quality}, width=${width}`);
+
+        const resizedImage = await ImageResizer.createResizedImage(
+          imageUri,
+          width,
+          width * 1.5,
+          'JPEG',
+          quality,
+          0,
+          null,
+          false,
+          { mode: 'contain' }
+        );
+
+        const compressedInfo = await ReactNativeBlobUtil.fs.stat(
+          resizedImage.uri.replace('file://', '')
+        );
+        const compressedSize = compressedInfo.size;
+
+        console.log(`Compressed size: ${(compressedSize / (1024 * 1024)).toFixed(2)} MB`);
+
+        if (compressedSize <= MAX_SIZE_BYTES) {
+          console.log('Image compressed successfully under size limit');
+          return resizedImage.uri;
+        }
+
+        quality = Math.max(65, quality - 10);
+        width = Math.floor(width * 0.9);
+        attempts++;
+      }
+
+      Alert.alert(
+        'Image Too Large',
+        'Unable to compress image under the size limit. Please try a different image.',
+        [{ text: 'OK' }]
+      );
+      return null;
+    } catch (error) {
+      console.error('Error compressing image:', error);
+      return imageUri;
+    }
+  };
 
   const handleStepOneNext = () => {
     const trimmed = newVendorInput.trim();
@@ -258,9 +324,15 @@ const AddNewVendorInvoice = () => {
         const normalizedVendorName = getNormalizedVendorFileName(newVendor);
         const fileOriginalName = `${normalizedVendorName || 'vendor'},jpg`;
         console.log("fileOriginalName:",fileOriginalName);
+
+        const compressedUri = await compressImageIfNeeded(img.uri);
+        if (!compressedUri) {
+          throw new Error(`Image ${i + 1} is too large to upload`);
+        }
+
         const formData = new FormData();
         formData.append('file', {
-          uri: img.uri,
+          uri: compressedUri,
           type: 'image/jpeg',
           name: fileOriginalName,
         });
@@ -414,8 +486,12 @@ const AddNewVendorInvoice = () => {
           {step === 2 && (
             <View style={styles.sectionWrap}>
               <View style={styles.btnRow}>
-                <TouchableOpacity style={[styles.btn, styles.btnLight]} onPress={handleOpenCamera}>
-                  <Text style={[styles.btnText, styles.btnLightText]}>{showCamera ? 'Camera Active' : 'Upload Invoice'}</Text>
+                <TouchableOpacity style={[styles.btn, styles.btnLight]} onPress={handleOpenCamera} disabled={buttonLoading.snap}>
+                  {buttonLoading.snap ? (
+                    <ActivityIndicator size="small" color="#256f3a" />
+                  ) : (
+                    <Text style={[styles.btnText, styles.btnLightText]}>Scan Document</Text>
+                  )}
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={[styles.btn, styles.btnLight]}
@@ -592,46 +668,6 @@ const AddNewVendorInvoice = () => {
         />
       )}
 
-      {showCamera && (
-        <View style={styles.cameraSheet}>
-          <Camera ref={cameraRef} style={styles.cameraPreview} cameraType={CameraType.Back} zoomMode="on" />
-          <View style={styles.cameraControls}>
-            <TouchableOpacity style={[styles.btn, styles.btnLight]} onPress={snapPhoto} disabled={buttonLoading.snap}>
-              {buttonLoading.snap ? (
-                <ActivityIndicator size="small" color="#256f3a" />
-              ) : (
-                <Text style={[styles.btnText, styles.btnLightText]}>Snap Photo</Text>
-              )}
-            </TouchableOpacity>
-            <TouchableOpacity style={[styles.btn, styles.btnDanger]} onPress={() => setShowCamera(false)}>
-              <Text style={styles.btnText}>Close</Text>
-            </TouchableOpacity>
-          </View>
-          {snappedImages.length > 0 && (
-            <View style={styles.snapPreviewContainer}>
-              <Text style={styles.snapPreviewCount}>
-                {snappedImages.length} photo{snappedImages.length > 1 ? 's' : ''} captured
-              </Text>
-              <ScrollView
-                ref={snapSliderRef}
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                onContentSizeChange={() => snapSliderRef.current?.scrollToEnd({ animated: true })}
-                contentContainerStyle={styles.snapPreviewList}
-              >
-                {snappedImages.map((item, index) => (
-                  <View key={item.id || `${item.uri}-${index}`} style={styles.snapPreviewItem}>
-                    <Image source={{ uri: item.uri }} style={styles.snapPreviewImage} />
-                    <TouchableOpacity style={styles.snapPreviewRemove} onPress={() => removeSnappedImage(index)}>
-                      <Text style={styles.thumbCloseText}>x</Text>
-                    </TouchableOpacity>
-                  </View>
-                ))}
-              </ScrollView>
-            </View>
-          )}
-        </View>
-      )}
     </ImageBackground>
   );
   
@@ -952,63 +988,6 @@ const styles = StyleSheet.create({
     height: 8,
     borderRadius: 4,
     backgroundColor: '#ffffff',
-  },
-  cameraSheet: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: COLORS.bg,
-  },
-  cameraPreview: {
-    flex: 1,
-  },
-  cameraControls: {
-    padding: 12,
-    flexDirection: 'row',
-    gap: 10,
-    borderTopWidth: 1,
-    borderColor: COLORS.border,
-    backgroundColor: '#f7f9fc',
-  },
-  snapPreviewContainer: {
-    position: 'absolute',
-    bottom: 88,
-    left: 0,
-    right: 0,
-    backgroundColor: '#000000CC',
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 6,
-    elevation: 8,
-  },
-  snapPreviewCount: {
-    color: '#fff',
-    fontSize: 12,
-    fontWeight: '600',
-    marginBottom: 8,
-  },
-  snapPreviewList: {
-    gap: 10,
-  },
-  snapPreviewItem: {
-    position: 'relative',
-  },
-  snapPreviewImage: {
-    width: 72,
-    height: 92,
-    borderRadius: 8,
-  },
-  snapPreviewRemove: {
-    position: 'absolute',
-    top: -6,
-    right: -6,
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    backgroundColor: '#111827',
-    alignItems: 'center',
-    justifyContent: 'center',
   },
   datePickerOverlay: {
     ...StyleSheet.absoluteFillObject,
