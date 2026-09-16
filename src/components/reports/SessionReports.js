@@ -12,7 +12,7 @@ import {
 } from 'react-native';
 
 import AppHeader from '../AppHeader';
-import reportbg from '../../assets/images/report-bg.png';
+import reportbg from '../../assets/images/headbg.png';
 import DateRangePickerModal from '../DateRangePickerModal';
 
 import {

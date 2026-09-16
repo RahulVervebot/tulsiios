@@ -14,7 +14,7 @@ import {
   UIManager,
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
-import reportbg from '../../assets/images/report-bg.png';
+import reportbg from '../../assets/images/headbg.png';
 import AppHeader from '../../components/AppHeader';
 import { fetchRedProducts } from '../../components/icms/RedProductsAPI';
 import EditRedProduct from '../../components/icms/EditRedProduct';

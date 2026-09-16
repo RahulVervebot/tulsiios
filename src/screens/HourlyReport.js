@@ -1,14 +1,15 @@
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import {
   View, Text, ScrollView, StyleSheet, useColorScheme,
-  TouchableOpacity, Modal, Platform, ImageBackground, Switch, Dimensions, Alert, ActivityIndicator,
+  TouchableOpacity, Modal, Platform, ImageBackground, Switch, Alert, ActivityIndicator,
 } from "react-native";
-import { LineChart, Grid, XAxis, YAxis } from "react-native-svg-charts";
+import { BarChart, Grid, XAxis, YAxis } from "react-native-svg-charts";
+import { G, Text as SvgText } from "react-native-svg";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import { IconButton } from "react-native-paper";
 import Svg, { Path } from "react-native-svg";
 import AppHeader from "../components/AppHeader";
-import reportbg from "../assets/images/report-bg.png";
+import reportbg from "../assets/images/headbg.png";
 import { HourlyReport } from "../functions/reports/pos_reports"
 import { exportHourlyReportToExcel } from "../functions/reports/exportReportsExcel";
 
@@ -27,7 +28,138 @@ function DownloadIcon({ color = "#2e7d32" }) {
   );
 }
 
-const screenWidth = Dimensions.get("window").width;
+function CalendarIcon({ color = "#2e7d32" }) {
+  return (
+    <Svg width={16} height={16} viewBox="0 0 24 24">
+      <Path
+        d="M7 3v3M17 3v3M4 9h16M6 5h12a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2Z"
+        stroke={color}
+        strokeWidth={1.8}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        fill="none"
+      />
+    </Svg>
+  );
+}
+
+// Fixed width per hour slot so bars stay wide/tappable regardless of screen size;
+// the chart scrolls horizontally to fit all 24 hours.
+
+const BAR_WIDTH = 64;
+
+// Business-hour ordering: 6 AM -> 5 AM (next day)
+
+const BUSINESS_START_HOUR = 6;
+
+// Parses a backend x-axis label into an hour-of-day integer (0-23).
+// Accepts "6 AM" / "6AM" / "12 PM" / "18:00" / "18" / "6" style labels.
+
+function parseHourFromLabel(label) {
+  if (label == null) return null;
+  const str = String(label).trim();
+
+  const ampmMatch = str.match(/^(\d{1,2})(?::(\d{2}))?\s*([AaPp][Mm])$/);
+  if (ampmMatch) {
+    let hour = parseInt(ampmMatch[1], 10) % 12;
+    if (/pm/i.test(ampmMatch[3])) hour += 12;
+    return hour;
+  }
+
+  const colonMatch = str.match(/^(\d{1,2}):(\d{2})/);
+  if (colonMatch) {
+    return parseInt(colonMatch[1], 10) % 24;
+  }
+
+  const numMatch = str.match(/^(\d{1,2})$/);
+  if (numMatch) {
+    return parseInt(numMatch[1], 10) % 24;
+  }
+
+  return null;
+}
+
+// Reorders labels/series so the sequence starts at 6 AM and wraps to end at 5 AM next day.
+
+// Falls back to the original order if hours can't be reliably parsed.
+
+function reorderToBusinessDay(labels, seriesList) {
+  if (!labels || labels.length === 0) {
+    return { labels: labels || [], seriesList };
+  }
+
+  const hours = labels.map(parseHourFromLabel);
+  if (hours.some((h) => h === null) || new Set(hours).size !== hours.length) {
+    return { labels, seriesList };
+  }
+
+  const order = hours
+    .map((hour, index) => ({ hour, index }))
+    .sort((a, b) => {
+      const rankA = (a.hour - BUSINESS_START_HOUR + 24) % 24;
+      const rankB = (b.hour - BUSINESS_START_HOUR + 24) % 24;
+      return rankA - rankB;
+    })
+    .map((entry) => entry.index);
+
+  const reorderedLabels = order.map((i) => labels[i]);
+  const reorderedSeriesList = seriesList.map((series) => order.map((i) => series[i]));
+
+  return { labels: reorderedLabels, seriesList: reorderedSeriesList };
+}
+
+function formatMoney(value) {
+  const num = Number(value) || 0;
+  return `$${num.toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
+}
+
+function formatBarValue(value) {
+  return value >= 1000 ? `${(value / 1000).toFixed(1)}k` : Math.round(value).toLocaleString();
+}
+
+// Compacts an hour label ("6 AM" / "06:00" / "18") down to "6a" / "6p" style
+// so the x-axis stays readable at the bar spacing needed for 24 hourly bars.
+
+function formatCompactHourLabel(label) {
+  const hour = parseHourFromLabel(label);
+  if (hour === null) return String(label);
+  const period = hour < 12 ? "AM" : "PM";
+  const displayHour = hour % 12 === 0 ? 12 : hour % 12;
+  return `${displayHour} ${period}`;
+}
+
+// Renders a value label centered above each bar (or each grouped bar).
+// `series` is passed explicitly (not read from the injected `data` prop) because
+// react-native-svg-charts injects grouped data as [{data, svg}, ...] in grouped mode
+// vs a flat number array in single-series mode.
+
+function BarValueLabels({ x, y, bandwidth, series, color = "#111827", groupIndex = 0, groupCount = 1 }) {
+  if (!x || !y || !series) return null;
+  const barWidth = bandwidth / groupCount;
+
+  return (
+    <G>
+      {series.map((value, index) => {
+        if (value == null || Number.isNaN(value)) return null;
+        const cx = x(index) + barWidth * groupIndex + barWidth / 2;
+        const cy = y(value) - 6;
+        return (
+          <SvgText
+            key={index}
+            x={cx}
+            y={cy}
+            fontSize={10}
+            fontWeight="700"
+            fill={color}
+            textAnchor="middle"
+          >
+            {formatBarValue(value)}
+          </SvgText>
+        );
+      })}
+    </G>
+  );
+}
 
 export default function ReportsByHours({ navigation }) {
   React.useLayoutEffect(() => {
@@ -63,6 +195,9 @@ export default function ReportsByHours({ navigation }) {
 
   const fmtDateBadge = (d) =>
     `${("0" + (d.getMonth() + 1)).slice(-2)}/${("0" + d.getDate()).slice(-2)}/${d.getFullYear()}`;
+
+  const fmtDateFull = (d) =>
+    d.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric", year: "numeric" });
 
   const buildDayRange = (d) => {
     const y = d.getFullYear();
@@ -135,10 +270,11 @@ export default function ReportsByHours({ navigation }) {
       }
 
       if (res1?.data?.length > 0) {
-        const labels = res1.data[0].x;
+        const rawLabels = res1.data[0].x;
         const dataset1 = res1.data[0].y.map((v) => parseFloat(v));
-        const datasets = [{ data: dataset1, svg: { fill: "rgba(0, 0, 139, 1)" }, label: "Primary Date" }];
+        const seriesList = [dataset1];
 
+        let dataset2 = null;
         if (compareSales) {
           const cr = buildDayRange(compareDate);
           const res2 = await HourlyReport(cr.start, cr.end);
@@ -148,13 +284,20 @@ export default function ReportsByHours({ navigation }) {
             return;
           }
           if (res2?.data?.length > 0) {
-            const dataset2 = res2.data[0].y.map((v) => parseFloat(v));
-            datasets.push({ data: dataset2, svg: { fill: "rgba(255, 99, 132, 0.8)" }, label: "Comparison Date" });
+            dataset2 = res2.data[0].y.map((v) => parseFloat(v));
+            seriesList.push(dataset2);
           } else {
             setNoDataMessage("No Data Available To Show");
             setHourlyData({ labels: [], datasets: [] });
             return;
           }
+        }
+
+        const { labels, seriesList: orderedSeriesList } = reorderToBusinessDay(rawLabels, seriesList);
+
+        const datasets = [{ data: orderedSeriesList[0], svg: { fill: "#0A3B91" }, label: "Primary Date" }];
+        if (compareSales && orderedSeriesList[1]) {
+          datasets.push({ data: orderedSeriesList[1], svg: { fill: "#E84A8A" }, label: "Comparison Date" });
         }
 
         setHourlyData({ labels, datasets });
@@ -181,17 +324,18 @@ export default function ReportsByHours({ navigation }) {
   const getImageSource = (val) => (typeof val === "number" ? val : { uri: val });
   const primarySeries = hourlyData.datasets?.[0]?.data || [];
   const comparisonSeries = hourlyData.datasets?.[1]?.data || [];
+  const hasComparison = compareSales && comparisonSeries.length > 0;
   const mergedSeries = useMemo(() => {
-    return compareSales && comparisonSeries.length
-      ? [...primarySeries, ...comparisonSeries]
-      : primarySeries;
-  }, [compareSales, primarySeries, comparisonSeries]);
+    return hasComparison ? [...primarySeries, ...comparisonSeries] : primarySeries;
+  }, [hasComparison, primarySeries, comparisonSeries]);
+
+  const barGroupCount = hasComparison ? 2 : 1;
+  const chartData = hasComparison ? hourlyData.datasets : primarySeries;
 
   const handleDownloadReport = async () => {
     if (downloading) return;
     setDownloading(true);
     try {
-      const hasComparison = compareSales && comparisonSeries.length > 0;
       await exportHourlyReportToExcel({
         labels: hourlyData.labels || [],
         primarySeries,
@@ -221,32 +365,42 @@ export default function ReportsByHours({ navigation }) {
 
       {/* Date Card */}
       <View style={styles.card}>
-        <TouchableOpacity onPress={openPrimary} style={styles.cardHeaderButton}>
-          <Text style={styles.cardHeaderText}>Select Date{compareSales ? "s" : ""}</Text>
-        </TouchableOpacity>
-        <View style={styles.datetimeselector}>
-        <TouchableOpacity onPress={openPrimary}>
-     
-            <View style={styles.dateshow}>
-              <Text>Primary</Text>
-              <Text style={[styles.dateBadge, { color: "#00008B" }]}>{fmtDateBadge(reportDate)}</Text>
+        <View style={styles.cardHeader}>
+          <Text style={styles.cardHeaderText}>Report Period</Text>
+        </View>
+
+        <View style={styles.dateRow}>
+          <TouchableOpacity style={styles.dateTile} onPress={openPrimary} activeOpacity={0.7}>
+            <View style={styles.dateTileTop}>
+              <View style={[styles.dateDot, { backgroundColor: "#0A3B91" }]} />
+              <Text style={styles.dateTileLabel}>Primary</Text>
             </View>
-    
-          
-            </TouchableOpacity>
-                <TouchableOpacity onPress={openCompare}>
-                    {compareSales && (
-              <View style={styles.dateshow}>
-                <Text>Comparison</Text>
-                <Text style={[styles.dateBadge, { color: "#FF69B4" }]}>{fmtDateBadge(compareDate)}</Text>
+            <View style={styles.dateTileValueRow}>
+              <CalendarIcon color="#0A3B91" />
+              <Text style={[styles.dateTileValue, { color: "#0A3B91" }]}>{fmtDateBadge(reportDate)}</Text>
+            </View>
+          </TouchableOpacity>
+
+          {compareSales && (
+            <TouchableOpacity style={styles.dateTile} onPress={openCompare} activeOpacity={0.7}>
+              <View style={styles.dateTileTop}>
+                <View style={[styles.dateDot, { backgroundColor: "#E84A8A" }]} />
+                <Text style={styles.dateTileLabel}>Comparison</Text>
               </View>
-            )}
+              <View style={styles.dateTileValueRow}>
+                <CalendarIcon color="#E84A8A" />
+                <Text style={[styles.dateTileValue, { color: "#E84A8A" }]}>{fmtDateBadge(compareDate)}</Text>
+              </View>
             </TouchableOpacity>
-          </View>
+          )}
+        </View>
+
+        <View style={styles.divider} />
+
         <View style={styles.compareRow}>
           <View style={styles.compareTextWrap}>
-            <Text style={styles.compareHeading}>Comparison</Text>
-            <Text style={styles.compareSub}>Activate to compare sales</Text>
+            <Text style={styles.compareHeading}>Compare sales</Text>
+            <Text style={styles.compareSub}>See two dates side by side</Text>
           </View>
           <Switch
             value={compareSales}
@@ -259,12 +413,12 @@ export default function ReportsByHours({ navigation }) {
             }}
             ios_backgroundColor="#d1d5db"
             trackColor={{ false: "#d1d5db", true: "#2e7d32" }}
-            thumbColor={compareSales ? "#ffffff" : "#f4f4f5"}
+            thumbColor={"#ffffff"}
           />
         </View>
 
         <View style={styles.btnRow}>
-          <TouchableOpacity style={styles.primaryBtn} onPress={fetchData}>
+          <TouchableOpacity style={styles.primaryBtn} onPress={fetchData} activeOpacity={0.85}>
             <Text style={styles.primaryBtnText}>Get Sales</Text>
           </TouchableOpacity>
         </View>
@@ -289,23 +443,29 @@ export default function ReportsByHours({ navigation }) {
         </View>
 
         {hourlyData.datasets.length > 0 ? (
-          <ScrollView horizontal>
-            <View style={{ height: 520, flexDirection: "row", paddingHorizontal: 10, paddingBottom: 24 }}>
-              <YAxis
-                style={{ paddingBottom: 82 }}
-                data={mergedSeries}
-                contentInset={{ top: 20, bottom: 20 }}
-                svg={{ fontSize: 10, fill: "black" }}
-                formatLabel={(value) => `$${value}`}
-              />
-              <ScrollView horizontal>
-                <View style={{ flex: 1, marginLeft: 10, width: screenWidth * 2, gap: 10 }}>
+          <>
+            <View style={styles.swipeHint}>
+              <Text style={styles.swipeHintArrow}>‹</Text>
+              <Text style={styles.swipeHintText}>Swipe to see all hours</Text>
+              <Text style={styles.swipeHintArrow}>›</Text>
+            </View>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+              <View style={{ height: 320, flexDirection: "row", paddingHorizontal: 10, paddingBottom: 24 }}>
+                <YAxis
+                  style={{ paddingBottom: 30 }}
+                  data={mergedSeries}
+                  contentInset={{ top: 36, bottom: 10 }}
+                  svg={{ fontSize: 10, fill: "#6b7280" }}
+                  formatLabel={(value) => formatMoney(value)}
+                  numberOfTicks={5}
+                />
+                <View style={{ flex: 1, marginLeft: 10, width: BAR_WIDTH * hourlyData.labels.length, gap: 8 }}>
                   <View style={styles.legendRow}>
                     <View style={styles.legendItem}>
                       <View style={[styles.legendDot, { backgroundColor: "#0A3B91" }]} />
                       <Text style={styles.legendText}>Primary</Text>
                     </View>
-                    {compareSales && comparisonSeries.length > 0 && (
+                    {hasComparison && (
                       <View style={styles.legendItem}>
                         <View style={[styles.legendDot, { backgroundColor: "#E84A8A" }]} />
                         <Text style={styles.legendText}>Comparison</Text>
@@ -313,39 +473,37 @@ export default function ReportsByHours({ navigation }) {
                     )}
                   </View>
 
-                  <View style={{ height: 250 }}>
-                    <LineChart
+                  <View style={{ height: 240 }}>
+                    <BarChart
                       style={{ flex: 1 }}
-                      data={primarySeries}
-                      contentInset={{ top: 24, bottom: 16 }}
+                      data={chartData}
+                      yAccessor={({ item }) => item}
+                      contentInset={{ top: 36, bottom: 10 }}
                       yMin={0}
-                      svg={{ stroke: "#0A3B91", strokeWidth: 3 }}
+                      gridMin={0}
+                      spacingInner={hasComparison ? 0.18 : 0.25}
+                      spacingOuter={0.2}
+                      svg={{ fill: "#0A3B91" }}
                     >
-                      <Grid />
-                    </LineChart>
-                    {compareSales && comparisonSeries.length > 0 && (
-                      <LineChart
-                        style={StyleSheet.absoluteFill}
-                        data={comparisonSeries}
-                        contentInset={{ top: 24, bottom: 16 }}
-                        yMin={0}
-                        svg={{ stroke: "#E84A8A", strokeWidth: 3 }}
-                      />
-                    )}
+                      <Grid svg={{ stroke: "#E5E7EB", strokeWidth: 1 }} />
+                      <BarValueLabels series={primarySeries} color="#0A3B91" groupIndex={0} groupCount={barGroupCount} />
+                      {hasComparison && (
+                        <BarValueLabels series={comparisonSeries} color="#E84A8A" groupIndex={1} groupCount={barGroupCount} />
+                      )}
+                    </BarChart>
                   </View>
 
                   <XAxis
-                    style={{ height: 28, marginTop: 2 }}
+                    style={{ height: 30, marginTop: 4 }}
                     data={hourlyData.labels}
-                    formatLabel={(value, index) => hourlyData.labels[index]}
-                    contentInset={{ left: 10, right: 10 }}
-                    svg={{ fontSize: 11, fill: "black" }}
+                    formatLabel={(_value, index) => formatCompactHourLabel(hourlyData.labels[index])}
+                    contentInset={{ left: BAR_WIDTH / 2, right: BAR_WIDTH / 2 }}
+                    svg={{ fontSize: 10, fill: "#374151", fontWeight: "700" }}
                   />
-
                 </View>
-              </ScrollView>
-            </View>
-          </ScrollView>
+              </View>
+            </ScrollView>
+          </>
         ) : (
           <Text style={styles.noData}>{noDataMessage}</Text>
         )}
@@ -424,37 +582,52 @@ const styles = StyleSheet.create({
   screen: { flex: 1 },
 
   card: {
-    margin: 20, backgroundColor: "#fff", borderRadius: 8,
+    margin: 16, backgroundColor: "#fff", borderRadius: 16, paddingBottom: 4,
     ...Platform.select({
-      android: { elevation: 1 },
-      ios: { shadowColor: "#000", shadowOpacity: 0.06, shadowRadius: 4, shadowOffset: { width: 0, height: 2 } },
+      android: { elevation: 3 },
+      ios: { shadowColor: "#000", shadowOpacity: 0.1, shadowRadius: 10, shadowOffset: { width: 0, height: 4 } },
     }),
   },
-  cardHeaderButton: { padding: 12, alignItems: "center", borderBottomColor: "#D9D9D9", borderBottomWidth: 2 },
-  cardHeaderText: { color: "#2e7d32", fontWeight: "700" },
-
-  datetimeselector: { flexDirection: "row", marginTop: 12, alignSelf: "center" },
-  dateshow: { marginHorizontal: 6 },
-  dateBadge: {
-    padding: 10, alignItems: "center", borderColor: "#D9D9D9", borderWidth: 2,
-    marginVertical: 10, marginRight: 5, borderRadius: 8,
+  cardHeader: {
+    paddingHorizontal: 18, paddingTop: 16, paddingBottom: 12,
+    borderBottomColor: "#F0F1F3", borderBottomWidth: 1,
   },
+  cardHeaderText: { color: "#111827", fontWeight: "700", fontSize: 15, letterSpacing: 0.2 },
 
-  compareRow: { flexDirection: "row", alignItems: "center", marginBottom: 10, paddingHorizontal: 16, gap: 8 },
+  dateRow: { flexDirection: "row", gap: 10, paddingHorizontal: 16, paddingTop: 14 },
+  dateTile: {
+    flex: 1,
+    backgroundColor: "#F7F8FA",
+    borderRadius: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderWidth: 1,
+    borderColor: "#EEF0F3",
+  },
+  dateTileTop: { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 6 },
+  dateDot: { width: 8, height: 8, borderRadius: 4 },
+  dateTileLabel: { fontSize: 12, color: "#6b7280", fontWeight: "600" },
+  dateTileValueRow: { flexDirection: "row", alignItems: "center", gap: 6 },
+  dateTileValue: { fontSize: 15, fontWeight: "700" },
+
+  divider: { height: 1, backgroundColor: "#F0F1F3", marginTop: 14, marginHorizontal: 16 },
+
+  compareRow: { flexDirection: "row", alignItems: "center", paddingHorizontal: 16, paddingVertical: 14, gap: 8 },
   compareTextWrap: { flex: 1 },
   compareHeading: { fontSize: 14, fontWeight: "700", color: "#1f1f1f" },
   compareSub: { fontSize: 12, color: "#6b7280", marginTop: 2 },
-  compareLabel: { fontSize: 16 },
-  editCompareBtn: { marginLeft: "auto", paddingVertical: 6, paddingHorizontal: 10, borderRadius: 6, borderWidth: 1, borderColor: "#D9D9D9" },
-  editCompareText: { fontSize: 12, color: "#333" },
-  btnRow: { padding: 12 },
+  btnRow: { paddingHorizontal: 16, paddingBottom: 16 },
   primaryBtn: {
     backgroundColor: "#2e7d32",
-    paddingVertical: 12,
-    borderRadius: 8,
+    paddingVertical: 13,
+    borderRadius: 10,
     alignItems: "center",
+    ...Platform.select({
+      android: { elevation: 1 },
+      ios: { shadowColor: "#2e7d32", shadowOpacity: 0.25, shadowRadius: 6, shadowOffset: { width: 0, height: 3 } },
+    }),
   },
-  primaryBtnText: { color: "#fff", fontWeight: "700" },
+  primaryBtnText: { color: "#fff", fontWeight: "700", fontSize: 15 },
 
   panelInner: {
     flex: 1, backgroundColor: "rgba(255,255,255,0.85)", borderTopLeftRadius: 16, borderTopRightRadius: 16,
@@ -477,6 +650,21 @@ const styles = StyleSheet.create({
     borderColor: "#C8E6C9",
   },
   noData: { fontSize: 18, color: "red", marginTop: 20 },
+  swipeHint: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    marginHorizontal: 10,
+    marginBottom: 6,
+    paddingVertical: 5,
+    backgroundColor: "#F3F4F6",
+    borderRadius: 20,
+    alignSelf: "center",
+    paddingHorizontal: 14,
+  },
+  swipeHintArrow: { fontSize: 14, color: "#9CA3AF", fontWeight: "700" },
+  swipeHintText: { fontSize: 11, color: "#6b7280", fontWeight: "600" },
   legendRow: { flexDirection: "row", alignItems: "center", gap: 16, marginBottom: -2, marginLeft: 2 },
   legendItem: { flexDirection: "row", alignItems: "center", gap: 6 },
   legendDot: { width: 10, height: 10, borderRadius: 5 },

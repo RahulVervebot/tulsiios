@@ -10,7 +10,7 @@ import {
   TouchableOpacity,
 } from 'react-native';
 import AppHeader from '../components/AppHeader';
-import reportbg from '../assets/images/report-bg.png';
+import reportbg from '../assets/images/headbg.png';
 import DateRangePickerModal from '../components/DateRangePickerModal';
 // Reports container + tabs
 import ReportTabs from '../components/reports/ReportTabs';

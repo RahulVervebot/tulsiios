@@ -12,7 +12,7 @@ import {
 } from 'react-native';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import AppHeader from '../../components/AppHeader';
-import reportbg from '../../assets/images/report-bg.png';
+import reportbg from '../../assets/images/headbg.png';
 import API_ENDPOINTS, { initICMSBase, setICMSBase } from '../../../icms_config/api';
 const PANEL_RADIUS = 28;
 export default function ICMS_VendorList() {

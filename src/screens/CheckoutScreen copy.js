@@ -4,7 +4,7 @@ import { useRoute, useNavigation } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { API_URL } from '@env';
 import { CartContext } from '../context/CartContext';
-import reportbg from '../assets/images/report-bg.png';
+import reportbg from '../assets/images/headbg.png';
 import AppHeader from '../components/AppHeader';
 import { getPartnerDetails, getPaymentMethods, getNextSequence, validateOrder, getProductQuantityDiscounts, redeemLoyaltyPoints, createCustomer } from '../components/orders/function';
 

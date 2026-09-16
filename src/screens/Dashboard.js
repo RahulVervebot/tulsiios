@@ -11,21 +11,24 @@ import {
   Alert,
   ActivityIndicator,
   Switch,
+  Platform
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import LinearGradient from 'react-native-linear-gradient';
 import CustomHeader from '../components/CustomHeader';
 import HomeIcon from '../assets/icons/Products.svg';
 import ReportIcon from '../assets/icons/Reportsicon.svg';
 import POSIcon from '../assets/icons/payment_2.svg';
 import Icon from 'react-native-vector-icons/MaterialIcons';
 import TulsiIcon from '../assets/icons/inventory_1.svg';
+import headbg from '../assets/images/headbg.png';
 import { dbPromise } from '../firebaseConfig';
 import Chat from '../components/Chat';
 import { tagDeviceWithStoreUrl } from '../config/OneSignalConfig';
+
 const LIGHT_GREEN = '#e6f6ec';
-const HEADER_FALLBACK = '#ffffff';
 
 const cards = [
   {
@@ -34,6 +37,8 @@ const cards = [
     subtitle: 'Manage Products',
     icon: HomeIcon,
     target: 'ProductScreen',
+    tint: '#e6f6ec',
+    iconColor: '#2a8a4f',
   },
   {
     key: 'report',
@@ -41,6 +46,8 @@ const cards = [
     subtitle: 'Sales & Analytics',
     icon: ReportIcon,
     target: 'Report',
+    tint: '#e7f0ff',
+    iconColor: '#2563eb',
   },
   {
     key: 'pos',
@@ -48,6 +55,8 @@ const cards = [
     subtitle: 'Manager Your POS',
     icon: POSIcon,
     target: 'POSScreen',
+    tint: '#fdf0dc',
+    iconColor: '#c9821a',
   },
   {
     key: 'tulsi-ai',
@@ -55,6 +64,10 @@ const cards = [
     subtitle: 'Inventory Management',
     icon: TulsiIcon,
     target: 'ICMSScreen',
+    tint: '#efe7fb',
+    iconColor: '#2a8a4f',
+    iconBg: '#1f7a3d',
+    iconIsWhiteOnDark: true,
   },
     {
     key: 'support-team',
@@ -62,18 +75,19 @@ const cards = [
     subtitle: 'Contact us via chat, voice or Video Call for Support',
     icon: TulsiIcon,
     target: 'SupportScreen',
+    tint: '#fde8ec',
+    iconColor: '#d1356c',
   },
 ];
 
 export default function Dashboard() {
   const navigation = useNavigation();
   const insets = useSafeAreaInsets();
-  const [headerBg, setHeaderBg] = useState({ type: 'color', value: HEADER_FALLBACK });
   const [userName, setUserName] = useState('');
   const [userEmail, setUserEmail] = useState('');
   const [userRole, setUserRole] = useState('');
   const [isUserSettingVisible, setIsUserSettingVisible] = useState(false);
- const [isDeveloperSetting, setIsDeveloperSetting] = useState(false);
+  const [isDeveloperSetting, setIsDeveloperSetting] = useState(false);
   const [isAllowTulsiAi, setIsAllowTulsiAi] = useState(false);
   const [isContact, setIsContact] = useState(false);
   const [storeOptions, setStoreOptions] = useState([]);
@@ -91,21 +105,6 @@ export default function Dashboard() {
   const [chatOpen, setChatOpen] = useState(false);
   const [developerMode, setDeveloperMode] = useState(false);
   const [localIcmsUrl, setLocalIcmsUrl] = useState('');
-  useEffect(() => {
-    const loadHeader = async () => {
-      try {
-        const topBanner = await AsyncStorage.getItem('topabanner');
-        if (topBanner) {
-          setHeaderBg({ type: 'image', value: topBanner });
-        } else {
-          setHeaderBg({ type: 'color', value: HEADER_FALLBACK });
-        }
-      } catch (e) {
-        setHeaderBg({ type: 'color', value: HEADER_FALLBACK });
-      }
-    };
-    loadHeader();
-  }, []);
 
   const fetchFirebaseDataLogin = useCallback(async () => {
     if (inFlightRef.current) return '';
@@ -341,6 +340,7 @@ export default function Dashboard() {
       }
 
       const { pos_role, access_token, expiry, user_full_name, user_context, is_user_setting_visible_in_app, is_allow_tulsi_ai, is_allow_icms, is_allow_tulsi_chat_support, is_promotion_accessible, is_product_edit_permission_in_app, enable_developer_mode_in_app,is_contact } = data.result || {};
+
       await AsyncStorage.multiSet([
         ['userRole', String(pos_role || '')],
         ['access_token', String(access_token || '')],
@@ -358,13 +358,16 @@ export default function Dashboard() {
         ['is_allow_tulsi_chat_support', String(is_allow_tulsi_chat_support || 'false')],
         ['is_promotion_accessible', String(is_promotion_accessible || 'false')],
         ['is_product_edit_permission_in_app', String(is_product_edit_permission_in_app || 'false')],
-       ['is_contact', String(is_contact || 'false')],
+        ['is_contact', String(is_contact || 'false')],
       ]);
-
+  
       // Register device with OneSignal using the new store's URL
+
       console.log('📱 Switching device to new store:', selectedStore?.storeurl);
+  
       // await registerDeviceWithStoreUrl(selectedStore?.storeurl || '');
-          await tagDeviceWithStoreUrl(selectedStore?.storeurl || '', pos_role || '');
+
+       await tagDeviceWithStoreUrl(selectedStore?.storeurl || '', pos_role || '');
       const chatBaseUrl = await AsyncStorage.getItem('tulsi_ai_backend');
       if (chatBaseUrl) {
         await chatailogin(chatBaseUrl, userEmail, passwordToUse);
@@ -478,17 +481,15 @@ export default function Dashboard() {
     });
   }, [isAllowTulsiAi, isContact]);
   
-  const statusBg = headerBg.type === 'image' ? 'transparent' : headerBg.value;
-  const statusStyle = headerBg.type === 'image' ? 'light-content' : 'dark-content';
-
-	return (
-	    <SafeAreaView style={styles.safeArea} edges={['left', 'right']}>
-	      <StatusBar backgroundColor={'#319241'} barStyle={statusStyle} />
-	      <CustomHeader Title="Dashboard" backgroundType={headerBg.type} backgroundValue={headerBg.value} />
-	      <ScrollView
-	        contentContainerStyle={[styles.content, { paddingBottom: 104 + insets.bottom }]}
-	        showsVerticalScrollIndicator={false}
-	      >
+  return (
+    <SafeAreaView style={styles.safeArea} edges={['left', 'right']}>
+      <StatusBar backgroundColor="#1f7a3d" barStyle="light-content" />
+      <CustomHeader Title="Dashboard" backgroundType="image" backgroundValue={headbg} />
+          <View style={styles.panelInner}>
+      <ScrollView
+        contentContainerStyle={[styles.content, { paddingBottom: 104 + insets.bottom }]}
+        showsVerticalScrollIndicator={false}
+      >
         <View style={styles.userCard}>
           <View style={styles.userRow}>
             <View style={styles.userAvatar}>
@@ -507,77 +508,84 @@ export default function Dashboard() {
                 </View>
               )}
             </View>
-            <View style={styles.userActions}>
-              {isUserSettingVisible && (
-                <TouchableOpacity
-                  style={styles.settingsButton}
-                  onPress={() => navigation.navigate('UserList')}
-                  activeOpacity={0.85}
-                >
-                  <Text style={styles.settingsButtonText}>User Setting</Text>
-                </TouchableOpacity>
-              )}
-              <TouchableOpacity
-                style={styles.switchAccountButton}
-                onPress={handleSwitchAccountPress}
-                activeOpacity={0.85}
-                disabled={switchingAccount}
-              >
-                <Text style={styles.switchAccountButtonText}>
-                  {switchingAccount ? 'Loading...' : 'Switch Store'}
-                </Text>
-              </TouchableOpacity>
-            </View>
           </View>
 
-     {isDeveloperSetting == 'true' && (
-     <View style={styles.developerModeSection}>
-      <View style={styles.developerModeContent}>
-      <View style={styles.developerModeInfo}>
-        <Text style={styles.developerModeLabel}>Developer Mode</Text>
-        <Text style={styles.developerModeDescription}>
-          {developerMode ? 'Advanced features enabled' : 'Enable advanced features'}
-        </Text>
-       </View>
-
-      <Switch
-        value={developerMode}
-        onValueChange={handleDeveloperModeToggle}
-        trackColor={{ false: '#d1d5db', true: '#86efac' }}
-        thumbColor={developerMode ? '#2a8a4f' : '#f3f4f6'}
-        ios_backgroundColor="#d1d5db"
-      />
-    </View>
-
-    {developerMode && (
-      <View style={styles.localIcmsWrap}>
-        <Text style={styles.localIcmsLabel}>Local TulsiAi URL / IP</Text>
-
-        <View style={styles.localIcmsRow}>
-          <TextInput
-            style={styles.localIcmsInput}
-            placeholder="Example: http://192.168.1.10:8069"
-            placeholderTextColor="#9CA3AF"
-            value={localIcmsUrl}
-            onChangeText={setLocalIcmsUrl}
-            autoCapitalize="none"
-            autoCorrect={false}
-            keyboardType="url"
-          />
-
-          <TouchableOpacity
-            style={styles.localIcmsSaveButton}
-            onPress={handleSaveLocalIcmsUrl}
-            activeOpacity={0.85}
-          >
-            <Text style={styles.localIcmsSaveText}>Save</Text>
-          </TouchableOpacity>
+          <View style={styles.userActions}>
+            {isUserSettingVisible && (
+              <TouchableOpacity
+                style={styles.settingsButton}
+                onPress={() => navigation.navigate('UserList')}
+                activeOpacity={0.85}
+              >
+                <Icon name="settings" size={18} color="#2a8a4f" style={styles.buttonIcon} />
+                <Text style={styles.settingsButtonText}>User Settings</Text>
+              </TouchableOpacity>
+            )}
+            <TouchableOpacity
+              style={styles.switchAccountButton}
+              onPress={handleSwitchAccountPress}
+              activeOpacity={0.85}
+              disabled={switchingAccount}
+            >
+              <Icon name="storefront" size={18} color="#ffffff" style={styles.buttonIcon} />
+              <Text style={styles.switchAccountButtonText}>
+                {switchingAccount ? 'Loading...' : 'Switch Store'}
+              </Text>
+            </TouchableOpacity>
+          </View>
         </View>
-      </View>
-    )}
-  </View>
-)}
-      </View>
+
+        {isDeveloperSetting == 'true' && (
+          <View style={styles.developerModeCard}>
+            <View style={styles.developerModeContent}>
+              <View style={styles.developerModeIconWrap}>
+                <Icon name="code" size={22} color="#2a8a4f" />
+              </View>
+              <View style={styles.developerModeInfo}>
+                <Text style={styles.developerModeLabel}>Developer Mode</Text>
+                <Text style={styles.developerModeDescription}>
+                  {developerMode ? 'Advanced features enabled' : 'Enable advanced features'}
+                </Text>
+              </View>
+
+              <Switch
+                value={developerMode}
+                onValueChange={handleDeveloperModeToggle}
+                trackColor={{ false: '#d1d5db', true: '#86efac' }}
+                thumbColor={developerMode ? '#2a8a4f' : '#f3f4f6'}
+                ios_backgroundColor="#d1d5db"
+              />
+            </View>
+
+            {developerMode && (
+              <View style={styles.localIcmsWrap}>
+                <Text style={styles.localIcmsLabel}>Local TulsiAi URL / IP</Text>
+
+                <View style={styles.localIcmsRow}>
+                  <TextInput
+                    style={styles.localIcmsInput}
+                    placeholder="Example: http://192.168.1.10:8069"
+                    placeholderTextColor="#9CA3AF"
+                    value={localIcmsUrl}
+                    onChangeText={setLocalIcmsUrl}
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    keyboardType="url"
+                  />
+
+                  <TouchableOpacity
+                    style={styles.localIcmsSaveButton}
+                    onPress={handleSaveLocalIcmsUrl}
+                    activeOpacity={0.85}
+                  >
+                    <Text style={styles.localIcmsSaveText}>Save</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            )}
+          </View>
+        )}
+
         <View style={styles.grid}>
 
           {visibleCards.map((card) => {
@@ -589,19 +597,38 @@ export default function Dashboard() {
                 activeOpacity={0.85}
                 onPress={() => navigation.navigate(card.target)}
               >
-                <View style={styles.iconWrap}>
-                  <Icon width={28} height={28} fill={styles.iconFill.color} />
+                <View style={[styles.iconWrap, { backgroundColor: card.iconBg || card.tint }]}>
+                  <Icon
+                    width={24}
+                    height={24}
+                    fill={card.iconIsWhiteOnDark ? '#ffffff' : card.iconColor}
+                  />
                 </View>
                 <Text style={styles.cardTitle}>{card.title}</Text>
-                <Text style={styles.cardSubtitle}>{card.subtitle}</Text>
+                <Text style={styles.cardSubtitle} numberOfLines={2}>
+                  {card.subtitle}
+                </Text>
               </TouchableOpacity>
             );
           })}
 
         </View>
 
-      </ScrollView>
+        <LinearGradient
+          colors={['#eaf7ee', '#dcf1e2']}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={styles.promoBanner}
+        >
+          <View style={styles.promoTextWrap}>
+            <Text style={styles.promoTitle}>Smarter Retail{'\n'}with Tulsi</Text>
+            <Text style={styles.promoSubtitle}>Simple Tools. Greater Growth.</Text>
+          </View>
+          <Icon name="trending-up" size={64} color="#2a8a4f" style={styles.promoIcon} />
+        </LinearGradient>
 
+      </ScrollView>
+</View>
       <Modal visible={storeModalVisible} animationType="slide" transparent onRequestClose={() => setStoreModalVisible(false)}>
         <View style={styles.modalBackdrop}>
           <View style={styles.modalCard}>
@@ -685,13 +712,18 @@ export default function Dashboard() {
 
     </SafeAreaView>
   );
+
 }
 
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: LIGHT_GREEN,
+    backgroundColor: '#e6f6ec',
 
+  },
+  panelInner: {
+    flex: 1,
+    backgroundColor: LIGHT_GREEN,
   },
   content: {
     paddingHorizontal: 18,
@@ -716,6 +748,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 14,
+    marginBottom: 16,
   },
   userAvatar: {
     width: 56,
@@ -737,29 +770,43 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   settingsButton: {
-    backgroundColor: '#2a8a4f',
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#ffffff',
     paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 10,
+    paddingVertical: 12,
+    borderRadius: 12,
+    borderWidth: 1.5,
+    borderColor: '#2a8a4f',
   },
   userActions: {
-    gap: 8,
+    flexDirection: 'row',
+    gap: 10,
+  },
+  buttonIcon: {
+    marginRight: 6,
   },
   settingsButtonText: {
-    color: '#ffffff',
-    fontSize: 12,
+    color: '#2a8a4f',
+    fontSize: 13,
     fontWeight: '700',
     letterSpacing: 0.2,
   },
   switchAccountButton: {
-    backgroundColor: '#1f5f38',
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#1f7a3d',
     paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 10,
+    paddingVertical: 12,
+    borderRadius: 12,
   },
   switchAccountButtonText: {
     color: '#ffffff',
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: '700',
     letterSpacing: 0.2,
   },
@@ -790,16 +837,33 @@ const styles = StyleSheet.create({
     color: '#2a8a4f',
     textTransform: 'capitalize',
   },
-  developerModeSection: {
-    marginTop: 14,
-    paddingTop: 14,
-    borderTopWidth: 1,
-    borderTopColor: '#e8f5ec',
+  developerModeCard: {
+    width: '100%',
+    backgroundColor: '#ffffff',
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: '#cfe9d9',
+    shadowColor: '#0f2f19',
+    shadowOpacity: 0.08,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 2,
   },
   developerModeContent: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+  },
+  developerModeIconWrap: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: '#e6f6ec',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
   },
   developerModeInfo: {
     flex: 1,
@@ -859,8 +923,8 @@ const styles = StyleSheet.create({
     elevation: 2,
   },
   iconWrap: {
-    width: 46,
-    height: 46,
+    width: 44,
+    height: 44,
     borderRadius: 12,
     backgroundColor: '#d7f2df',
     alignItems: 'center',
@@ -880,6 +944,35 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '500',
     color: '#4f6f5d',
+  },
+  promoBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    borderRadius: 18,
+    paddingVertical: 20,
+    paddingHorizontal: 20,
+    marginTop: 4,
+    overflow: 'hidden',
+  },
+  promoTextWrap: {
+    flex: 1,
+    paddingRight: 12,
+  },
+  promoTitle: {
+    fontSize: 19,
+    fontWeight: '800',
+    color: '#163e25',
+    lineHeight: 24,
+  },
+  promoSubtitle: {
+    marginTop: 6,
+    fontSize: 12,
+    fontWeight: '500',
+    color: '#4f6f5d',
+  },
+  promoIcon: {
+    opacity: 0.9,
   },
   modalBackdrop: {
     flex: 1,

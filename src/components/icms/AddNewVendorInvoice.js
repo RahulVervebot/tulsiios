@@ -18,7 +18,7 @@ import {
 import { useNavigation } from '@react-navigation/native';
 import API_ENDPOINTS, { initICMSBase } from '../../../icms_config/api';
 import tulsiBg from '../../assets/images/bg-tulsi-2.jpeg';
-import reportbg from '../../assets/images/report-bg.png';
+import reportbg from '../../assets/images/headbg.png';
 import invoiceView from '../../assets/images/View_invoice.gif';
 import invoiceSaving from '../../assets/images/Saving.gif';
 import invoiceClose from '../../assets/images/Close_screen.gif';

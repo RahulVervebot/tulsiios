@@ -34,14 +34,11 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
     voipRegistry = PKPushRegistry(queue: DispatchQueue.main)
     voipRegistry?.delegate = self
     voipRegistry?.desiredPushTypes = [.voIP]
-
     // Enable camera in background/PiP — requires com.apple.developer.avfoundation.multitasking-camera-access entitlement
     WebRTCModuleOptions.sharedInstance().enableMultitaskingCameraAccess = true
-
     factory.startReactNative(withModuleName: "PIMS", in: window, launchOptions: launchOptions)
     return true
   }
-
   // MARK: - UNUserNotificationCenterDelegate
 
   func userNotificationCenter(_ center: UNUserNotificationCenter,
@@ -131,7 +128,7 @@ class ReactNativeDelegate: RCTDefaultReactNativeFactoryDelegate {
 override func sourceURL(for bridge: RCTBridge) -> URL? { self.bundleURL() }
   override func bundleURL() -> URL? {
 #if DEBUG
-    URL(string: "http://192.168.68.104:8081/index.bundle?platform=ios&dev=true&minify=false")
+    URL(string: "http://192.168.68.109:8081/index.bundle?platform=ios&dev=true&minify=false")
 #else
     Bundle.main.url(forResource: "main", withExtension: "jsbundle")
 #endif

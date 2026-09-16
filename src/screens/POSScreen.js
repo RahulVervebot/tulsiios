@@ -14,14 +14,17 @@ import {
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import CustomHeader from '../components/CustomHeader';
-import reportbg from '../assets/images/report-bg.png';
+import headbg from '../assets/images/headbg.png';
+import reportbg from '../assets/images/headbg.png';
 import HourlyReport from '../assets/icons/Hourly-Reports.png';
+import Icons_Print from '../assets/icons/Icons_Print.svg';
 import PromotionsIcon from '../assets/icons/Promotions.svg';
-import TopCustumerList from '../assets/icons/Top-Customers-List.png';
+import ProductManagement from '../assets/icons/Icons_Product_Management.svg';
+import MultiStoreProduct from '../assets/icons/Icons-multistore_product_list.svg';
 import ProductPrint from '../assets/icons/product_print.svg'
 import CreateCategoryModal from '../components/CreateCategoryModal';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
-import SaslePrint from '../assets/icons/sale_print.svg'
+import SalePrint from '../assets/icons/sale_print.svg'
 import MixMatch from '../assets/icons/mix_match.svg';
 import MixMatchedQty from '../assets/icons/quantity_discount.svg';
 import QuantityDiscount from '../assets/icons/quantity_discount2.svg';
@@ -131,7 +134,7 @@ export default function POSScreen() {
 
   return (
     <ImageBackground source={getImageSource(reportbg)} style={styles.screen} resizeMode="cover">
-      <CustomHeader Title="POS" backgroundType="image" backgroundValue={reportbg} />
+      <CustomHeader Title="POS" backgroundType="image" backgroundValue={headbg} />
 
       <View style={styles.panelInner}>
         <ScrollView
@@ -179,7 +182,7 @@ export default function POSScreen() {
 
           {/* PRINT (Accordion) */}
           <Row
-            icon={HourlyReport}
+            icon={Icons_Print}
             label="Print"
             onPress={() => toggle('print')}
             right={<Text style={styles.toggleText}>{expanded.print ? '−' : '+'}</Text>}
@@ -194,7 +197,7 @@ export default function POSScreen() {
                 right={null}
               />
               <Row
-                icon={SaslePrint}
+                icon={SalePrint}
                 label="Sale Print"
                 isChild
                 isLast
@@ -208,7 +211,7 @@ export default function POSScreen() {
           {isProductEditPermission && (
             <>
               <Row
-                icon={TopCustumerList}
+                icon={ProductManagement}
                 label="Product Managment"
                 onPress={() => toggle('category')}
                 right={<Text style={styles.toggleText}>{expanded.category ? '−' : '+'}</Text>}
@@ -237,7 +240,7 @@ export default function POSScreen() {
                     right={null}
                   />
                     <Row
-                    icon={TopCustumerList}
+                    icon={MultiStoreProduct}
                     label="Multi Store Product List"
                     isChild
                     onPress={() => navigation.navigate('MultiStoreProduct')}
@@ -321,8 +324,6 @@ const getStyles = (isTablet) =>
     panelInner: {
       flex: 1,
       backgroundColor: '#D4E7DC',
-      borderTopLeftRadius: 22,
-      borderTopRightRadius: 22,
       paddingVertical: isTablet ? 18 : 12,
       paddingHorizontal: isTablet ? 18 : 12,
       ...Platform.select({

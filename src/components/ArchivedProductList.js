@@ -15,7 +15,7 @@ import {
 import { request, PERMISSIONS, RESULTS } from 'react-native-permissions';
 import { Camera, CameraType } from 'react-native-camera-kit';
 import AppHeader from './AppHeader';
-import reportbg from '../assets/images/report-bg.png';
+import reportbg from '../assets/images/headbg.png';
 import { getArchivedProducts, unarchiveProduct } from '../functions/product-function';
 
 const getImageSource = (val) => (typeof val === 'number' ? val : { uri: val });

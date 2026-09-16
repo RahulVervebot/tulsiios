@@ -19,7 +19,7 @@ import Icon from 'react-native-vector-icons/MaterialIcons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import AppHeader from '../../components/AppHeader.js';
 import EditProduct from '../../components/icms/EditProduct.js';
-import reportbg from '../../assets/images/report-bg.png';
+import reportbg from '../../assets/images/headbg.png';
 import InvoiceRow from '../../components/icms/InvoiceRow.js';
 import { useRoute } from '@react-navigation/native';
 import LinkProductModal from '../../components/icms/LinkProduct.js';

@@ -5,7 +5,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useNavigation } from '@react-navigation/native';
 import { CartContext } from '../context/CartContext';
 import AppHeader from '../components/AppHeader';
-import reportbg from '../assets/images/report-bg.png';
+import reportbg from '../assets/images/headbg.png';
 import { getMobileBillingReg, openMobileBillingSession } from '../components/orders/function';
 const THEME = { primary: '#2C1E70', secondary: '#319241', price: '#27ae60' };
 

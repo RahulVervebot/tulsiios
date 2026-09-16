@@ -1,7 +1,8 @@
 import React from 'react';
 import { View, Text, StyleSheet, useWindowDimensions, Platform, TouchableOpacity, ImageBackground, ScrollView } from 'react-native';
 import CustomHeader from '../components/CustomHeader';
-import reportbg from '../assets/images/report-bg.png';
+import headbg from '../assets/images/headbg.png';
+import reportbg from '../assets/images/headbg.png';
 import Create_invoice from '../assets/icons/create_new_invoice.svg';
 import AddNewVendorInvoice from '../assets/icons/Add_new_vendor_invoice.svg';
 import MultiVendor from '../assets/icons/Multivendor_icon.svg';
@@ -9,8 +10,6 @@ import InvoiceList from '../assets/icons/invoice_list.svg';
 import ProductsIcon from '../assets/icons/red_products.svg';
 import Pending_invoice from '../assets/icons/pending_invoices.svg';
 import { useNavigation } from '@react-navigation/native';
-
-const PANEL_RADIUS = 36;
 
 export default function ICMSScreen() {
   const { width } = useWindowDimensions();
@@ -38,7 +37,7 @@ export default function ICMSScreen() {
       <CustomHeader
         Title="TULSI AI"
         backgroundType="image"
-        backgroundValue={reportbg}
+        backgroundValue={headbg}
       />
 
       <View style={styles.panel}>
@@ -70,7 +69,6 @@ export default function ICMSScreen() {
   );
 }
 
-
 const getStyles = (isTablet) => StyleSheet.create({
   screen: {
     flex: 1,
@@ -78,8 +76,6 @@ const getStyles = (isTablet) => StyleSheet.create({
   panel: {
     flex: 1,
     backgroundColor: '#D4E7DC',
-    borderTopLeftRadius: PANEL_RADIUS,
-    borderTopRightRadius: PANEL_RADIUS,
     paddingTop: isTablet ? 28 : 18,
     paddingHorizontal: isTablet ? 28 : 16,
   },

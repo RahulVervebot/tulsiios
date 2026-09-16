@@ -5,7 +5,7 @@ import { View, StyleSheet, ImageBackground, TouchableOpacity, Text } from "react
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import CategoryProductList from "../components/CategoryProductList";
 import ProductSearch from "../components/ProductSearch";
-import reportbg from '../assets/images/report-bg.png';
+import reportbg from '../assets/images/headbg.png';
 import AppHeader from "../components/AppHeader"; 
 import {capitalizeWords} from '../functions/product-function';
 import CreateProductModal from "../components/CreateProductModal";

@@ -14,7 +14,7 @@ import {
 } from 'react-native';
 import Icon from 'react-native-vector-icons/MaterialIcons';
 import AppHeader from '../AppHeader';
-import reportbg from '../../assets/images/report-bg.png';
+import reportbg from '../../assets/images/headbg.png';
 import DateRangePickerModal from '../DateRangePickerModal';
 import { getPosOrders, getOrderPreview, printOrderReport } from './function';
 import { getRegisterList } from '../../functions/reports/pos_reports';

@@ -8,6 +8,7 @@ import {
   Image,
 } from "react-native";
 import CustomHeader from "../components/CustomHeader";
+import headbg from '../assets/images/headbg.png';
 import ProductSearch from "../components/ProductSearch";
 import ProductList from "../components/ProductList";
 import CreateProductModal from "../components/CreateProductModal";
@@ -192,7 +193,7 @@ useEffect(() => {
         translucent={headerBg.type === "image"}
       />
 
-      <CustomHeader backgroundType={headerBg.type} backgroundValue={headerBg.value}>
+      <CustomHeader backgroundType={headerBg.type} backgroundValue={headbg}>
   <View style={{ overflow: 'visible', zIndex: 999, elevation: 9999 }}>
   <ProductSearch />
 </View>

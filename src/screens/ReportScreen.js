@@ -1,13 +1,14 @@
 import React from 'react';
 import { View, Text, StyleSheet, ImageBackground, Image, useWindowDimensions, Platform, TouchableOpacity, ScrollView } from 'react-native';
 import CustomHeader from '../components/CustomHeader';
-import reportbg from '../assets/images/report-bg.png';
+import reportbg from '../assets/images/headbg.png';
 import HourlyReport from '../assets/icons/Hourly-Reports.png';
 import SaleSummaryReport from '../assets/icons/Sales-Summary-Report.png';
 import TopCustumerList from '../assets/icons/Top-Customers-List.png';
 import TopSellingProducts from '../assets/icons/Top-Selling-Products.png'
 import TopSellingCategories from '../assets/icons/Top-Selling-Categories.png'
 import SessionReports from '../assets/icons/Session-report.png'
+import headbg from '../assets/images/headbg.png';
 import CreditSaleReports from '../assets/icons/Credit-Sale-report.png'
 import Orders from '../assets/icons/Orders.png'
 import { useNavigation } from '@react-navigation/native';
@@ -38,7 +39,7 @@ export default function ReportScreen() {
       resizeMode="cover"
     >
       <CustomHeader Title="REPORTS"
-        backgroundType="image" backgroundValue={reportbg}>
+        backgroundType="image" backgroundValue={headbg}>
       </CustomHeader>
       <View style={styles.panelInner}>
         <ScrollView
@@ -147,8 +148,6 @@ const getStyles = (isTablet) => StyleSheet.create({
   panelInner: {
     flex: 1,
     backgroundColor: '#D4E7DC',
-    borderTopLeftRadius: 22,
-    borderTopRightRadius: 22,
     paddingVertical: isTablet ? 18 : 12,
     paddingHorizontal: isTablet ? 18 : 12,
 

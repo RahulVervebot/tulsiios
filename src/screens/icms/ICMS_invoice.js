@@ -4,7 +4,7 @@ import {View, Text, TextInput, Platform, FlatList, TouchableOpacity, StyleSheet,
 import {useNavigation, useRoute, useFocusEffect} from '@react-navigation/native';
 import API_ENDPOINTS, { initICMSBase, setICMSBase } from '../../../icms_config/api';
 import AppHeader from '../../components/AppHeader';
-import reportbg from '../../assets/images/report-bg.png';
+import reportbg from '../../assets/images/headbg.png';
 import { searchVendors } from '../../components/icms/vendorApi';
 import InvoiceStepperModal from '../../components/icms/InvoiceStepperModal';
 

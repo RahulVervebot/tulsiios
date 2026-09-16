@@ -4,7 +4,7 @@ import { View, Text, FlatList, TouchableOpacity, StyleSheet, ImageBackground, Al
 import { useNavigation } from '@react-navigation/native';
 import { PrintContext } from '../context/PrintContext';
 import AppHeader from '../components/AppHeader';
-import reportbg from '../assets/images/report-bg.png';
+import reportbg from '../assets/images/headbg.png';
 import PrintOptions from '../components/PrintOptions';
 
 const THEME = { primary: '#2C1E70', secondary: '#319241', price: '#27ae60' };

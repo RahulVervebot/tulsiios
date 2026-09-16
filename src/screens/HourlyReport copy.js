@@ -7,7 +7,7 @@ import { BarChart, Grid, XAxis, YAxis } from "react-native-svg-charts";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import { IconButton } from "react-native-paper";
 import AppHeader from "../components/AppHeader";
-import reportbg from "../assets/images/report-bg.png";
+import reportbg from "../assets/images/headbg.png";
 import { HourlyReport } from "../functions/reports/pos_reports"
 
 const screenWidth = Dimensions.get("window").width;

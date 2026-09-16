@@ -19,7 +19,7 @@ import Icon from 'react-native-vector-icons/MaterialIcons';
 import AppHeader from '../components/AppHeader';
 import ChatList from '../components/chat/ChatList';
 import { getOrCreateDirectChat } from '../functions/chat/chatUtils';
-import reportbg from '../assets/images/report-bg.png';
+import reportbg from '../assets/images/headbg.png';
 const TAB_CONTACTS = 'contacts';
 const TAB_HISTORY  = 'history';
 const TAB_CHAT     = 'chat';

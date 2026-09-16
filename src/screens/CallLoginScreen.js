@@ -8,7 +8,7 @@ import firestore from '@react-native-firebase/firestore';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import AppHeader from '../components/AppHeader';
 import { saveUserCallProfile, saveVoipToken } from '../config/OneSignalConfig';
-import reportbg from '../assets/images/report-bg.png';
+import reportbg from '../assets/images/headbg.png';
 
 const getImageSource = (val) => (typeof val === 'number' ? val : { uri: val });
 

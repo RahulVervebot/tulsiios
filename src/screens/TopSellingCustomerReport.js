@@ -17,7 +17,7 @@ import {
 import Svg, { Path } from 'react-native-svg';
 
 import AppHeader from '../components/AppHeader';
-import reportbg from '../assets/images/report-bg.png';
+import reportbg from '../assets/images/headbg.png';
 import DateRangePickerModal from '../components/DateRangePickerModal';
 import { SectionCard, currency, safeNumber, sumBy } from '../components/reports/shared/ReportUI';
 import { TopSellingCustomersReport } from '../functions/reports/pos_reports';

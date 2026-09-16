@@ -28,7 +28,7 @@ import ReactNativeBlobUtil from 'react-native-blob-util';
 import SearchTableComponent from './SearchORCTable';
 import SaveInvoiceModal from './SaveInvoiceModal';
 import OCRPreviewComponent from './OCRPreviewComponent';
-import reportbg from '../../assets/images/report-bg.png';
+import reportbg from '../../assets/images/headbg.png';
 import tulsiBg from '../../assets/images/bg-tulsi-2.jpeg';
 import AppHeader from '../AppHeader';
 import { Picker } from '@react-native-picker/picker';

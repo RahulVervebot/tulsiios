@@ -28,7 +28,7 @@ import {
   searchProductsByBarcode,
 } from './function';
 import AppHeader from '../../components/AppHeader';
-import reportbg from '../../assets/images/report-bg.png';
+import reportbg from '../../assets/images/headbg.png';
 
 const DEFAULT_FORM = {
   name: '',

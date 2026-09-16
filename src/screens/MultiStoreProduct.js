@@ -17,7 +17,7 @@ import {
   ImageBackground
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import reportbg from '../assets/images/report-bg.png';
+import reportbg from '../assets/images/headbg.png';
 import { Searchbar, Card, Chip, Title, Paragraph, List, Button, TextInput } from 'react-native-paper';
 import { searchMultiStoreProducts, notifyMultiStoreProduct } from '../functions/product-function';
 import AppHeader from '../components/AppHeader';

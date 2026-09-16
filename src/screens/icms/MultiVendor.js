@@ -6,7 +6,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import ProductSearchVendor from "../../components/ProductSearchVendor";
 
-import reportbg from '../../assets/images/report-bg.png';
+import reportbg from '../../assets/images/headbg.png';
 
 import AppHeader from "../../components/AppHeader"; 
 

@@ -1,6 +1,6 @@
 // components/CustomHeader.js
 import React,{useEffect,useState,useContext} from 'react';
-import { View, StyleSheet, ImageBackground, TouchableOpacity, Image, Text, useWindowDimensions } from 'react-native';
+import { View, StyleSheet, TouchableOpacity, Image, Text, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Profile from "../assets/icons/Profile.svg";
 import Setting from "../assets/icons/Profile.svg";
@@ -13,6 +13,8 @@ import { PrintContext } from '../context/PrintContext';
 import CartIcon from '../assets/icons/cart.svg';
 import PrinterIcon from '../assets/icons/Printericon.svg';
 const getImageSource = (val) => (typeof val === 'number' ? val : { uri: val });
+const BG_IMAGE_WIDTH = 1536;
+const BG_IMAGE_HEIGHT = 1024;
 
 const CustomHeader = ({
   Title, 
@@ -23,9 +25,10 @@ const CustomHeader = ({
   const navigation = useNavigation();
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
+  const bgImageHeight = width * (BG_IMAGE_HEIGHT / BG_IMAGE_WIDTH);
   const isCompact = width < 420;
   const isTablet = width >= 768;
-  const iconSize = isTablet ? 42 : isCompact ? 30 : 36;
+  const iconSize = isTablet ? 32 : isCompact ? 22 : 26;
   const styles = getStyles({ isCompact, isTablet });
   const [user_name, setUserName] = useState('');
   const [user_email, setUserEmail] = useState('');
@@ -71,18 +74,22 @@ const CustomHeader = ({
   const renderBackground = () => {
     if (backgroundType === "image") {
       return (
-        <ImageBackground
-          source={getImageSource(backgroundValue)}
+        <View
           style={[
             styles.headerContainer,
             isCompact && styles.headerContainerCompact,
             { paddingTop: (isCompact ? styles.headerContainerCompact.paddingTop : styles.headerContainer.paddingTop) + insets.top },
+            styles.headerImageClip,
           ]}
-          resizeMode="cover"
         >
+          <Image
+            source={getImageSource(backgroundValue)}
+            resizeMode="cover"
+            style={[styles.headerImageBg, { width, height: bgImageHeight }]}
+          />
           {renderContent()}
           {children}
-        </ImageBackground>
+        </View>
       );
     }
     return (
@@ -112,6 +119,7 @@ const renderContent = () => {
           <Text style={styles.headerName} numberOfLines={1} ellipsizeMode="tail">
             {user_name ? user_name.split(' ')[0] : ''}
           </Text>
+          {/* <Text style={styles.headerTagline}>Manage  •  Sell  •  Grow</Text> */}
         </View>
       </View>
       {/* Center (absolute) */}
@@ -169,7 +177,7 @@ const renderContent = () => {
 const getStyles = ({ isCompact, isTablet }) => {
   const horizontalPadding = isTablet ? 28 : isCompact ? 16 : 22;
   const verticalPadding = isTablet ? 24 : isCompact ? 14 : 14;
-  const iconSize = isTablet ? 42 : isCompact ? 30 : 36;
+  const iconSize = isTablet ? 32 : isCompact ? 22 : 26;
   const titleSize = isTablet ? 22 : isCompact ? 16 : 18;
   const nameSize = isTablet ? 18 : isCompact ? 14 : 16;
   const userSize = isTablet ? 13 : isCompact ? 11 : 12;
@@ -193,11 +201,23 @@ const getStyles = ({ isCompact, isTablet }) => {
       paddingHorizontal: horizontalPadding,
       paddingVertical: verticalPadding,
       paddingTop: isTablet ? 10 : isCompact ? 10 : 10,
+      // borderBottomLeftRadius: 22,
+      // borderBottomRightRadius: 22,
+      // overflow: 'hidden',
     },
     headerContainerCompact: {
       paddingHorizontal: horizontalPadding,
       paddingVertical: verticalPadding,
       paddingTop: isTablet ? 18 : isCompact ? 5 : 5,
+    },
+    headerImageClip: {
+      overflow: 'hidden',
+      position: 'relative',
+    },
+    headerImageBg: {
+      position: 'absolute',
+      top: 0,
+      left: 0,
     },
     content: {
       position: 'relative',
@@ -305,6 +325,13 @@ const getStyles = ({ isCompact, isTablet }) => {
       color: '#fff',
       paddingHorizontal: 10,
       textTransform: 'capitalize',
+    },
+    headerTagline: {
+      fontSize: userSize,
+      fontWeight: '500',
+      color: 'rgba(255,255,255,0.85)',
+      paddingHorizontal: 10,
+      marginTop: 2,
     },
   });
 };

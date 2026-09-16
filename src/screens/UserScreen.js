@@ -3,7 +3,7 @@ import React, { useEffect, useState, useMemo } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { GoogleSignin } from '@react-native-google-signin/google-signin';
 import AppHeader from "../components/AppHeader";
-import reportbg from '../assets/images/report-bg.png';
+import reportbg from '../assets/images/headbg.png';
 import { removeOneSignalTagsOnLogout, clearUserCallProfile } from '../config/OneSignalConfig';
 
 const LIGHT_GREEN = '#e6f6ec';

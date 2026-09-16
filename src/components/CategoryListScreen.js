@@ -21,7 +21,7 @@ import { request, PERMISSIONS, RESULTS } from 'react-native-permissions';
 import { launchImageLibrary, launchCamera } from 'react-native-image-picker';
 import AppHeader from '../components/AppHeader';
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import reportbg from '../assets/images/report-bg.png';
+import reportbg from '../assets/images/headbg.png';
 import CreateCategoryModal from './CreateCategoryModal';
 const STORE_URL_KEY = 'storeurl';
 const ACCESS_TOKEN_KEY = 'access_token';

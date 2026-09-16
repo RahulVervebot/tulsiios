@@ -18,7 +18,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useNavigation } from '@react-navigation/native';
 import AppHeader from '../components/AppHeader';
 
-import reportbg from '../assets/images/report-bg.png';
+import reportbg from '../assets/images/headbg.png';
 import HourlyReport from '../assets/icons/Hourly-Reports.png';
 import SaleSummaryReport from '../assets/icons/Sales-Summary-Report.png';
 import TopCustumerList from '../assets/icons/Top-Customers-List.png';

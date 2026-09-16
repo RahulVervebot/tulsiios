@@ -1,25 +1,39 @@
 // components/ReportHeader.js
 import React, { useContext, useState, useEffect } from 'react';
-import { View, StyleSheet, ImageBackground, TouchableOpacity, Text } from 'react-native';
+
+import { View, StyleSheet, Image, TouchableOpacity, Text, useWindowDimensions } from 'react-native';
+
 import Ionicons from 'react-native-vector-icons/Ionicons';
+
 import { useNavigation } from '@react-navigation/native';
+
 import { CartContext } from '../context/CartContext';
+
 import { PrintContext } from '../context/PrintContext';
+
 import CartIcon from '../assets/icons/cart.svg';
+
 import PrinterIcon from '../assets/icons/Printericon.svg';
+
 import AsyncStorage from '@react-native-async-storage/async-storage';
+
 const getImageSource = (val) => (typeof val === 'number' ? val : { uri: val });
 
+const BG_IMAGE_WIDTH = 1536;
+const BG_IMAGE_HEIGHT = 1024;
+
 const AppHeader = ({
-  Title, 
-  backgroundType = "color", 
-  backgroundValue = "#fff", 
+  Title,
+  backgroundType = "color",
+  backgroundValue = "#fff",
   hideCartIcon = false,
   hidePrintIcon = false,
   children
 }) => {
 
   const navigation = useNavigation();
+  const { width } = useWindowDimensions();
+  const bgImageHeight = width * (BG_IMAGE_HEIGHT / BG_IMAGE_WIDTH);
   const { cart } = useContext(CartContext);
   const { print } = useContext(PrintContext);
   const [showBilling, setShowBilling] = useState(false);
@@ -45,18 +59,19 @@ const AppHeader = ({
   const renderBackground = () => {
     if (backgroundType === "image") {
       return (
-        <ImageBackground
-          source={getImageSource(backgroundValue)}
-          style={styles.headerContainer}
-          resizeMode="cover"
-        >
+        <View style={[styles.headerContainer, styles.headerImageClip]}>
+          <Image
+            source={getImageSource(backgroundValue)}
+            resizeMode="cover"
+            style={[styles.headerImageBg, { width, height: bgImageHeight }]}
+          />
           <View style={styles.headerBar}>
             {renderContent()}
           </View>
           {children}
-        </ImageBackground>
+        </View>
       );
-    } 
+    }
     return (
       <View style={[styles.headerContainer, { backgroundColor: backgroundValue }]}>
         <View style={styles.headerBar}>
@@ -145,6 +160,15 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingTop: 32,
     paddingBottom: 8,
+  },
+  headerImageClip: {
+    overflow: 'hidden',
+    position: 'relative',
+  },
+  headerImageBg: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
   },
   headerBar: {
     minHeight: 64,
